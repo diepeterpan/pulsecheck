@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block content %}
+  <section class="panel">
+    <h2>Import Domain List</h2>
+    <form id="import-form">
+      <label for="domains">Domain list (one per line)</label>
+      <textarea id="domains" name="domains" rows="12" placeholder="example.com
+mail.example.com
+api.example.com"></textarea>
+      <button type="submit" id="import-button">Import</button>
+    </form>
+
+    <div id="import-overlay" class="hidden">
+      <div class="import-progress">
+        <h3>Importing domains</h3>
+        <p id="import-status-message">Preparing import...</p>
+        <div class="progress-bar">
+          <div id="import-progress-bar" style="width: 0%"></div>
+        </div>
+        <p id="import-progress-text">0 / 0</p>
+        <button type="button" id="cancel-import" class="danger">Cancel import</button>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const form = document.getElementById('import-form');
+    const overlay = document.getElementById('import-overlay');
+    const importButton = document.getElementById('import-button');
+    const cancelButton = document.getElementById('cancel-import');
+    const statusMessage = document.getElementById('import-status-message');
+    const progressBar = document.getElementById('import-progress-bar');
+    const progressText = document.getElementById('import-progress-text');
+    let currentToken = null;
+    let polling = null;
+
+    function setOverlay(visible) {
+      overlay.classList.toggle('hidden', !visible);
+      importButton.disabled = visible;
+    }
+
+    function updateProgress(state) {
+      if (!state) return;
+      const total = state.total || 0;
+      const current = state.index || 0;
+      const percent = total ? Math.min((current / total) * 100, 100) : 0;
+      progressBar.style.width = `${percent}%`;
+      progressText.textContent = `${current} / ${total}`;
+      statusMessage.textContent = state.message || 'Working...';
+      if (state.port) {
+        statusMessage.textContent += ` | Port ${state.port}`;
+      }
+      if (state.status === 'complete' || state.status === 'cancelled' || state.status === 'error') {
+        clearInterval(polling);
+        polling = null;
+        setTimeout(() => setOverlay(false), 800);
+      }
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const domains = document.getElementById('domains').value;
+      if (!domains.trim()) {
+        return;
+      }
+      setOverlay(true);
+      const response = await fetch('/import/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: new URLSearchParams({ domains })
+      });
+
+      if (!response.ok) {
+        setOverlay(false);
+        alert('Import could not start.');
+        return;
+      }
+
+      const result = await response.json();
+      currentToken = result.token;
+      polling = setInterval(async () => {
+        const statusResponse = await fetch(`/import/${currentToken}/status`);
+        const state = await statusResponse.json();
+        updateProgress(state);
+      }, 500);
+    });
+
+    cancelButton.addEventListener('click', async () => {
+      if (!currentToken) return;
+      await fetch(`/import/${currentToken}/cancel`, { method: 'POST' });
+      statusMessage.textContent = 'Cancelling import...';
+    });
+  </script>
+{% endblock %}

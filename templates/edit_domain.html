@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+  <section class="panel">
+    <h2>Edit Domain</h2>
+    <form method="post">
+      <label for="name">Domain name</label>
+      <input type="text" id="name" name="name" value="{{ domain.name }}" required>
+
+      <label for="ports">Ports</label>
+      <input type="text" id="ports" name="ports" value="{{ domain.ports | join(', ') }}" placeholder="80, 443, 8443">
+
+      <button type="submit">Save</button>
+    </form>
+  </section>
+{% endblock %}

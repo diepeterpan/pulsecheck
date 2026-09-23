@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+  <section class="panel status-panel">
+    <h2>Status</h2>
+    {% if grouped %}
+      {% for domain_name, entries in grouped.items() %}
+        <div class="status-block">
+          <h3>{{ domain_name }}</h3>
+          <ul class="status-grid">
+            {% for entry in entries %}
+              {% if entry.port is not none %}
+                <li class="status-item {{ 'online' if entry.is_online else 'offline' }}" tabindex="0" aria-label="Port {{ entry.port }}: {{ 'ONLINE' if entry.is_online else 'OFFLINE' }}">
+                  <strong>{{ entry.port }}</strong>
+                  <span>{{ 'ONLINE' if entry.is_online else 'OFFLINE' }}</span>
+                  <span class="status-tooltip" role="tooltip">
+                    Last successful scan: {{ entry.checked_at or 'Not scanned yet' }}<br>
+                    Response time: {{ (entry.last_response_ms|string + ' ms') if entry.last_response_ms is not none else 'Unavailable' }}
+                  </span>
+                </li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p>No status data yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

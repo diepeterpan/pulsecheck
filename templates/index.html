@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+  <section class="panel">
+    <h2>Menu</h2>
+    <ul class="menu-list">
+      <li><a href="{{ url_for('handle_import') }}">1. Import domain list</a></li>
+      <li><a href="{{ url_for('domains') }}">2. Maintain domain list</a></li>
+      <li><a href="{{ url_for('status') }}">3. View status page</a></li>
+    </ul>
+  </section>
+{% endblock %}

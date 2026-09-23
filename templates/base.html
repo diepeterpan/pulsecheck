@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PulseCheck</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>PulseCheck</h1>
+        <nav>
+          <a href="{{ url_for('index') }}">Home</a>
+          <a href="{{ url_for('handle_import') }}">Import</a>
+          <a href="{{ url_for('domains') }}">Domains</a>
+          <a href="{{ url_for('status') }}">Status</a>
+        </nav>
+      </header>
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <ul class="flashes">
+            {% for message in messages %}
+              <li>{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>

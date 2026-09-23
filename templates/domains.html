@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block content %}
+  <section class="panel">
+    <h2>Domain Maintenance</h2>
+    {% if add_mode %}
+      <form method="post" action="{{ url_for('add_domain_route') }}">
+        <label for="name">Domain</label>
+        <input type="text" id="name" name="name" placeholder="example.com" required>
+        <button type="submit">Add Domain</button>
+      </form>
+    {% else %}
+      <a class="button-link" href="{{ url_for('add_domain_route') }}">Add New Domain</a>
+    {% endif %}
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Domain</th>
+          <th>Ports</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for domain in domains %}
+          <tr>
+            <td>{{ domain.id }}</td>
+            <td>{{ domain.name }}</td>
+            <td>{{ domain.ports | join(', ') if domain.ports else 'None detected' }}</td>
+            <td>
+              <a href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
+              <form method="post" action="{{ url_for('delete_domain_route', domain_id=domain.id) }}" class="inline-form">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
