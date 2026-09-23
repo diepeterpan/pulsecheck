@@ -306,6 +306,63 @@ def update_domain(domain_id: int, name: str, ports_input: str):
     scan_domain(domain_id, normalized, incoming_ports)
 
 
+def parse_port_values(ports_input: str):
+    values = []
+    raw_parts = ports_input.replace(",", "\n").splitlines()
+    for part in raw_parts:
+        value = part.strip()
+        if not value:
+            continue
+        try:
+            port = int(value)
+        except ValueError:
+            raise ValueError(f"Invalid port value '{value}'")
+        if not 1 <= port <= 65535:
+            raise ValueError(f"Port must be between 1 and 65535: {port}")
+        values.append(port)
+    return sorted(set(values))
+
+
+def bulk_update_ports(domain_ids, action: str, ports_input: str):
+    ports = parse_port_values(ports_input)
+    if not domain_ids:
+        raise ValueError("Select at least one domain.")
+    if action not in {"add", "remove"}:
+        raise ValueError("Choose whether to add or remove ports.")
+    if not ports:
+        raise ValueError("Enter at least one port.")
+
+    conn = get_db_connection()
+    placeholders = ", ".join("?" for _ in domain_ids)
+    rows = conn.execute(
+        f"SELECT id, ports FROM domains WHERE id IN ({placeholders})",
+        tuple(domain_ids),
+    ).fetchall()
+    found_ids = {row["id"] for row in rows}
+    if found_ids != set(domain_ids):
+        conn.close()
+        raise ValueError("One or more selected domains no longer exists.")
+
+    for row in rows:
+        current_ports = set(parse_ports(row["ports"]))
+        if action == "add":
+            updated_ports = current_ports.union(ports)
+        else:
+            updated_ports = current_ports.difference(ports)
+        conn.execute(
+            "UPDATE domains SET ports = ? WHERE id = ?",
+            (json.dumps(sorted(updated_ports)), row["id"]),
+        )
+        if action == "remove":
+            port_placeholders = ", ".join("?" for _ in ports)
+            conn.execute(
+                f"DELETE FROM port_checks WHERE domain_id = ? AND port IN ({port_placeholders})",
+                (row["id"], *ports),
+            )
+    conn.commit()
+    conn.close()
+
+
 def delete_domain(domain_id: int):
     conn = get_db_connection()
     conn.execute("DELETE FROM port_checks WHERE domain_id = ?", (domain_id,))
@@ -504,6 +561,23 @@ def add_domain_route():
         flash(f"Added domain {name}.")
         return redirect(url_for("domains"))
     return render_template("domains.html", domains=domain_list(), add_mode=True)
+
+
+@app.route("/domains/bulk-ports", methods=["POST"])
+def bulk_ports_route():
+    raw_ids = request.form.getlist("domain_ids")
+    try:
+        domain_ids = sorted({int(value) for value in raw_ids})
+        bulk_update_ports(
+            domain_ids,
+            request.form.get("port_action", ""),
+            request.form.get("ports", ""),
+        )
+    except (TypeError, ValueError) as exc:
+        flash(str(exc))
+        return redirect(url_for("domains"))
+    flash("Updated ports for the selected domains.")
+    return redirect(url_for("domains"))
 
 
 @app.route("/domains/<int:domain_id>/edit", methods=["GET", "POST"])

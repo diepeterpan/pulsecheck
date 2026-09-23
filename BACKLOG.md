@@ -24,11 +24,11 @@ Use this format for new entries:
 
 - Menu function: Domains page
 - Required future change: Add bulk port editing for pre-selected domains using checkboxes, including adding or removing ports in one action.
-- Status: pending
+- Status: completed
 
 - Menu function: Domains page
 - Required future change: Show a confirmation prompt before deleting a domain entry.
-- Status: pending
+- Status: completed
 
 - Menu function: Status page
 - Required future change: Use a grid layout to shorten the page, place ports next to each other, and add a hover tooltip showing the last successful scan and response time.

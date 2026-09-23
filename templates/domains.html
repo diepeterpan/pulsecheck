@@ -12,9 +12,25 @@
       <a class="button-link" href="{{ url_for('add_domain_route') }}">Add New Domain</a>
     {% endif %}
 
+    {% if domains and not add_mode %}
+      <form method="post" action="{{ url_for('bulk_ports_route') }}" class="bulk-port-form" id="bulk-port-form">
+        <label for="bulk-ports">Bulk port editing</label>
+        <div class="bulk-port-controls">
+          <input type="text" id="bulk-ports" name="ports" placeholder="80, 443" required>
+          <select name="port_action" aria-label="Bulk port action">
+            <option value="add">Add ports</option>
+            <option value="remove">Remove ports</option>
+          </select>
+          <button type="button" id="select-all-domains">Select all</button>
+          <button type="submit">Apply to selected</button>
+        </div>
+      </form>
+    {% endif %}
+
     <table>
       <thead>
         <tr>
+          <th>Select</th>
           <th>ID</th>
           <th>Domain</th>
           <th>Ports</th>
@@ -24,13 +40,14 @@
       <tbody>
         {% for domain in domains %}
           <tr>
+            <td><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
             <td>{{ domain.id }}</td>
             <td>{{ domain.name }}</td>
             <td>{{ domain.ports | join(', ') if domain.ports else 'None detected' }}</td>
             <td>
               <a href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
               <form method="post" action="{{ url_for('delete_domain_route', domain_id=domain.id) }}" class="inline-form">
-                <button type="submit" class="danger">Delete</button>
+                <button type="submit" class="danger" onclick="return confirm('Delete {{ domain.name }}?');">Delete</button>
               </form>
             </td>
           </tr>
@@ -38,4 +55,26 @@
       </tbody>
     </table>
   </section>
+
+  {% if domains and not add_mode %}
+    <script>
+      const selectAllButton = document.getElementById('select-all-domains');
+      const domainCheckboxes = Array.from(document.querySelectorAll('.domain-checkbox'));
+
+      function updateSelectAllLabel() {
+        const allSelected = domainCheckboxes.length > 0 && domainCheckboxes.every((checkbox) => checkbox.checked);
+        selectAllButton.textContent = allSelected ? 'Clear selection' : 'Select all';
+      }
+
+      selectAllButton.addEventListener('click', () => {
+        const allSelected = domainCheckboxes.length > 0 && domainCheckboxes.every((checkbox) => checkbox.checked);
+        domainCheckboxes.forEach((checkbox) => {
+          checkbox.checked = !allSelected;
+        });
+        updateSelectAllLabel();
+      });
+
+      domainCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelectAllLabel));
+    </script>
+  {% endif %}
 {% endblock %}

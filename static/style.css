@@ -108,9 +108,35 @@ th, td {
     margin-left: 8px;
 }
 
+.bulk-port-form {
+    margin-top: 16px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.bulk-port-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bulk-port-controls input,
+.bulk-port-controls select {
+    width: auto;
+}
+
+@media (max-width: 640px) {
+    .bulk-port-controls {
+        align-items: stretch;
+        flex-direction: column;
+    }
+}
+
 .status-block {
     display: grid;
-    grid-template-columns: minmax(150px, 220px) minmax(0, 1fr);
+    grid-template-columns: minmax(220px, 32%) minmax(0, 1fr);
     align-items: center;
     gap: 10px;
     border: 1px solid #dfeafc;
@@ -126,12 +152,14 @@ th, td {
 
 .status-block h3 {
     margin: 0;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .status-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     list-style: none;
     padding: 0;
@@ -140,6 +168,7 @@ th, td {
 
 .status-item {
     position: relative;
+    width: max-content;
     padding: 8px 10px;
     border-radius: 6px;
     font-weight: 600;
@@ -147,18 +176,12 @@ th, td {
     outline: none;
 }
 
-.status-item strong,
-.status-item > span:not(.status-tooltip) {
+.status-item strong {
     display: block;
 }
 
-.status-item strong {
+.status-port {
     font-size: 1.1rem;
-}
-
-.status-item > span:not(.status-tooltip) {
-    margin-top: 4px;
-    font-size: 0.8rem;
 }
 
 .status-item.online {
