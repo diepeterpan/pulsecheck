@@ -41,39 +41,13 @@ class ImportFlowTests(unittest.TestCase):
         domain_id = cursor.lastrowid
         conn.close()
 
-        class FakeConnection:
-            def __init__(self, response):
-                self.response = response
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc_value, traceback):
-                return False
-
-            def sendall(self, data):
-                pass
-
-            def recv(self, size):
-                return self.response
-
-        class FakeSSLContext:
-            check_hostname = True
-            verify_mode = None
-
-            def wrap_socket(self, connection, server_hostname):
-                return connection
-
         responses = [
-            b"HTTP/1.0 200 OK\r\n\r\nacme service",
-            b"HTTP/1.0 200 OK\r\n\r\nother service",
-            b"HTTP/1.0 200 OK\r\n\r\nother HTTPS service",
-            b"",
+            (b"acme service", 200, "http://acme.example:80/"),
+            (b"other service", 200, "http://acme.example:443/"),
+            (b"other HTTPS service", 200, "https://acme.example:443/"),
+            (b"", 0, "http://acme.example:22/"),
         ]
-        with patch(
-            "app.socket.create_connection",
-            side_effect=[FakeConnection(response) for response in responses],
-        ), patch("app.ssl.create_default_context", return_value=FakeSSLContext()):
+        with patch("app.fetch_response", side_effect=responses):
             pulsecheck_app.scan_domain(domain_id, "acme.example", [80, 443, 22], "acme")
 
         conn = pulsecheck_app.get_db_connection()
@@ -83,6 +57,46 @@ class ImportFlowTests(unittest.TestCase):
         ).fetchall()]
         conn.close()
         self.assertEqual(statuses, ["offline", "online", "degraded"])
+
+    def test_fetch_response_follows_redirect_before_returning_body(self):
+        class FakeResponse:
+            def __init__(self, status, body, location=None):
+                self.status = status
+                self._body = body
+                self._location = location
+
+            def read(self, size):
+                return self._body
+
+            def getheader(self, name):
+                return self._location if name == "Location" else None
+
+        class FakeHTTPConnection:
+            responses = [
+                FakeResponse(302, b"", "/health"),
+                FakeResponse(200, b"acme service"),
+            ]
+
+            def __init__(self, host, port, **kwargs):
+                pass
+
+            def request(self, method, path, headers):
+                pass
+
+            def getresponse(self):
+                return self.responses.pop(0)
+
+            def close(self):
+                pass
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            response, status_code, final_url = pulsecheck_app.fetch_response(
+                "acme.example", 80, "http"
+            )
+
+        self.assertEqual(response, b"acme service")
+        self.assertEqual(status_code, 200)
+        self.assertEqual(final_url, "http://acme.example:80/health")
 
 
 if __name__ == "__main__":

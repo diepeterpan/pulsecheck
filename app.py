@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import http.client
 import os
 import sqlite3
 import socket
@@ -10,6 +11,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin, urlsplit
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, flash, redirect, render_template, request, url_for
@@ -189,6 +191,45 @@ def store_port_check(domain_id: int, port: int, status: str, response_ms: int | 
     conn.close()
 
 
+def fetch_response(domain_name: str, port: int, scheme: str, max_redirects: int = 5):
+    current_url = f"{scheme}://{domain_name}:{port}/"
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    for redirect_count in range(max_redirects + 1):
+        parsed = urlsplit(current_url)
+        target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        connection_class = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+        connection_kwargs = {"timeout": 2}
+        if parsed.scheme == "https":
+            connection_kwargs["context"] = ssl_context
+        connection = connection_class(parsed.hostname, target_port, **connection_kwargs)
+        try:
+            request_path = parsed.path or "/"
+            if parsed.query:
+                request_path += f"?{parsed.query}"
+            connection.request(
+                "GET",
+                request_path,
+                headers={"Host": parsed.hostname, "Connection": "close"},
+            )
+            response = connection.getresponse()
+            body = response.read(16384)
+            status_code = response.status
+            location = response.getheader("Location")
+        finally:
+            connection.close()
+
+        if status_code not in {301, 302, 303, 307, 308} or not location:
+            return body, status_code, current_url
+        if redirect_count == max_redirects:
+            return body, status_code, current_url
+        current_url = urljoin(current_url, location)
+
+    return b"", 0, current_url
+
+
 def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None):
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
@@ -199,18 +240,15 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         response_ms = None
         response = b""
         try:
-            with socket.create_connection((domain_name, port), timeout=2) as connection:
-                connection.sendall(
-                    f"GET / HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+            response, status_code, final_url = fetch_response(domain_name, port, "http")
+            response_ms = int((time.monotonic() - start) * 1000)
+            if debug_enabled:
+                print(
+                    f"[DEBUG scan] protocol=http domain={domain_name} port={port} "
+                    f"status={status_code} url={final_url} match={match!r} "
+                    f"response={response[:16384]!r}"
                 )
-                response = connection.recv(16384)
-                response_ms = int((time.monotonic() - start) * 1000)
-                if debug_enabled:
-                    print(
-                        f"[DEBUG scan] protocol=http domain={domain_name} port={port} "
-                        f"match={match!r} response={response[:16384]!r}"
-                    )
-        except (socket.timeout, socket.gaierror, OSError):
+        except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException):
             response = b""
 
         match_bytes = match.lower().encode()
@@ -218,26 +256,19 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
             status = "online"
         elif response and port in HTTPS_PORTS:
             try:
-                context = ssl.create_default_context()
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
-                with socket.create_connection((domain_name, port), timeout=2) as raw_connection:
-                    with context.wrap_socket(raw_connection, server_hostname=domain_name) as connection:
-                        connection.sendall(
-                            f"GET / HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
-                        )
-                        https_response = connection.recv(16384)
-                        response_ms = int((time.monotonic() - start) * 1000)
-                        if debug_enabled:
-                            print(
-                                f"[DEBUG scan] protocol=https domain={domain_name} port={port} "
-                                f"match={match!r} response={https_response[:16384]!r}"
-                            )
-                        if https_response and match_bytes in https_response.lower():
-                            status = "online"
-                        elif https_response:
-                            status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError):
+                https_response, status_code, final_url = fetch_response(domain_name, port, "https")
+                response_ms = int((time.monotonic() - start) * 1000)
+                if debug_enabled:
+                    print(
+                        f"[DEBUG scan] protocol=https domain={domain_name} port={port} "
+                        f"status={status_code} url={final_url} match={match!r} "
+                        f"response={https_response[:16384]!r}"
+                    )
+                if https_response and match_bytes in https_response.lower():
+                    status = "online"
+                elif https_response:
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException):
                 pass
             if status == "offline":
                 status = "degraded"
