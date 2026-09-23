@@ -6,6 +6,8 @@
       <form method="post" action="{{ url_for('add_domain_route') }}">
         <label for="name">Domain</label>
         <input type="text" id="name" name="name" placeholder="example.com" required>
+        <label for="match">Match</label>
+        <input type="text" id="match" name="match" placeholder="Defaults to the first domain word">
         <button type="submit">Add Domain</button>
       </form>
     {% else %}
@@ -23,6 +25,7 @@
           </select>
           <button type="button" id="select-all-domains">Select all</button>
           <button type="submit">Apply to selected</button>
+          <button type="submit" class="danger" formaction="{{ url_for('bulk_delete_route') }}" formnovalidate onclick="return confirm('Delete all selected Domains?');">Delete all selected Domains</button>
         </div>
       </form>
     {% endif %}
@@ -33,6 +36,7 @@
           <th>Select</th>
           <th>ID</th>
           <th>Domain</th>
+          <th>Match</th>
           <th>Ports</th>
           <th>Actions</th>
         </tr>
@@ -43,6 +47,7 @@
             <td><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
             <td>{{ domain.id }}</td>
             <td>{{ domain.name }}</td>
+            <td>{{ domain.match }}</td>
             <td>{{ domain.ports | join(', ') if domain.ports else 'None detected' }}</td>
             <td>
               <a href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>

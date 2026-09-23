@@ -196,6 +196,12 @@ th, td {
     border: 1px solid #fecaca;
 }
 
+.status-item.degraded {
+    background: #fffbeb;
+    color: #a16207;
+    border: 1px solid #fde68a;
+}
+
 .status-item:focus-visible {
     box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.35);
 }

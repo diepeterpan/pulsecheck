@@ -9,10 +9,11 @@
           <ul class="status-grid">
             {% for entry in entries %}
               {% if entry.port is not none %}
-                <li class="status-item {{ 'online' if entry.is_online else 'offline' }}" tabindex="0" aria-label="Port {{ entry.port }}: {{ 'ONLINE' if entry.is_online else 'OFFLINE' }}">
+                <li class="status-item {{ entry.status }}" tabindex="0" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
                   <strong class="status-port">{{ entry.port }}</strong>
                   <span class="status-tooltip" role="tooltip">
-                    Status: {{ 'ONLINE' if entry.is_online else 'OFFLINE' }}<br>
+                    Status: {{ entry.status|upper }}<br>
+                    Match: {{ entry.match }}<br>
                     Last successful scan: {{ entry.checked_at or 'Not scanned yet' }}<br>
                     Response time: {{ (entry.last_response_ms|string + ' ms') if entry.last_response_ms is not none else 'Unavailable' }}
                   </span>
