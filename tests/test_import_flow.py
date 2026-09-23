@@ -47,7 +47,9 @@ class ImportFlowTests(unittest.TestCase):
             (b"other HTTPS service", 200, "https://acme.example:443/"),
             (b"", 0, "http://acme.example:22/"),
         ]
-        with patch("app.fetch_response", side_effect=responses):
+        with patch("app.fetch_response", side_effect=responses), patch(
+            "app.fetch_socket_response", side_effect=[b"", b""]
+        ):
             pulsecheck_app.scan_domain(domain_id, "acme.example", [80, 443, 22], "acme")
 
         conn = pulsecheck_app.get_db_connection()
@@ -57,6 +59,62 @@ class ImportFlowTests(unittest.TestCase):
         ).fetchall()]
         conn.close()
         self.assertEqual(statuses, ["offline", "online", "degraded"])
+
+    def test_scan_uses_socket_fallback_when_http_and_https_do_not_match(self):
+        conn = pulsecheck_app.get_db_connection()
+        cursor = conn.execute(
+            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            ("acme.example", "acme", "[443]"),
+        )
+        conn.commit()
+        domain_id = cursor.lastrowid
+        conn.close()
+
+        with patch(
+            "app.fetch_response",
+            side_effect=[
+                (b"other HTTP service", 200, "http://acme.example:443/"),
+                (b"other HTTPS service", 200, "https://acme.example:443/"),
+            ],
+        ), patch("app.fetch_socket_response", return_value=b"acme socket service"):
+            pulsecheck_app.scan_domain(domain_id, "acme.example", [443], "acme")
+
+        conn = pulsecheck_app.get_db_connection()
+        status = conn.execute(
+            "SELECT status FROM port_checks WHERE domain_id = ?",
+            (domain_id,),
+        ).fetchone()["status"]
+        conn.close()
+        self.assertEqual(status, "online")
+
+    def test_scan_uses_ssl_socket_fallback_when_plain_socket_fails(self):
+        conn = pulsecheck_app.get_db_connection()
+        cursor = conn.execute(
+            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            ("acme.example", "acme", "[443]"),
+        )
+        conn.commit()
+        domain_id = cursor.lastrowid
+        conn.close()
+
+        with patch(
+            "app.fetch_response",
+            side_effect=[
+                (b"other HTTP service", 200, "http://acme.example:443/"),
+                (b"other HTTPS service", 200, "https://acme.example:443/"),
+            ],
+        ), patch("app.fetch_socket_response", side_effect=OSError("plain socket failed")), patch(
+            "app.fetch_socket_ssl_response", return_value=b"acme SSL socket service"
+        ):
+            pulsecheck_app.scan_domain(domain_id, "acme.example", [443], "acme")
+
+        conn = pulsecheck_app.get_db_connection()
+        status = conn.execute(
+            "SELECT status FROM port_checks WHERE domain_id = ?",
+            (domain_id,),
+        ).fetchone()["status"]
+        conn.close()
+        self.assertEqual(status, "online")
 
     def test_fetch_response_follows_redirect_before_returning_body(self):
         class FakeResponse:

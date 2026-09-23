@@ -230,6 +230,26 @@ def fetch_response(domain_name: str, port: int, scheme: str, max_redirects: int 
     return b"", 0, current_url
 
 
+def fetch_socket_response(domain_name: str, port: int):
+    with socket.create_connection((domain_name, port), timeout=2) as connection:
+        connection.sendall(
+            f"GET / HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+        )
+        return connection.recv(16384)
+
+
+def fetch_socket_ssl_response(domain_name: str, port: int):
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    with socket.create_connection((domain_name, port), timeout=2) as raw_connection:
+        with context.wrap_socket(raw_connection, server_hostname=domain_name) as connection:
+            connection.sendall(
+                f"GET / HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+            )
+            return connection.recv(16384)
+
+
 def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None):
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
@@ -274,6 +294,35 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
                 status = "degraded"
         elif response:
             status = "degraded"
+
+        if status != "online":
+            try:
+                socket_response = fetch_socket_response(domain_name, port)
+                response_ms = int((time.monotonic() - start) * 1000)
+                if debug_enabled:
+                    print(
+                        f"[DEBUG scan] protocol=socket domain={domain_name} port={port} "
+                        f"match={match!r} response={socket_response[:16384]!r}"
+                    )
+                if socket_response and match_bytes in socket_response.lower():
+                    status = "online"
+                elif socket_response and status == "offline":
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError):
+                try:
+                    ssl_socket_response = fetch_socket_ssl_response(domain_name, port)
+                    response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(
+                            f"[DEBUG scan] protocol=socket-ssl domain={domain_name} port={port} "
+                            f"match={match!r} response={ssl_socket_response[:16384]!r}"
+                        )
+                    if ssl_socket_response and match_bytes in ssl_socket_response.lower():
+                        status = "online"
+                    elif ssl_socket_response and status == "offline":
+                        status = "degraded"
+                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError):
+                    pass
         store_port_check(domain_id, port, status, response_ms)
 
 
