@@ -8,6 +8,8 @@
         <input type="text" id="name" name="name" placeholder="example.com" required>
         <label for="match">Match</label>
         <input type="text" id="match" name="match" placeholder="Defaults to the first domain word">
+        <label for="url_path">URL path (optional)</label>
+        <input type="text" id="url_path" name="url_path" placeholder="/test/test.asp">
         <button type="submit">Add Domain</button>
       </form>
     {% else %}
@@ -37,6 +39,7 @@
           <th>ID</th>
           <th>Domain</th>
           <th>Match</th>
+          <th>URL path</th>
           <th>Ports</th>
           <th>Actions</th>
         </tr>
@@ -48,6 +51,7 @@
             <td>{{ domain.id }}</td>
             <td>{{ domain.name }}</td>
             <td>{{ domain.match }}</td>
+            <td>{{ domain.url_path or '(root)' }}</td>
             <td>{{ domain.ports | join(', ') if domain.ports else 'None detected' }}</td>
             <td>
               <a href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>

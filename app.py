@@ -47,6 +47,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
             match TEXT NOT NULL DEFAULT '',
+            url_path TEXT NOT NULL DEFAULT '',
             ports TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -69,6 +70,8 @@ def init_db():
     domain_columns = {row["name"] for row in conn.execute("PRAGMA table_info(domains)")}
     if "match" not in domain_columns:
         conn.execute("ALTER TABLE domains ADD COLUMN match TEXT NOT NULL DEFAULT ''")
+    if "url_path" not in domain_columns:
+        conn.execute("ALTER TABLE domains ADD COLUMN url_path TEXT NOT NULL DEFAULT ''")
     conn.execute(
         "UPDATE domains SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
         "WHERE match = ''"
@@ -101,6 +104,27 @@ def derive_match(domain_name: str) -> str:
     return first_label.split("-", 1)[0]
 
 
+def normalize_url_path(value: str | None) -> str:
+    path = (value or "").strip()
+    if not path:
+        return ""
+    if not path.startswith("/") or any(character.isspace() for character in path):
+        raise ValueError("URL path must start with '/' and contain no spaces.")
+    if "?" in path or "#" in path or "://" in path:
+        raise ValueError("URL path must contain only a path, without query, fragment, or full URL.")
+    return path
+
+
+def format_local_time(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S %Z").replace(tzinfo=timezone.utc)
+    except ValueError:
+        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+
+
 def parse_ports(value):
     values = json.loads(value or "[]")
     return sorted({int(port) for port in values})
@@ -109,7 +133,7 @@ def parse_ports(value):
 def domain_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, ports, created_at FROM domains ORDER BY name ASC"
+        "SELECT id, name, match, url_path, ports, created_at FROM domains ORDER BY name ASC"
     ).fetchall()
     conn.close()
     return [
@@ -117,6 +141,7 @@ def domain_list():
             "id": row["id"],
             "name": row["name"],
             "match": row["match"],
+            "url_path": row["url_path"],
             "ports": parse_ports(row["ports"]),
             "created_at": row["created_at"],
         }
@@ -127,7 +152,7 @@ def domain_list():
 def get_domain_by_id(domain_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, ports, created_at FROM domains WHERE id = ?",
+        "SELECT id, name, match, url_path, ports, created_at FROM domains WHERE id = ?",
         (domain_id,),
     ).fetchone()
     conn.close()
@@ -137,6 +162,7 @@ def get_domain_by_id(domain_id):
         "id": row["id"],
         "name": row["name"],
         "match": row["match"],
+        "url_path": row["url_path"],
         "ports": parse_ports(row["ports"]),
         "created_at": row["created_at"],
     }
@@ -191,8 +217,8 @@ def store_port_check(domain_id: int, port: int, status: str, response_ms: int | 
     conn.close()
 
 
-def fetch_response(domain_name: str, port: int, scheme: str, max_redirects: int = 5):
-    current_url = f"{scheme}://{domain_name}:{port}/"
+def fetch_response(domain_name: str, port: int, scheme: str, url_path: str = "", max_redirects: int = 5):
+    current_url = f"{scheme}://{domain_name}:{port}{url_path or '/'}"
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
@@ -230,27 +256,27 @@ def fetch_response(domain_name: str, port: int, scheme: str, max_redirects: int 
     return b"", 0, current_url
 
 
-def fetch_socket_response(domain_name: str, port: int):
+def fetch_socket_response(domain_name: str, port: int, url_path: str = ""):
     with socket.create_connection((domain_name, port), timeout=2) as connection:
         connection.sendall(
-            f"GET / HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+            f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
         )
         return connection.recv(16384)
 
 
-def fetch_socket_ssl_response(domain_name: str, port: int):
+def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = ""):
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
     with socket.create_connection((domain_name, port), timeout=2) as raw_connection:
         with context.wrap_socket(raw_connection, server_hostname=domain_name) as connection:
             connection.sendall(
-                f"GET / HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+                f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
             )
             return connection.recv(16384)
 
 
-def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None):
+def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None, url_path: str = ""):
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
         ports = parse_ports(ports)
@@ -260,7 +286,7 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         response_ms = None
         response = b""
         try:
-            response, status_code, final_url = fetch_response(domain_name, port, "http")
+            response, status_code, final_url = fetch_response(domain_name, port, "http", url_path)
             response_ms = int((time.monotonic() - start) * 1000)
             if debug_enabled:
                 print(
@@ -276,7 +302,7 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
             status = "online"
         elif response and port in HTTPS_PORTS:
             try:
-                https_response, status_code, final_url = fetch_response(domain_name, port, "https")
+                https_response, status_code, final_url = fetch_response(domain_name, port, "https", url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
@@ -297,7 +323,7 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
 
         if status != "online":
             try:
-                socket_response = fetch_socket_response(domain_name, port)
+                socket_response = fetch_socket_response(domain_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
@@ -310,7 +336,7 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
                     status = "degraded"
             except (socket.timeout, socket.gaierror, OSError):
                 try:
-                    ssl_socket_response = fetch_socket_ssl_response(domain_name, port)
+                    ssl_socket_response = fetch_socket_ssl_response(domain_name, port, url_path)
                     response_ms = int((time.monotonic() - start) * 1000)
                     if debug_enabled:
                         print(
@@ -336,24 +362,31 @@ def sync_domain_ports(domain_id: int, domain_name: str, detected_ports: list[int
     conn.commit()
     conn.close()
     domain = get_domain_by_id(domain_id)
-    scan_domain(domain_id, domain_name, ports, domain["match"] if domain else derive_match(domain_name))
+    scan_domain(
+        domain_id,
+        domain_name,
+        ports,
+        domain["match"] if domain else derive_match(domain_name),
+        url_path=domain["url_path"] if domain else "",
+    )
 
 
-def add_domain(domain_name: str, match: str | None = None):
+def add_domain(domain_name: str, match: str | None = None, url_path: str | None = None):
     normalized = normalize_domain(domain_name)
     if domain_exists(normalized):
         return None
     domain_match = (match or derive_match(normalized)).strip().lower()
+    normalized_path = normalize_url_path(url_path)
     detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
-        (normalized, domain_match, json.dumps(detected)),
+        "INSERT INTO domains (name, match, url_path, ports) VALUES (?, ?, ?, ?)",
+        (normalized, domain_match, normalized_path, json.dumps(detected)),
     )
     conn.commit()
     domain_id = cursor.lastrowid
     conn.close()
-    scan_domain(domain_id, normalized, detected, domain_match)
+    scan_domain(domain_id, normalized, detected, domain_match, url_path=normalized_path)
     return domain_id
 
 
@@ -418,21 +451,22 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
-            (normalized, derive_match(normalized), json.dumps(detected)),
+            "INSERT INTO domains (name, match, url_path, ports) VALUES (?, ?, ?, ?)",
+            (normalized, derive_match(normalized), "", json.dumps(detected)),
         )
         conn.commit()
         domain_id = cursor.lastrowid
         conn.close()
-        scan_domain(domain_id, normalized, detected, derive_match(normalized))
+        scan_domain(domain_id, normalized, detected, derive_match(normalized), url_path="")
         summary["imported"] += 1
 
     return summary
 
 
-def update_domain(domain_id: int, name: str, ports_input: str, match: str | None = None):
+def update_domain(domain_id: int, name: str, ports_input: str, match: str | None = None, url_path: str | None = None):
     normalized = normalize_domain(name)
     domain_match = (match or derive_match(normalized)).strip().lower()
+    normalized_path = normalize_url_path(url_path)
     incoming_ports = []
     if ports_input:
         raw_parts = ports_input.replace(",", "\n").splitlines()
@@ -448,12 +482,12 @@ def update_domain(domain_id: int, name: str, ports_input: str, match: str | None
         incoming_ports = discover_ports(normalized)
     conn = get_db_connection()
     conn.execute(
-        "UPDATE domains SET name = ?, match = ?, ports = ? WHERE id = ?",
-        (normalized, domain_match, json.dumps(sorted({int(port) for port in incoming_ports})), domain_id),
+        "UPDATE domains SET name = ?, match = ?, url_path = ?, ports = ? WHERE id = ?",
+        (normalized, domain_match, normalized_path, json.dumps(sorted({int(port) for port in incoming_ports})), domain_id),
     )
     conn.commit()
     conn.close()
-    scan_domain(domain_id, normalized, incoming_ports, domain_match)
+    scan_domain(domain_id, normalized, incoming_ports, domain_match, url_path=normalized_path)
 
 
 def parse_port_values(ports_input: str):
@@ -551,6 +585,7 @@ def get_status_rows():
             "status": row["status"],
             "last_response_ms": row["last_response_ms"],
             "checked_at": row["checked_at"],
+            "checked_at_local": format_local_time(row["checked_at"]),
         })
     return result
 
@@ -706,7 +741,7 @@ def add_domain_route():
             flash("A domain name is required.")
             return redirect(url_for("add_domain_route"))
         try:
-            result = add_domain(name, match or None)
+            result = add_domain(name, match or None, request.form.get("url_path", ""))
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("add_domain_route"))
@@ -766,9 +801,10 @@ def edit_domain(domain_id):
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         match = request.form.get("match", "").strip()
+        url_path = request.form.get("url_path", "")
         ports_input = request.form.get("ports", "")
         try:
-            update_domain(domain_id, name, ports_input, match or None)
+            update_domain(domain_id, name, ports_input, match or None, url_path)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_domain", domain_id=domain_id))
@@ -793,7 +829,7 @@ def rescan_domain_route(domain_id):
     if domain is None:
         flash("Domain not found.")
         return redirect(url_for("domains"))
-    scan_domain(domain_id, domain["name"], domain["ports"], domain["match"])
+    scan_domain(domain_id, domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
     flash(f"Rescanned {domain['name']}.")
     return redirect(url_for("status"))
 
@@ -816,7 +852,7 @@ def run_background_tasks():
 
 def check_all_domains():
     for domain in domain_list():
-        scan_domain(domain["id"], domain["name"], domain["ports"], domain["match"])
+        scan_domain(domain["id"], domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
 
 
 def cli_menu():

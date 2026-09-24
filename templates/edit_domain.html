@@ -9,6 +9,9 @@
       <label for="match">Match</label>
       <input type="text" id="match" name="match" value="{{ domain.match }}" required>
 
+      <label for="url_path">URL path (optional)</label>
+      <input type="text" id="url_path" name="url_path" value="{{ domain.url_path }}" placeholder="/test/test.asp">
+
       <label for="ports">Ports</label>
       <input type="text" id="ports" name="ports" value="{{ domain.ports | join(', ') }}" placeholder="80, 443, 8443">
 

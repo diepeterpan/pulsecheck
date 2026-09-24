@@ -14,7 +14,7 @@
                   <span class="status-tooltip" role="tooltip">
                     Status: {{ entry.status|upper }}<br>
                     Match: {{ entry.match }}<br>
-                    Last successful scan: {{ entry.checked_at or 'Not scanned yet' }}<br>
+                    Last successful scan: {{ entry.checked_at_local or 'Not scanned yet' }}<br>
                     Response time: {{ (entry.last_response_ms|string + ' ms') if entry.last_response_ms is not none else 'Unavailable' }}
                   </span>
                 </li>

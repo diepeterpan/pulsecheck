@@ -156,6 +156,49 @@ class ImportFlowTests(unittest.TestCase):
         self.assertEqual(status_code, 200)
         self.assertEqual(final_url, "http://acme.example:80/health")
 
+    def test_url_path_validation(self):
+        self.assertEqual(pulsecheck_app.normalize_url_path("/test/test.asp"), "/test/test.asp")
+        self.assertEqual(pulsecheck_app.normalize_url_path(""), "")
+        for invalid_path in ("test.asp", "/test path", "/test?value=1", "https://example.com/test"):
+            with self.subTest(invalid_path=invalid_path):
+                with self.assertRaises(ValueError):
+                    pulsecheck_app.normalize_url_path(invalid_path)
+
+    def test_format_local_time_converts_stored_utc_timestamp(self):
+        formatted = pulsecheck_app.format_local_time("2026-09-24 12:00:00 UTC")
+        self.assertTrue(formatted.startswith("2026-09-24 "))
+        self.assertRegex(formatted, r"^2026-09-24 \d{2}:\d{2}:\d{2} .+$")
+
+    def test_fetch_response_starts_with_configured_url_path(self):
+        class FakeResponse:
+            status = 200
+
+            def read(self, size):
+                return b"acme service"
+
+            def getheader(self, name):
+                return None
+
+        class FakeHTTPConnection:
+            last_request_path = None
+
+            def __init__(self, host, port, **kwargs):
+                pass
+
+            def request(self, method, path, headers):
+                FakeHTTPConnection.last_request_path = path
+
+            def getresponse(self):
+                return FakeResponse()
+
+            def close(self):
+                pass
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            pulsecheck_app.fetch_response("acme.example", 80, "http", "/test/test.asp")
+
+        self.assertEqual(FakeHTTPConnection.last_request_path, "/test/test.asp")
+
 
 if __name__ == "__main__":
     unittest.main()
