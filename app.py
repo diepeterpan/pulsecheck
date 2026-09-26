@@ -217,7 +217,14 @@ def store_port_check(domain_id: int, port: int, status: str, response_ms: int | 
     conn.close()
 
 
-def fetch_response(domain_name: str, port: int, scheme: str, url_path: str = "", max_redirects: int = 5):
+def fetch_response(
+    domain_name: str,
+    port: int,
+    scheme: str,
+    url_path: str = "",
+    max_redirects: int = 5,
+    explicit_debug: bool = False,
+):
     current_url = f"{scheme}://{domain_name}:{port}{url_path or '/'}"
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -231,6 +238,7 @@ def fetch_response(domain_name: str, port: int, scheme: str, url_path: str = "",
         if parsed.scheme == "https":
             connection_kwargs["context"] = ssl_context
         connection = connection_class(parsed.hostname, target_port, **connection_kwargs)
+        error = None
         try:
             request_path = parsed.path or "/"
             if parsed.query:
@@ -244,7 +252,21 @@ def fetch_response(domain_name: str, port: int, scheme: str, url_path: str = "",
             body = response.read(16384)
             status_code = response.status
             location = response.getheader("Location")
+            if explicit_debug:
+                print(
+                    f"[DEBUG scan fetchresponse] protocol=http domain={domain_name} port={port} "
+                    f"status={status_code} current_url={current_url} "
+                    f"body={body[:16384]!r}"
+                )
+        except Exception as exc:
+            error = exc
+            raise
         finally:
+            if explicit_debug and error is not None:
+                print(
+                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={parsed.hostname} "
+                    f"port={target_port} error={error!r}"
+                )
             connection.close()
 
         if status_code not in {301, 302, 303, 307, 308} or not location:
@@ -286,7 +308,9 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         response_ms = None
         response = b""
         try:
-            response, status_code, final_url = fetch_response(domain_name, port, "http", url_path)
+            response, status_code, final_url = fetch_response(
+                domain_name, port, "http", url_path, explicit_debug=debug_enabled
+            )
             response_ms = int((time.monotonic() - start) * 1000)
             if debug_enabled:
                 print(
@@ -297,12 +321,20 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException):
             response = b""
 
+        if debug_enabled and response:
+            print(
+                f"[DEBUG scan response] protocol=http domain={domain_name} port={port} "
+                f"response={response[:16384]!r}"
+            )
+
         match_bytes = match.lower().encode()
         if response and match_bytes in response.lower():
             status = "online"
-        elif response and port in HTTPS_PORTS:
+        elif port in HTTPS_PORTS:
             try:
-                https_response, status_code, final_url = fetch_response(domain_name, port, "https", url_path)
+                https_response, status_code, final_url = fetch_response(
+                    domain_name, port, "https", url_path, explicit_debug=debug_enabled
+                )
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(

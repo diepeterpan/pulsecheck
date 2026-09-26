@@ -60,6 +60,35 @@ class ImportFlowTests(unittest.TestCase):
         conn.close()
         self.assertEqual(statuses, ["offline", "online", "degraded"])
 
+    def test_scan_attempts_https_after_http_timeout(self):
+        conn = pulsecheck_app.get_db_connection()
+        cursor = conn.execute(
+            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            ("acme.example", "acme", "[443]"),
+        )
+        conn.commit()
+        domain_id = cursor.lastrowid
+        conn.close()
+
+        with patch(
+            "app.fetch_response",
+            side_effect=[
+                TimeoutError("HTTP timed out"),
+                (b"acme HTTPS service", 200, "https://acme.example:443/"),
+            ],
+        ) as fetch:
+            pulsecheck_app.scan_domain(domain_id, "acme.example", [443], "acme")
+
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(fetch.call_args_list[1].args[2], "https")
+        conn = pulsecheck_app.get_db_connection()
+        status = conn.execute(
+            "SELECT status FROM port_checks WHERE domain_id = ?",
+            (domain_id,),
+        ).fetchone()["status"]
+        conn.close()
+        self.assertEqual(status, "online")
+
     def test_scan_uses_socket_fallback_when_http_and_https_do_not_match(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
@@ -198,6 +227,38 @@ class ImportFlowTests(unittest.TestCase):
             pulsecheck_app.fetch_response("acme.example", 80, "http", "/test/test.asp")
 
         self.assertEqual(FakeHTTPConnection.last_request_path, "/test/test.asp")
+
+    def test_fetch_response_logs_errors_before_close_only_in_debug_mode(self):
+        events = []
+
+        class FakeHTTPConnection:
+            def __init__(self, host, port, **kwargs):
+                pass
+
+            def request(self, method, path, headers):
+                raise OSError("connection reset")
+
+            def close(self):
+                events.append("close")
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection), patch(
+            "builtins.print", side_effect=lambda *args: events.append(args[0])
+        ):
+            with self.assertRaisesRegex(OSError, "connection reset"):
+                pulsecheck_app.fetch_response("acme.example", 80, "http", explicit_debug=True)
+
+        self.assertIn("error=OSError('connection reset')", events[0])
+        self.assertEqual(events[1], "close")
+
+        events.clear()
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection), patch(
+            "builtins.print", side_effect=lambda *args: events.append(args[0])
+        ) as debug_print:
+            with self.assertRaisesRegex(OSError, "connection reset"):
+                pulsecheck_app.fetch_response("acme.example", 80, "http")
+
+        debug_print.assert_not_called()
+        self.assertEqual(events, ["close"])
 
 
 if __name__ == "__main__":
