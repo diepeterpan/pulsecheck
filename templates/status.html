@@ -5,7 +5,7 @@
     {% if grouped %}
       {% for domain_name, entries in grouped.items() %}
         <div class="status-block">
-          <h3 title="{{ domain_name }}">{{ domain_name }}</h3>
+          <h3 title="{{ domain_name }}"><a class="status-domain-link" href="{{ url_for('domains', filter=domain_name) }}">{{ domain_name }}</a></h3>
           <ul class="status-grid">
             {% for entry in entries %}
               {% if entry.port is not none %}

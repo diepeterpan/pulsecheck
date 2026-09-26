@@ -12,6 +12,11 @@
       <label for="url_path">URL path (optional)</label>
       <input type="text" id="url_path" name="url_path" value="{{ domain.url_path }}" placeholder="/test/test.asp">
 
+      <label for="paused">
+        <input type="checkbox" id="paused" name="paused" {% if domain.paused %}checked{% endif %}>
+        Paused
+      </label>
+
       <label for="ports">Ports</label>
       <input type="text" id="ports" name="ports" value="{{ domain.ports | join(', ') }}" placeholder="80, 443, 8443">
 

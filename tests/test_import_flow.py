@@ -31,6 +31,36 @@ class ImportFlowTests(unittest.TestCase):
         self.assertEqual(result["skipped"], 1)
         self.assertEqual(len(pulsecheck_app.domain_list()), 3)
 
+    def test_paused_domains_are_not_scanned_or_shown_in_status(self):
+        conn = pulsecheck_app.get_db_connection()
+        cursor = conn.execute(
+            "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, ?)",
+            ("paused.example", "paused", "[443]", 1),
+        )
+        domain_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        with patch("app.fetch_response") as fetch:
+            pulsecheck_app.scan_domain(domain_id, "paused.example", [443], "paused")
+        fetch.assert_not_called()
+        self.assertEqual(pulsecheck_app.get_status_rows(), [])
+
+    def test_update_domain_preserves_paused_when_not_specified(self):
+        conn = pulsecheck_app.get_db_connection()
+        cursor = conn.execute(
+            "INSERT INTO domains (name, match, url_path, ports, paused) VALUES (?, ?, ?, ?, ?)",
+            ("paused.example", "paused", "", "[443]", 1),
+        )
+        domain_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+
+        with patch("app.scan_domain"):
+            pulsecheck_app.update_domain(domain_id, "paused.example", "443")
+
+        self.assertTrue(pulsecheck_app.get_domain_by_id(domain_id)["paused"])
+
     def test_scan_classifies_server_response_against_match(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(

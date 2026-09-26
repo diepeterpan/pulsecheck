@@ -48,6 +48,7 @@ def init_db():
             name TEXT NOT NULL UNIQUE,
             match TEXT NOT NULL DEFAULT '',
             url_path TEXT NOT NULL DEFAULT '',
+            paused INTEGER NOT NULL DEFAULT 0,
             ports TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -72,6 +73,8 @@ def init_db():
         conn.execute("ALTER TABLE domains ADD COLUMN match TEXT NOT NULL DEFAULT ''")
     if "url_path" not in domain_columns:
         conn.execute("ALTER TABLE domains ADD COLUMN url_path TEXT NOT NULL DEFAULT ''")
+    if "paused" not in domain_columns:
+        conn.execute("ALTER TABLE domains ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "UPDATE domains SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
         "WHERE match = ''"
@@ -133,7 +136,7 @@ def parse_ports(value):
 def domain_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, ports, created_at FROM domains ORDER BY name ASC"
+        "SELECT id, name, match, url_path, paused, ports, created_at FROM domains ORDER BY name ASC"
     ).fetchall()
     conn.close()
     return [
@@ -142,6 +145,7 @@ def domain_list():
             "name": row["name"],
             "match": row["match"],
             "url_path": row["url_path"],
+            "paused": bool(row["paused"]),
             "ports": parse_ports(row["ports"]),
             "created_at": row["created_at"],
         }
@@ -152,7 +156,7 @@ def domain_list():
 def get_domain_by_id(domain_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, ports, created_at FROM domains WHERE id = ?",
+        "SELECT id, name, match, url_path, paused, ports, created_at FROM domains WHERE id = ?",
         (domain_id,),
     ).fetchone()
     conn.close()
@@ -163,6 +167,7 @@ def get_domain_by_id(domain_id):
         "name": row["name"],
         "match": row["match"],
         "url_path": row["url_path"],
+        "paused": bool(row["paused"]),
         "ports": parse_ports(row["ports"]),
         "created_at": row["created_at"],
     }
@@ -299,6 +304,9 @@ def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = ""):
 
 
 def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None, url_path: str = ""):
+    domain = get_domain_by_id(domain_id)
+    if domain is not None and domain["paused"]:
+        return
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
         ports = parse_ports(ports)
@@ -403,7 +411,7 @@ def sync_domain_ports(domain_id: int, domain_name: str, detected_ports: list[int
     )
 
 
-def add_domain(domain_name: str, match: str | None = None, url_path: str | None = None):
+def add_domain(domain_name: str, match: str | None = None, url_path: str | None = None, paused: bool = False):
     normalized = normalize_domain(domain_name)
     if domain_exists(normalized):
         return None
@@ -412,8 +420,8 @@ def add_domain(domain_name: str, match: str | None = None, url_path: str | None 
     detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO domains (name, match, url_path, ports) VALUES (?, ?, ?, ?)",
-        (normalized, domain_match, normalized_path, json.dumps(detected)),
+        "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+        (normalized, domain_match, normalized_path, int(paused), json.dumps(detected)),
     )
     conn.commit()
     domain_id = cursor.lastrowid
@@ -483,8 +491,8 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, url_path, ports) VALUES (?, ?, ?, ?)",
-            (normalized, derive_match(normalized), "", json.dumps(detected)),
+                "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, 0, ?)",
+                (normalized, derive_match(normalized), "", json.dumps(detected)),
         )
         conn.commit()
         domain_id = cursor.lastrowid
@@ -495,10 +503,20 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
     return summary
 
 
-def update_domain(domain_id: int, name: str, ports_input: str, match: str | None = None, url_path: str | None = None):
+def update_domain(
+    domain_id: int,
+    name: str,
+    ports_input: str,
+    match: str | None = None,
+    url_path: str | None = None,
+    paused: bool | None = None,
+):
     normalized = normalize_domain(name)
     domain_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
+    if paused is None:
+        existing_domain = get_domain_by_id(domain_id)
+        paused = existing_domain["paused"] if existing_domain else False
     incoming_ports = []
     if ports_input:
         raw_parts = ports_input.replace(",", "\n").splitlines()
@@ -514,8 +532,15 @@ def update_domain(domain_id: int, name: str, ports_input: str, match: str | None
         incoming_ports = discover_ports(normalized)
     conn = get_db_connection()
     conn.execute(
-        "UPDATE domains SET name = ?, match = ?, url_path = ?, ports = ? WHERE id = ?",
-        (normalized, domain_match, normalized_path, json.dumps(sorted({int(port) for port in incoming_ports})), domain_id),
+        "UPDATE domains SET name = ?, match = ?, url_path = ?, paused = ?, ports = ? WHERE id = ?",
+        (
+            normalized,
+            domain_match,
+            normalized_path,
+            int(paused),
+            json.dumps(sorted({int(port) for port in incoming_ports})),
+            domain_id,
+        ),
     )
     conn.commit()
     conn.close()
@@ -601,6 +626,7 @@ def get_status_rows():
              latest.last_response_ms, latest.checked_at
         FROM domains d
         LEFT JOIN latest ON latest.domain_id = d.id AND latest.rn = 1
+        WHERE d.paused = 0
         ORDER BY d.name, latest.port
         """
     ).fetchall()
@@ -835,8 +861,9 @@ def edit_domain(domain_id):
         match = request.form.get("match", "").strip()
         url_path = request.form.get("url_path", "")
         ports_input = request.form.get("ports", "")
+        paused = request.form.get("paused") == "on"
         try:
-            update_domain(domain_id, name, ports_input, match or None, url_path)
+            update_domain(domain_id, name, ports_input, match or None, url_path, paused)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_domain", domain_id=domain_id))
@@ -884,7 +911,8 @@ def run_background_tasks():
 
 def check_all_domains():
     for domain in domain_list():
-        scan_domain(domain["id"], domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
+        if not domain["paused"]:
+            scan_domain(domain["id"], domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
 
 
 def cli_menu():

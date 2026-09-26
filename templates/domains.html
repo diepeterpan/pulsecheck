@@ -32,26 +32,33 @@
       </form>
     {% endif %}
 
+    {% if domains and not add_mode %}
+      <div class="domain-filter">
+        <label for="domain-filter">Filter domains</label>
+        <input type="search" id="domain-filter" placeholder="Type a domain name..." value="{{ request.args.get('filter', '') }}" autocomplete="off">
+      </div>
+    {% endif %}
+
     <table>
       <thead>
         <tr>
           <th>Select</th>
-          <th>ID</th>
           <th>Domain</th>
           <th>Match</th>
           <th>URL path</th>
+          <th>Paused</th>
           <th>Ports</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {% for domain in domains %}
-          <tr>
+          <tr class="domain-row">
             <td><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
-            <td>{{ domain.id }}</td>
             <td>{{ domain.name }}</td>
             <td>{{ domain.match }}</td>
             <td>{{ domain.url_path or '(root)' }}</td>
+            <td>{{ 'Yes' if domain.paused else 'No' }}</td>
             <td>{{ domain.ports | join(', ') if domain.ports else 'None detected' }}</td>
             <td>
               <a href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
@@ -69,6 +76,19 @@
     <script>
       const selectAllButton = document.getElementById('select-all-domains');
       const domainCheckboxes = Array.from(document.querySelectorAll('.domain-checkbox'));
+      const domainFilter = document.getElementById('domain-filter');
+      const domainRows = Array.from(document.querySelectorAll('.domain-row'));
+
+      function applyDomainFilter() {
+        const filterValue = domainFilter.value.trim().toLocaleLowerCase();
+        domainRows.forEach((row) => {
+          const domainName = row.cells[1].textContent.trim().toLocaleLowerCase();
+          row.hidden = !domainName.includes(filterValue);
+        });
+      }
+
+      domainFilter.addEventListener('input', applyDomainFilter);
+      applyDomainFilter();
 
       function updateSelectAllLabel() {
         const allSelected = domainCheckboxes.length > 0 && domainCheckboxes.every((checkbox) => checkbox.checked);
