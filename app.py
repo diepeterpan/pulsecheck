@@ -626,7 +626,7 @@ def get_status_rows():
              COALESCE(latest.status, CASE WHEN latest.is_online = 1 THEN 'online' ELSE 'offline' END) AS status,
              latest.last_response_ms, latest.checked_at
         FROM domains d
-        LEFT JOIN latest ON latest.domain_id = d.id AND latest.rn = 1
+        LEFT JOIN latest ON latest.domain_id = d.id AND latest.rn = 1 AND instr(d.ports, port) > 0
         WHERE d.paused = 0
         ORDER BY d.name, latest.port
         """
