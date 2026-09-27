@@ -1,75 +1,102 @@
 {% extends 'base.html' %}
 {% block content %}
   <section class="panel">
-    <h2>Domain Maintenance</h2>
+    <div class="panel-header">
+      <h2>Domain Maintenance</h2>
+      {% if add_mode %}
+        <a class="button secondary" href="{{ url_for('domains') }}">Back to list</a>
+      {% else %}
+        <a class="button primary" href="{{ url_for('add_domain_route') }}">+ Add New Domain</a>
+      {% endif %}
+    </div>
+
     {% if add_mode %}
-      <form method="post" action="{{ url_for('add_domain_route') }}">
-        <label for="name">Domain</label>
-        <input type="text" id="name" name="name" placeholder="example.com" required>
-        <label for="match">Match</label>
-        <input type="text" id="match" name="match" placeholder="Defaults to the first domain word">
-        <label for="url_path">URL path (optional)</label>
-        <input type="text" id="url_path" name="url_path" placeholder="/test/test.asp">
-        <button type="submit">Add Domain</button>
-      </form>
-    {% else %}
-      <a class="button-link" href="{{ url_for('add_domain_route') }}">Add New Domain</a>
-    {% endif %}
-
-    {% if domains and not add_mode %}
-      <form method="post" action="{{ url_for('bulk_ports_route') }}" class="bulk-port-form" id="bulk-port-form">
-        <label for="bulk-ports">Bulk port editing</label>
-        <div class="bulk-port-controls">
-          <input type="text" id="bulk-ports" name="ports" placeholder="80, 443" required>
-          <select name="port_action" aria-label="Bulk port action">
-            <option value="add">Add ports</option>
-            <option value="remove">Remove ports</option>
-          </select>
-          <button type="button" id="select-all-domains">Select all</button>
-          <button type="submit">Apply to selected</button>
-          <button type="submit" class="danger" formaction="{{ url_for('bulk_delete_route') }}" formnovalidate onclick="return confirm('Delete all selected Domains?');">Delete all selected Domains</button>
-        </div>
-      </form>
-    {% endif %}
-
-    {% if domains and not add_mode %}
-      <div class="domain-filter">
-        <label for="domain-filter">Filter domains</label>
-        <input type="search" id="domain-filter" placeholder="Type a domain name..." value="{{ request.args.get('filter', '') }}" autocomplete="off">
+      <div class="add-domain-box">
+        <form method="post" action="{{ url_for('add_domain_route') }}" class="add-domain-form">
+          <div class="form-row">
+            <div class="form-field">
+              <label for="name">Domain</label>
+              <input type="text" id="name" name="name" placeholder="example.com" required>
+            </div>
+            <div class="form-field">
+              <label for="match">Match</label>
+              <input type="text" id="match" name="match" placeholder="Defaults to first word">
+            </div>
+            <div class="form-field">
+              <label for="url_path">URL path (optional)</label>
+              <input type="text" id="url_path" name="url_path" placeholder="/test/test.asp">
+            </div>
+            <div class="form-field form-field-btn">
+              <button type="submit" class="button primary">Add Domain</button>
+            </div>
+          </div>
+        </form>
       </div>
     {% endif %}
 
-    <table>
-      <thead>
-        <tr>
-          <th>Select</th>
-          <th>Domain</th>
-          <th>Match</th>
-          <th>URL path</th>
-          <th>Paused</th>
-          <th>Ports</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for domain in domains %}
-          <tr class="domain-row">
-            <td><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
-            <td>{{ domain.name }}</td>
-            <td>{{ domain.match }}</td>
-            <td>{{ domain.url_path or '(root)' }}</td>
-            <td>{{ 'Yes' if domain.paused else 'No' }}</td>
-            <td>{{ domain.ports | join(', ') if domain.ports else 'None detected' }}</td>
-            <td>
-              <a href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
-              <form method="post" action="{{ url_for('delete_domain_route', domain_id=domain.id) }}" class="inline-form">
-                <button type="submit" class="danger" onclick="return confirm('Delete {{ domain.name }}?');">Delete</button>
-              </form>
-            </td>
+    {% if domains and not add_mode %}
+      <div class="domain-toolbar">
+        <div class="domain-filter-group">
+          <input type="search" id="domain-filter" placeholder="Filter domains..." value="{{ request.args.get('filter', '') }}" autocomplete="off" aria-label="Filter domains">
+        </div>
+
+        <form method="post" action="{{ url_for('bulk_ports_route') }}" class="bulk-port-form" id="bulk-port-form">
+          <div class="bulk-controls-wrapper">
+            <div class="bulk-group selection-group">
+              <button type="button" id="select-all-domains" class="btn-tool">Select all</button>
+            </div>
+            <div class="bulk-group port-group">
+              <span class="bulk-label">Ports:</span>
+              <input type="text" id="bulk-ports" name="ports" placeholder="80, 443" required aria-label="Bulk ports">
+              <select name="port_action" aria-label="Bulk port action">
+                <option value="add">Add</option>
+                <option value="remove">Remove</option>
+              </select>
+              <button type="submit" class="btn-tool">Apply</button>
+            </div>
+            <div class="bulk-group delete-group">
+              <button type="submit" class="btn-tool danger" formaction="{{ url_for('bulk_delete_route') }}" formnovalidate onclick="return confirm('Delete all selected Domains?');">Delete selected</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    {% endif %}
+
+    <div class="table-responsive">
+      <table class="domains-table">
+        <thead>
+          <tr>
+            <th class="col-select">Select</th>
+            <th class="col-domain">Domain</th>
+            <th class="col-match">Match</th>
+            <th class="col-path">URL path</th>
+            <th class="col-paused">Paused</th>
+            <th class="col-ports">Ports</th>
+            <th class="col-actions">Actions</th>
           </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for domain in domains %}
+            <tr class="domain-row">
+              <td class="col-select"><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
+              <td class="col-domain"><strong>{{ domain.name }}</strong></td>
+              <td class="col-match">{{ domain.match }}</td>
+              <td class="col-path">{% if domain.url_path %}<span class="path-pill">{{ domain.url_path }}</span>{% else %}<span class="path-root">(root)</span>{% endif %}</td>
+              <td class="col-paused">{% if domain.paused %}<span class="badge paused">Paused</span>{% else %}<span class="badge active">Active</span>{% endif %}</td>
+              <td class="col-ports">{% if domain.ports %}{{ domain.ports | join(', ') }}{% else %}<span class="no-ports">None detected</span>{% endif %}</td>
+              <td class="col-actions">
+                <div class="row-actions">
+                  <a class="btn-action edit" href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
+                  <form method="post" action="{{ url_for('delete_domain_route', domain_id=domain.id) }}" class="inline-form">
+                    <button type="submit" class="btn-action danger" onclick="return confirm('Delete {{ domain.name }}?');">Delete</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 
   {% if domains and not add_mode %}

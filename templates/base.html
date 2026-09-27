@@ -11,10 +11,10 @@
       <header>
         <h1>PulseCheck</h1>
         <nav>
-          <a href="{{ url_for('index') }}">Home</a>
-          <a href="{{ url_for('handle_import') }}">Import</a>
+          <a href="{{ url_for('index') }}" class="{% if request.endpoint == 'index' %}active{% endif %}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Home</a>
+          <a href="{{ url_for('handle_import') }}" class="{% if request.endpoint in ('handle_import', 'start_import') %}active{% endif %}" {% if request.endpoint in ('handle_import', 'start_import') %}aria-current="page"{% endif %}>Import</a>
           <a href="{{ url_for('domains') }}" class="{% if request.endpoint in ('domains', 'add_domain_route', 'edit_domain') %}active{% endif %}" {% if request.endpoint in ('domains', 'add_domain_route', 'edit_domain') %}aria-current="page"{% endif %}>Domains</a>
-          <a href="{{ url_for('status') }}">Status</a>
+          <a href="{{ url_for('status') }}" class="{% if request.endpoint == 'status' %}active{% endif %}" {% if request.endpoint == 'status' %}aria-current="page"{% endif %}>Status</a>
         </nav>
       </header>
       {% with messages = get_flashed_messages() %}

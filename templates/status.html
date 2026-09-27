@@ -1,28 +1,160 @@
 {% extends 'base.html' %}
 {% block content %}
   <section class="panel status-panel">
-    <h2>Status</h2>
+    <div class="panel-header">
+      <h2>Service Status</h2>
+      <div class="panel-header-actions">
+        <a class="button secondary" href="{{ url_for('domains') }}">Manage Domains</a>
+      </div>
+    </div>
+
     {% if grouped %}
-      {% for domain_name, entries in grouped.items() %}
-        <div class="status-block">
-          <h3 title="{{ domain_name }}"><a class="status-domain-link" href="{{ url_for('domains', filter=domain_name) }}">{{ domain_name }}</a></h3>
-          <ul class="status-grid">
-            {% for entry in entries %}
-              {% if entry.port is not none %}
-                <li class="status-item {{ entry.status }}" tabindex="0" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
-                  <strong class="status-port">{{ entry.port }}</strong>
-                  <span class="status-tooltip" role="tooltip">
-                    Status: {{ entry.status|upper }}<br>
-                    Match: {{ entry.match }}<br>
-                    Last successful scan: {{ entry.checked_at_local or 'Not scanned yet' }}<br>
-                    Response time: {{ (entry.last_response_ms|string + ' ms') if entry.last_response_ms is not none else 'Unavailable' }}
-                  </span>
-                </li>
-              {% endif %}
-            {% endfor %}
-          </ul>
+      <div class="domain-toolbar status-toolbar">
+        <div class="domain-filter-group">
+          <input type="search" id="status-filter" placeholder="Filter domains..." autocomplete="off" aria-label="Filter domains by name">
         </div>
-      {% endfor %}
+
+        <div class="status-filter-pills" id="status-filter-pills">
+          <button type="button" class="btn-filter-pill active" data-filter="all">All <span class="pill-count" id="count-all">0</span></button>
+          <button type="button" class="btn-filter-pill pill-online" data-filter="online">Online <span class="pill-count" id="count-online">0</span></button>
+          <button type="button" class="btn-filter-pill pill-degraded" data-filter="degraded">Degraded <span class="pill-count" id="count-degraded">0</span></button>
+          <button type="button" class="btn-filter-pill pill-offline" data-filter="offline">Offline <span class="pill-count" id="count-offline">0</span></button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="domains-table status-table">
+          <thead>
+            <tr>
+              <th class="col-domain">Domain</th>
+              <th class="col-match">Match</th>
+              <th class="col-status">Status</th>
+              <th class="col-ports">Monitored Ports</th>
+              <th class="col-latency">Response</th>
+              <th class="col-time">Last Checked</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for domain_name, entries in grouped.items() %}
+              {% set first_entry = entries[0] %}
+              {% set valid_ports = entries | selectattr('port') | list %}
+              {% if not valid_ports %}
+                {% set overall_status = 'none' %}
+                {% set status_label = 'No Ports' %}
+              {% else %}
+                {% set online_count = valid_ports | selectattr('status', 'equalto', 'online') | list | length %}
+                {% set degraded_count = valid_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
+                {% set offline_count = valid_ports | selectattr('status', 'equalto', 'offline') | list | length %}
+                {% if online_count == valid_ports | length %}
+                  {% set overall_status = 'online' %}
+                  {% set status_label = 'Online' %}
+                {% elif offline_count == valid_ports | length %}
+                  {% set overall_status = 'offline' %}
+                  {% set status_label = 'Offline' %}
+                {% else %}
+                  {% set overall_status = 'degraded' %}
+                  {% set status_label = 'Degraded' %}
+                {% endif %}
+              {% endif %}
+
+              <tr class="domain-row status-row" data-domain="{{ domain_name | lower }}" data-status="{{ overall_status }}">
+                <td class="col-domain">
+                  <strong><a class="status-domain-link" href="{{ url_for('domains', filter=domain_name) }}">{{ domain_name }}</a></strong>
+                </td>
+                <td class="col-match">{{ first_entry.match }}</td>
+                <td class="col-status">
+                  <span class="badge status-badge {{ overall_status }}">{{ status_label }}</span>
+                </td>
+                <td class="col-ports">
+                  {% if valid_ports %}
+                    <ul class="status-grid">
+                      {% for entry in valid_ports %}
+                        <li class="status-item {{ entry.status }}" tabindex="0" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
+                          <strong class="status-port">{{ entry.port }}</strong>
+                          <span class="status-tooltip" role="tooltip">
+                            <strong>Port {{ entry.port }}</strong> &bull; {{ entry.status|upper }}<br>
+                            Match: {{ entry.match }}<br>
+                            Last scan: {{ entry.checked_at_local or 'Not scanned yet' }}<br>
+                            Response: {{ (entry.last_response_ms|string + ' ms') if entry.last_response_ms is not none else 'Unavailable' }}
+                          </span>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <span class="no-ports">None detected</span>
+                  {% endif %}
+                </td>
+                <td class="col-latency">
+                  {% set resp = valid_ports | selectattr('last_response_ms') | list %}
+                  {% if resp %}
+                    <span class="latency-val">{{ resp[0].last_response_ms }} ms</span>
+                  {% else %}
+                    <span class="latency-none">&mdash;</span>
+                  {% endif %}
+                </td>
+                <td class="col-time">
+                  <span class="scan-time">{{ first_entry.checked_at_local or 'Never' }}</span>
+                </td>
+                <td class="col-actions">
+                  <div class="row-actions">
+                    <form method="post" action="{{ url_for('rescan_domain_route', domain_id=first_entry.id) }}" class="inline-form">
+                      <button type="submit" class="btn-action primary" title="Rescan this domain now">Rescan</button>
+                    </form>
+                    <a class="btn-action edit" href="{{ url_for('edit_domain', domain_id=first_entry.id) }}" title="Edit domain settings">Edit</a>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <script>
+        const statusFilter = document.getElementById('status-filter');
+        const filterPills = Array.from(document.querySelectorAll('.btn-filter-pill'));
+        const statusRows = Array.from(document.querySelectorAll('.status-row'));
+        let currentStatusFilter = 'all';
+
+        function updateCounts() {
+          const counts = { all: statusRows.length, online: 0, degraded: 0, offline: 0, none: 0 };
+          statusRows.forEach(row => {
+            const s = row.dataset.status;
+            if (counts[s] !== undefined) counts[s]++;
+          });
+          document.getElementById('count-all').textContent = counts.all;
+          document.getElementById('count-online').textContent = counts.online;
+          document.getElementById('count-degraded').textContent = counts.degraded;
+          document.getElementById('count-offline').textContent = counts.offline;
+        }
+
+        function applyFilters() {
+          const query = (statusFilter ? statusFilter.value : '').trim().toLowerCase();
+          statusRows.forEach(row => {
+            const domain = row.dataset.domain || '';
+            const status = row.dataset.status || '';
+            const matchesQuery = !query || domain.includes(query);
+            const matchesStatus = (currentStatusFilter === 'all') || (status === currentStatusFilter);
+            row.hidden = !(matchesQuery && matchesStatus);
+          });
+        }
+
+        if (statusFilter) {
+          statusFilter.addEventListener('input', applyFilters);
+        }
+
+        filterPills.forEach(pill => {
+          pill.addEventListener('click', () => {
+            filterPills.forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            currentStatusFilter = pill.dataset.filter;
+            applyFilters();
+          });
+        });
+
+        updateCounts();
+        applyFilters();
+      </script>
     {% else %}
       <p>No status data yet.</p>
     {% endif %}

@@ -25,6 +25,7 @@ EXPLICIT_DEBUG = False
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "pulsecheck-local-dev"
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 IMPORT_STATE = {}
 IMPORT_LOCK = threading.Lock()
 
