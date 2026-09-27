@@ -36,8 +36,10 @@
 
     {% if domains and not add_mode %}
       <div class="domain-toolbar">
-        <div class="domain-filter-group">
-          <input type="search" id="domain-filter" placeholder="Filter domains..." value="{{ request.args.get('filter', '') }}" autocomplete="off" aria-label="Filter domains">
+        <div class="domain-stats-group">
+          <span class="domain-count-badge">
+            Showing <strong id="filtered-domains-count">{{ domains | length }}</strong> of <strong>{{ domains | length }}</strong> domains
+          </span>
         </div>
 
         <form method="post" action="{{ url_for('bulk_ports_route') }}" class="bulk-port-form" id="bulk-port-form">
@@ -74,10 +76,42 @@
             <th class="col-ports">Ports</th>
             <th class="col-actions">Actions</th>
           </tr>
+          {% if domains and not add_mode %}
+            <tr class="filter-header-row">
+              <th class="col-filter-cell col-select"></th>
+              <th class="col-filter-cell col-domain">
+                <input type="search" id="filter-col-domain" class="column-filter-input" data-col="domain" placeholder="Filter domain..." value="{{ request.args.get('filter', '') }}" autocomplete="off" aria-label="Filter domain">
+              </th>
+              <th class="col-filter-cell col-match">
+                <input type="search" id="filter-col-match" class="column-filter-input" data-col="match" placeholder="Filter match..." autocomplete="off" aria-label="Filter match">
+              </th>
+              <th class="col-filter-cell col-path">
+                <input type="search" id="filter-col-path" class="column-filter-input" data-col="path" placeholder="Filter path..." autocomplete="off" aria-label="Filter URL path">
+              </th>
+              <th class="col-filter-cell col-paused">
+                <select id="filter-col-paused" class="column-filter-select" data-col="paused" aria-label="Filter paused status">
+                  <option value="">All</option>
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                </select>
+              </th>
+              <th class="col-filter-cell col-ports">
+                <input type="search" id="filter-col-ports" class="column-filter-input" data-col="ports" placeholder="Filter port..." autocomplete="off" aria-label="Filter ports">
+              </th>
+              <th class="col-filter-cell col-actions">
+                <button type="button" id="reset-all-filters" class="btn-reset-filters" title="Reset all column filters" disabled>Reset</button>
+              </th>
+            </tr>
+          {% endif %}
         </thead>
         <tbody>
           {% for domain in domains %}
-            <tr class="domain-row">
+            <tr class="domain-row"
+                data-domain="{{ domain.name | lower }}"
+                data-match="{{ domain.match | lower }}"
+                data-path="{{ (domain.url_path or '(root)') | lower }}"
+                data-paused="{{ 'paused' if domain.paused else 'active' }}"
+                data-ports="{{ (domain.ports | join(' ') if domain.ports else 'none') | lower }}">
               <td class="col-select"><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
               <td class="col-domain"><strong>{{ domain.name }}</strong></td>
               <td class="col-match">{{ domain.match }}</td>
@@ -103,34 +137,98 @@
     <script>
       const selectAllButton = document.getElementById('select-all-domains');
       const domainCheckboxes = Array.from(document.querySelectorAll('.domain-checkbox'));
-      const domainFilter = document.getElementById('domain-filter');
       const domainRows = Array.from(document.querySelectorAll('.domain-row'));
+      const countDisplay = document.getElementById('filtered-domains-count');
+      const resetButton = document.getElementById('reset-all-filters');
 
-      function applyDomainFilter() {
-        const filterValue = domainFilter.value.trim().toLocaleLowerCase();
+      const filterDomain = document.getElementById('filter-col-domain');
+      const filterMatch = document.getElementById('filter-col-match');
+      const filterPath = document.getElementById('filter-col-path');
+      const filterPaused = document.getElementById('filter-col-paused');
+      const filterPorts = document.getElementById('filter-col-ports');
+
+      const filterInputs = [filterDomain, filterMatch, filterPath, filterPaused, filterPorts].filter(Boolean);
+
+      function applyColumnFilters() {
+        const domainQuery = (filterDomain ? filterDomain.value : '').trim().toLowerCase();
+        const matchQuery = (filterMatch ? filterMatch.value : '').trim().toLowerCase();
+        const pathQuery = (filterPath ? filterPath.value : '').trim().toLowerCase();
+        const pausedQuery = (filterPaused ? filterPaused.value : '').toLowerCase();
+        const portsQuery = (filterPorts ? filterPorts.value : '').trim().toLowerCase();
+
+        let visibleCount = 0;
+
         domainRows.forEach((row) => {
-          const domainName = row.cells[1].textContent.trim().toLocaleLowerCase();
-          row.hidden = !domainName.includes(filterValue);
+          const domain = row.dataset.domain || '';
+          const match = row.dataset.match || '';
+          const path = row.dataset.path || '';
+          const paused = row.dataset.paused || '';
+          const ports = row.dataset.ports || '';
+
+          const matchDomain = !domainQuery || domain.includes(domainQuery);
+          const matchMatch = !matchQuery || match.includes(matchQuery);
+          const matchPath = !pathQuery || path.includes(pathQuery);
+          const matchPaused = !pausedQuery || paused === pausedQuery;
+          const matchPorts = !portsQuery || ports.includes(portsQuery);
+
+          const isVisible = matchDomain && matchMatch && matchPath && matchPaused && matchPorts;
+          row.hidden = !isVisible;
+          if (isVisible) visibleCount++;
         });
-      }
 
-      domainFilter.addEventListener('input', applyDomainFilter);
-      applyDomainFilter();
+        if (countDisplay) {
+          countDisplay.textContent = visibleCount;
+        }
 
-      function updateSelectAllLabel() {
-        const allSelected = domainCheckboxes.length > 0 && domainCheckboxes.every((checkbox) => checkbox.checked);
-        selectAllButton.textContent = allSelected ? 'Clear selection' : 'Select all';
-      }
-
-      selectAllButton.addEventListener('click', () => {
-        const allSelected = domainCheckboxes.length > 0 && domainCheckboxes.every((checkbox) => checkbox.checked);
-        domainCheckboxes.forEach((checkbox) => {
-          checkbox.checked = !allSelected;
-        });
+        const hasFilter = domainQuery || matchQuery || pathQuery || pausedQuery || portsQuery;
+        if (resetButton) {
+          resetButton.disabled = !hasFilter;
+        }
         updateSelectAllLabel();
+      }
+
+      filterInputs.forEach((input) => {
+        input.addEventListener('input', applyColumnFilters);
+        input.addEventListener('change', applyColumnFilters);
       });
 
+      if (resetButton) {
+        resetButton.addEventListener('click', () => {
+          if (filterDomain) filterDomain.value = '';
+          if (filterMatch) filterMatch.value = '';
+          if (filterPath) filterPath.value = '';
+          if (filterPaused) filterPaused.value = '';
+          if (filterPorts) filterPorts.value = '';
+          applyColumnFilters();
+        });
+      }
+
+      function getVisibleCheckboxes() {
+        return domainRows.filter(r => !r.hidden).map(r => r.querySelector('.domain-checkbox')).filter(Boolean);
+      }
+
+      function updateSelectAllLabel() {
+        const visibleCheckboxes = getVisibleCheckboxes();
+        const allSelected = visibleCheckboxes.length > 0 && visibleCheckboxes.every((checkbox) => checkbox.checked);
+        if (selectAllButton) {
+          selectAllButton.textContent = allSelected ? 'Clear selection' : 'Select all';
+        }
+      }
+
+      if (selectAllButton) {
+        selectAllButton.addEventListener('click', () => {
+          const visibleCheckboxes = getVisibleCheckboxes();
+          const allSelected = visibleCheckboxes.length > 0 && visibleCheckboxes.every((checkbox) => checkbox.checked);
+          visibleCheckboxes.forEach((checkbox) => {
+            checkbox.checked = !allSelected;
+          });
+          updateSelectAllLabel();
+        });
+      }
+
       domainCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelectAllLabel));
+
+      applyColumnFilters();
     </script>
   {% endif %}
 {% endblock %}

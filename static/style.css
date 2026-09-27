@@ -368,6 +368,111 @@ button.danger {
     border-bottom: none;
 }
 
+/* Column Filter Row */
+.filter-header-row th {
+    background: #f1f5f9;
+    padding: 6px 8px;
+    border-bottom: 2px solid #e2e8f0;
+    vertical-align: middle;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: normal;
+}
+
+.col-filter-cell {
+    min-width: 0;
+}
+
+.column-filter-input {
+    width: 100%;
+    padding: 5px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    background: #ffffff;
+    color: #1e293b;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.column-filter-input:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.column-filter-input:not(:placeholder-shown) {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.column-filter-select {
+    width: 100%;
+    padding: 5px 6px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    background: #ffffff;
+    color: #1e293b;
+    box-sizing: border-box;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.column-filter-select:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.column-filter-select:not([value=""]) {
+    border-color: #3b82f6;
+    background: #eff6ff;
+}
+
+.btn-reset-filters {
+    width: 100%;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-radius: 5px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: #dc2626;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+    opacity: 1;
+}
+
+.btn-reset-filters:hover:not(:disabled) {
+    background: #fee2e2;
+    border-color: #fca5a5;
+}
+
+.btn-reset-filters:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: #cbd5e1;
+    background: #f8fafc;
+    color: #94a3b8;
+}
+
+/* Domain stats / count badge in toolbar */
+.domain-stats-group {
+    flex: 0 0 auto;
+}
+
+.domain-count-badge {
+    font-size: 0.82rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.domain-count-badge strong {
+    color: #1e293b;
+}
+
 .col-select {
     width: 44px;
     text-align: center;
