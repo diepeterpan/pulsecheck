@@ -803,6 +803,68 @@ button.danger {
     color: #64748b;
 }
 
+/* Import Page */
+.import-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.import-form-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.import-instructions {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid #3b82f6;
+    border-radius: 6px;
+    padding: 10px 14px;
+}
+
+.import-hint {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #475569;
+    line-height: 1.5;
+}
+
+.import-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.import-form textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: #1e293b;
+    background: #ffffff;
+    resize: vertical;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.import-form textarea:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.import-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Import progress overlay */
 #import-overlay {
     position: fixed;
     inset: 0;
@@ -816,9 +878,47 @@ button.danger {
 .import-progress {
     background: white;
     border-radius: 12px;
-    width: min(480px, 90vw);
-    padding: 24px;
-    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+    width: min(520px, 90vw);
+    padding: 28px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+}
+
+.import-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.import-progress-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.import-progress-fraction {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #64748b;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.import-status-message {
+    font-size: 0.85rem;
+    color: #475569;
+    margin: 0 0 4px;
+    min-height: 1.4em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.import-progress-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
 }
 
 .progress-bar {

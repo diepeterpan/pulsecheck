@@ -1,27 +1,41 @@
 {% extends 'base.html' %}
 {% block content %}
   <section class="panel">
-    <h2>Import Domain List</h2>
-    <form id="import-form">
-      <label for="domains">Domain list (one per line)</label>
-      <textarea id="domains" name="domains" rows="12" placeholder="example.com
-mail.example.com
-api.example.com"></textarea>
-      <button type="submit" id="import-button">Import</button>
-    </form>
+    <div class="panel-header">
+      <h2>Import Domain List</h2>
+      <a class="button secondary" href="{{ url_for('domains') }}">View Domains</a>
+    </div>
 
-    <div id="import-overlay" class="hidden">
-      <div class="import-progress">
-        <h3>Importing domains</h3>
-        <p id="import-status-message">Preparing import...</p>
-        <div class="progress-bar">
-          <div id="import-progress-bar" style="width: 0%"></div>
+    <div class="import-layout">
+      <div class="import-form-col">
+        <div class="import-instructions">
+          <p class="import-hint">Enter one domain per line. Existing domains will be skipped automatically. Port discovery runs for each new domain.</p>
         </div>
-        <p id="import-progress-text">0 / 0</p>
-        <button type="button" id="cancel-import" class="danger">Cancel import</button>
+        <form id="import-form" class="import-form">
+          <textarea id="domains" name="domains" rows="14" placeholder="example.com&#10;mail.example.com&#10;api.example.com"></textarea>
+          <div class="import-actions">
+            <button type="submit" id="import-button" class="button primary">↑ Start Import</button>
+          </div>
+        </form>
       </div>
     </div>
   </section>
+
+  <div id="import-overlay" class="hidden">
+    <div class="import-progress">
+      <div class="import-progress-header">
+        <h3>Importing domains</h3>
+        <span id="import-progress-text" class="import-progress-fraction">0 / 0</span>
+      </div>
+      <p id="import-status-message" class="import-status-message">Preparing import...</p>
+      <div class="progress-bar">
+        <div id="import-progress-bar" style="width: 0%"></div>
+      </div>
+      <div class="import-progress-actions">
+        <button type="button" id="cancel-import" class="btn-action danger">Cancel import</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const form = document.getElementById('import-form');

@@ -651,8 +651,7 @@ def get_status_rows():
 
 @app.route("/")
 def index():
-    domains = domain_list()
-    return render_template("index.html", domains=domains)
+    return redirect(url_for("status"))
 
 
 def create_import_session(domain_names):
