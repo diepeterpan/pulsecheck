@@ -418,7 +418,8 @@ def add_domain(domain_name: str, match: str | None = None, url_path: str | None 
         return None
     domain_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
-    detected = discover_ports(normalized)
+    if not paused:
+        detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
         "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
@@ -529,7 +530,7 @@ def update_domain(
                 incoming_ports.append(int(value))
             except ValueError:
                 raise ValueError(f"Invalid port value '{value}'")
-    if not incoming_ports:
+    if not incoming_ports and not paused:
         incoming_ports = discover_ports(normalized)
     conn = get_db_connection()
     conn.execute(
