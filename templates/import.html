@@ -42,14 +42,14 @@
         <div class="hub-card-body">
           <p class="hub-description">
             Upload a CSV file containing columns: <code>Domain, Match, URL path, Paused, Ports</code>.
-            Existing domains already in the database will be skipped automatically without duplicates.
+            Existing domains in the database are skipped automatically. Records without ports will not be scanned.
           </p>
-          <form action="{{ url_for('handle_import') }}" method="post" enctype="multipart/form-data" class="csv-upload-form">
+          <form id="csv-import-form" action="{{ url_for('handle_import') }}" method="post" enctype="multipart/form-data" class="csv-upload-form">
             <div class="file-upload-wrapper">
               <input type="file" id="csv_file" name="csv_file" accept=".csv,text/csv" required>
             </div>
             <div class="hub-card-actions">
-              <button type="submit" class="button primary btn-hub-action">
+              <button type="submit" id="csv-import-button" class="button primary btn-hub-action">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 Import CSV File
               </button>
@@ -74,11 +74,12 @@
     </div>
   </section>
 
+  <!-- Veil / Overlay with Cancel option -->
   <div id="import-overlay" class="hidden">
     <div class="import-progress">
       <div class="import-progress-header">
-        <h3>Importing domains</h3>
-        <span id="import-progress-text" class="import-progress-fraction">0 / 0</span>
+        <h3 id="import-progress-title">Importing domains</h3>
+        <span id="import-progress-text" class="import-progress-fraction">Record 0 / 0</span>
       </div>
       <p id="import-status-message" class="import-status-message">Preparing import...</p>
       <div class="progress-bar">
@@ -100,11 +101,9 @@
       });
     }
 
-    // Text import logic
-    const form = document.getElementById('import-form');
     const overlay = document.getElementById('import-overlay');
-    const importButton = document.getElementById('import-button');
     const cancelButton = document.getElementById('cancel-import');
+    const progressTitle = document.getElementById('import-progress-title');
     const statusMessage = document.getElementById('import-status-message');
     const progressBar = document.getElementById('import-progress-bar');
     const progressText = document.getElementById('import-progress-text');
@@ -113,7 +112,11 @@
 
     function setOverlay(visible) {
       overlay.classList.toggle('hidden', !visible);
-      importButton.disabled = visible;
+      cancelButton.disabled = false;
+      const textBtn = document.getElementById('import-button');
+      const csvBtn = document.getElementById('csv-import-button');
+      if (textBtn) textBtn.disabled = visible;
+      if (csvBtn) csvBtn.disabled = visible;
     }
 
     function updateProgress(state) {
@@ -122,7 +125,7 @@
       const current = state.index || 0;
       const percent = total ? Math.min((current / total) * 100, 100) : 0;
       progressBar.style.width = `${percent}%`;
-      progressText.textContent = `${current} / ${total}`;
+      progressText.textContent = total ? `Record ${current} / ${total}` : `${current}`;
       statusMessage.textContent = state.message || 'Working...';
       if (state.port) {
         statusMessage.textContent += ` | Port ${state.port}`;
@@ -130,45 +133,115 @@
       if (state.status === 'complete' || state.status === 'cancelled' || state.status === 'error') {
         clearInterval(polling);
         polling = null;
-        setTimeout(() => {
-          setOverlay(false);
-          window.location.reload();
-        }, 1000);
+        if (state.status === 'cancelled') {
+          statusMessage.textContent = 'Import cancelled by user.';
+          setTimeout(() => {
+            setOverlay(false);
+            window.location.reload();
+          }, 1200);
+        } else if (state.status === 'complete') {
+          const s = state.summary || {};
+          statusMessage.textContent = `Completed! ${s.imported || 0} imported, ${s.skipped || 0} skipped, ${s.invalid || 0} invalid.`;
+          setTimeout(() => {
+            setOverlay(false);
+            window.location.reload();
+          }, 1500);
+        } else {
+          statusMessage.textContent = `Error: ${state.error || 'Import failed.'}`;
+          setTimeout(() => {
+            setOverlay(false);
+          }, 2000);
+        }
       }
     }
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const domains = document.getElementById('domains').value;
-      if (!domains.trim()) {
-        return;
-      }
-      setOverlay(true);
-      const response = await fetch('/import/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: new URLSearchParams({ domains })
+    // CSV Form Submission via AJAX to show the veil and progress
+    const csvForm = document.getElementById('csv-import-form');
+    if (csvForm) {
+      csvForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const fileInput = document.getElementById('csv_file');
+        if (!fileInput.files || !fileInput.files[0]) {
+          alert('Please select a CSV file to import.');
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('csv_file', fileInput.files[0]);
+
+        progressTitle.textContent = 'Importing CSV Records';
+        progressText.textContent = 'Record 0 / 0';
+        progressBar.style.width = '0%';
+        statusMessage.textContent = 'Uploading and parsing CSV file...';
+        setOverlay(true);
+
+        try {
+          const response = await fetch('/import/csv/start', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!response.ok) {
+            const err = await response.json();
+            setOverlay(false);
+            alert(err.error || 'CSV import could not be started.');
+            return;
+          }
+
+          const result = await response.json();
+          currentToken = result.token;
+          polling = setInterval(async () => {
+            const statusResponse = await fetch(`/import/${currentToken}/status`);
+            const state = await statusResponse.json();
+            updateProgress(state);
+          }, 350);
+        } catch (e) {
+          setOverlay(false);
+          alert('Error starting CSV import.');
+        }
       });
+    }
 
-      if (!response.ok) {
-        setOverlay(false);
-        alert('Import could not start.');
-        return;
-      }
+    // Text import logic
+    const textForm = document.getElementById('import-form');
+    if (textForm) {
+      textForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const domains = document.getElementById('domains').value;
+        if (!domains.trim()) {
+          return;
+        }
+        progressTitle.textContent = 'Importing Domains';
+        progressText.textContent = '0 / 0';
+        progressBar.style.width = '0%';
+        setOverlay(true);
+        const response = await fetch('/import/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+          body: new URLSearchParams({ domains })
+        });
 
-      const result = await response.json();
-      currentToken = result.token;
-      polling = setInterval(async () => {
-        const statusResponse = await fetch(`/import/${currentToken}/status`);
-        const state = await statusResponse.json();
-        updateProgress(state);
-      }, 500);
-    });
+        if (!response.ok) {
+          setOverlay(false);
+          alert('Import could not start.');
+          return;
+        }
+
+        const result = await response.json();
+        currentToken = result.token;
+        polling = setInterval(async () => {
+          const statusResponse = await fetch(`/import/${currentToken}/status`);
+          const state = await statusResponse.json();
+          updateProgress(state);
+        }, 500);
+      });
+    }
 
     cancelButton.addEventListener('click', async () => {
       if (!currentToken) return;
-      await fetch(`/import/${currentToken}/cancel`, { method: 'POST' });
+      cancelButton.disabled = true;
       statusMessage.textContent = 'Cancelling import...';
+      await fetch(`/import/${currentToken}/cancel`, { method: 'POST' });
     });
   </script>
 {% endblock %}

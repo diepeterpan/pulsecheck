@@ -380,6 +380,130 @@ bad site!!,bad,,0,80
         domains = pulsecheck_app.domain_list()
         self.assertTrue(any(d["name"] == "uploaded.com" for d in domains))
 
+    @patch("app.discover_ports")
+    @patch("app.scan_domain")
+    def test_update_domain_with_empty_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.execute(
+            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+            ("domain-to-edit.com", "domain", "", 0, "[80, 443]"),
+        )
+        domain_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Update domain with empty ports string
+        pulsecheck_app.update_domain(domain_id, "domain-to-edit.com", "")
+
+        mock_discover.assert_not_called()
+        mock_scan.assert_not_called()
+
+        domain = pulsecheck_app.get_domain_by_id(domain_id)
+        self.assertEqual(domain["ports"], [])
+
+    @patch("app.discover_ports")
+    @patch("app.scan_domain")
+    def test_import_domains_from_csv_no_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
+        csv_data = """Domain,Match,URL path,Paused,Ports
+noports.com,noports,,0,
+"""
+        summary = pulsecheck_app.import_domains_from_csv(csv_data)
+        self.assertEqual(summary["imported"], 1)
+        mock_discover.assert_not_called()
+        mock_scan.assert_not_called()
+
+        domain = {d["name"]: d for d in pulsecheck_app.domain_list()}["noports.com"]
+        self.assertEqual(domain["ports"], [])
+
+    def test_csv_import_progress_and_cancel(self):
+        progress_events = []
+        csv_data = """Domain,Match,URL path,Paused,Ports
+site1.com,site1,,0,80
+site2.com,site2,,0,80
+site3.com,site3,,0,80
+"""
+        def track_progress(info):
+            progress_events.append(info)
+
+        # Cancel on record 2
+        def cancel_on_second():
+            return len(progress_events) >= 2
+
+        with self.assertRaises(pulsecheck_app.ImportCancelled):
+            pulsecheck_app.import_domains_from_csv(
+                csv_data,
+                progress_callback=track_progress,
+                cancelled_check=cancel_on_second,
+            )
+
+        self.assertGreaterEqual(len(progress_events), 1)
+        self.assertEqual(progress_events[0]["index"], 1)
+        self.assertEqual(progress_events[0]["total"], 3)
+
+    def test_start_csv_import_route(self):
+        csv_bytes = b"Domain,Match,URL path,Paused,Ports\nasync.com,async,,0,80\n"
+        response = self.client.post(
+            "/import/csv/start",
+            data={"csv_file": (io.BytesIO(csv_bytes), "test.csv")},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 200)
+        json_data = response.get_json()
+        self.assertIn("token", json_data)
+        self.assertEqual(json_data["status"], "started")
+
+    def test_logo_and_favicon_assets(self):
+        static_dir = pulsecheck_app.BASE_DIR / "static"
+        self.assertTrue((static_dir / "logo.png").exists(), "logo.png must exist in static/")
+        self.assertTrue((static_dir / "favicon.ico").exists(), "favicon.ico must exist in static/")
+        self.assertTrue((static_dir / "favicon-32x32.png").exists(), "favicon-32x32.png must exist in static/")
+        self.assertTrue((static_dir / "favicon-16x16.png").exists(), "favicon-16x16.png must exist in static/")
+        self.assertTrue((static_dir / "apple-touch-icon.png").exists(), "apple-touch-icon.png must exist in static/")
+
+    def test_base_html_renders_logo_and_favicon(self):
+        response = self.client.get("/status")
+        self.assertEqual(response.status_code, 200)
+        data = response.data.decode("utf-8")
+        self.assertIn('rel="icon" type="image/x-icon" href="/static/favicon.ico"', data)
+        self.assertIn('rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png"', data)
+        self.assertIn('class="brand-logo"', data)
+        self.assertIn('src="/static/logo.png"', data)
+        self.assertIn('alt="PulseCheck Logo"', data)
+        self.assertIn('PulseCheck</h1>', data)
+
+    @patch("smtplib.SMTP")
+    def test_send_email_includes_logo(self, mock_smtp_class):
+        mock_server = MagicMock()
+        mock_smtp_class.return_value.__enter__.return_value = mock_server
+
+        settings = {
+            "smtp_host": "smtp.example.com",
+            "smtp_port": "587",
+            "smtp_security": "tls",
+            "smtp_username": "user@example.com",
+            "smtp_password": "secretpassword",
+            "from_email": "from@example.com",
+        }
+        success, msg = pulsecheck_app.send_email(
+            "dest@example.com", "Alert Subject", "Test alert text", settings=settings
+        )
+        self.assertTrue(success)
+        mock_server.send_message.assert_called_once()
+        sent_msg = mock_server.send_message.call_args[0][0]
+        
+        # Check that message contains plain text, HTML alternative, and embedded image
+        parts = list(sent_msg.walk())
+        content_types = [p.get_content_type() for p in parts]
+        self.assertIn("text/plain", content_types)
+        self.assertIn("text/html", content_types)
+        self.assertIn("image/png", content_types)
+        
+        # Check that the image part has Content-ID <pulsecheck_logo>
+        image_parts = [p for p in parts if p.get_content_type() == "image/png"]
+        self.assertTrue(len(image_parts) >= 1)
+        self.assertEqual(image_parts[0].get("Content-ID"), "<pulsecheck_logo>")
+
 
 if __name__ == "__main__":
     unittest.main()
+

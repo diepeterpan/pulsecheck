@@ -552,7 +552,11 @@ def export_domains_csv() -> tuple[str, int]:
     return output.getvalue(), len(domains)
 
 
-def import_domains_from_csv(csv_content: str) -> dict:
+def import_domains_from_csv(
+    csv_content: str,
+    progress_callback=None,
+    cancelled_check=None,
+) -> dict:
     summary = {
         "total": 0,
         "imported": 0,
@@ -563,49 +567,62 @@ def import_domains_from_csv(csv_content: str) -> dict:
         "invalid_rows": [],
     }
 
-    reader = csv.reader(io.StringIO(csv_content))
+    raw_rows = [r for r in csv.reader(io.StringIO(csv_content)) if r and any(cell.strip() for cell in r)]
+    if not raw_rows:
+        return summary
+
     header = None
     col_map = {}
+    data_rows = []
 
-    for row_idx, row in enumerate(reader, start=1):
-        if not row or not any(cell.strip() for cell in row):
-            continue
+    first_cells = [c.strip().lower() for c in raw_rows[0]]
+    if any(h in first_cells for h in ("domain", "domain name", "name")):
+        header = first_cells
+        for idx, col in enumerate(header):
+            if col in ("domain", "domain name", "name"):
+                col_map["domain"] = idx
+            elif col in ("match", "domain match"):
+                col_map["match"] = idx
+            elif col in ("url path", "url_path", "path", "url"):
+                col_map["url_path"] = idx
+            elif col in ("paused", "is_paused"):
+                col_map["paused"] = idx
+            elif col in ("ports", "port", "monitored ports"):
+                col_map["ports"] = idx
+        data_rows = raw_rows[1:]
+    else:
+        col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
+        data_rows = raw_rows
 
-        if header is None:
-            first_cells = [c.strip().lower() for c in row]
-            has_domain_header = any(h in first_cells for h in ("domain", "domain name", "name"))
-            if has_domain_header:
-                header = first_cells
-                for idx, col in enumerate(header):
-                    if col in ("domain", "domain name", "name"):
-                        col_map["domain"] = idx
-                    elif col in ("match", "domain match"):
-                        col_map["match"] = idx
-                    elif col in ("url path", "url_path", "path", "url"):
-                        col_map["url_path"] = idx
-                    elif col in ("paused", "is_paused"):
-                        col_map["paused"] = idx
-                    elif col in ("ports", "port", "monitored ports"):
-                        col_map["ports"] = idx
-                continue
-            else:
-                header = ["domain", "match", "url path", "paused", "ports"]
-                col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
+    total_records = len(data_rows)
+
+    for index, row in enumerate(data_rows, start=1):
+        if cancelled_check is not None and cancelled_check():
+            raise ImportCancelled("Import cancelled")
 
         summary["total"] += 1
         d_idx = col_map.get("domain", 0)
         domain_val = row[d_idx].strip() if d_idx < len(row) else ""
 
+        if progress_callback is not None:
+            progress_callback({
+                "index": index,
+                "total": total_records,
+                "domain": domain_val or f"Record {index}",
+                "status": "processing",
+                "message": f"Processing record {index} of {total_records}: {domain_val}",
+            })
+
         if not domain_val or any(c.isspace() for c in domain_val):
             summary["invalid"] += 1
-            summary["invalid_rows"].append(f"Row {row_idx}: Invalid domain '{domain_val}'")
+            summary["invalid_rows"].append(f"Row {index}: Invalid domain '{domain_val}'")
             continue
 
         try:
             normalized = normalize_domain(domain_val)
         except ValueError:
             summary["invalid"] += 1
-            summary["invalid_rows"].append(f"Row {row_idx}: Invalid domain '{domain_val}'")
+            summary["invalid_rows"].append(f"Row {index}: Invalid domain '{domain_val}'")
             continue
 
         if domain_exists(normalized):
@@ -631,13 +648,7 @@ def import_domains_from_csv(csv_content: str) -> dict:
 
         pts_idx = col_map.get("ports", -1)
         ports_raw = row[pts_idx].strip() if pts_idx != -1 and pts_idx < len(row) else ""
-        ports_val = parse_csv_ports(ports_raw)
-
-        if ports_val is None:
-            if not paused_val:
-                ports_val = discover_ports(normalized)
-            else:
-                ports_val = []
+        ports_val = parse_csv_ports(ports_raw) or []
 
         conn = get_db_connection()
         cursor = conn.execute(
@@ -649,6 +660,14 @@ def import_domains_from_csv(csv_content: str) -> dict:
         conn.close()
 
         if not paused_val and ports_val:
+            if progress_callback is not None:
+                progress_callback({
+                    "index": index,
+                    "total": total_records,
+                    "domain": normalized,
+                    "status": "scanning",
+                    "message": f"Scanning ports for {normalized} ({', '.join(str(p) for p in ports_val)})",
+                })
             scan_domain(domain_id, normalized, ports_val, match_val, url_path=url_path_val)
 
         summary["imported"] += 1
@@ -682,8 +701,6 @@ def update_domain(
                 incoming_ports.append(int(value))
             except ValueError:
                 raise ValueError(f"Invalid port value '{value}'")
-    if not incoming_ports and not paused:
-        incoming_ports = discover_ports(normalized)
     conn = get_db_connection()
     conn.execute(
         "UPDATE domains SET name = ?, match = ?, url_path = ?, paused = ?, ports = ? WHERE id = ?",
@@ -698,7 +715,8 @@ def update_domain(
     )
     conn.commit()
     conn.close()
-    scan_domain(domain_id, normalized, incoming_ports, domain_match, url_path=normalized_path)
+    if incoming_ports and not paused:
+        scan_domain(domain_id, normalized, incoming_ports, domain_match, url_path=normalized_path)
 
 
 def parse_port_values(ports_input: str):
@@ -842,6 +860,8 @@ def send_email(
     body: str,
     settings: dict[str, str] | None = None,
     timeout: int = 10,
+    html_body: str | None = None,
+    logo_path: str | Path | None = None,
 ) -> tuple[bool, str]:
     cfg = get_settings() if settings is None else settings
     smtp_host = cfg.get("smtp_host", "").strip()
@@ -868,6 +888,59 @@ def send_email(
     msg["From"] = from_email
     msg["To"] = to_email
     msg.set_content(body)
+
+    actual_logo_path = Path(logo_path) if logo_path else (BASE_DIR / "static" / "logo.png")
+
+    if not html_body:
+        escaped_lines = [
+            f"<p style='margin: 4px 0;'>{line}</p>" if line.strip() else "<div style='height: 8px;'></div>"
+            for line in body.splitlines()
+        ]
+        content_html = "\n".join(escaped_lines)
+        html_body = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{subject}</title>
+</head>
+<body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+    <div style="background: #0f172a; padding: 18px 24px;">
+      <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
+        <tr>
+          <td style="vertical-align: middle; padding-right: 12px;">
+            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="36" height="36" style="display: block; border-radius: 8px;" />
+          </td>
+          <td style="vertical-align: middle;">
+            <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: -0.5px;">PulseCheck</span>
+          </td>
+        </tr>
+      </table>
+    </div>
+    <div style="padding: 24px; font-size: 15px; line-height: 1.6; color: #1d2433;">
+      {content_html}
+    </div>
+    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
+      PulseCheck &bull; Network &amp; Domain Monitoring
+    </div>
+  </div>
+</body>
+</html>"""
+
+    msg.add_alternative(html_body, subtype="html")
+
+    if actual_logo_path and actual_logo_path.exists():
+        try:
+            with open(actual_logo_path, "rb") as f:
+                logo_bytes = f.read()
+            msg.get_payload()[-1].add_related(
+                logo_bytes,
+                maintype="image",
+                subtype="png",
+                cid="<pulsecheck_logo>",
+            )
+        except Exception:
+            pass
 
     try:
         if smtp_security == "ssl":
@@ -966,6 +1039,77 @@ def run_import_worker(token, domain_names):
         state["message"] = "Import finished" if state["status"] == "complete" else state["status"]
 
 
+def create_csv_import_session(csv_content: str):
+    token = uuid.uuid4().hex
+    raw_rows = [r for r in csv.reader(io.StringIO(csv_content)) if r and any(cell.strip() for cell in r)]
+    first_cells = [c.strip().lower() for c in raw_rows[0]] if raw_rows else []
+    has_header = any(h in first_cells for h in ("domain", "domain name", "name"))
+    total_records = max(len(raw_rows) - 1, 0) if has_header else len(raw_rows)
+
+    with IMPORT_LOCK:
+        IMPORT_STATE[token] = {
+            "status": "queued",
+            "token": token,
+            "index": 0,
+            "total": total_records,
+            "domain": None,
+            "port": None,
+            "message": "Preparing CSV import",
+            "cancelled": False,
+            "summary": None,
+            "finished": False,
+            "error": None,
+        }
+    thread = threading.Thread(
+        target=run_csv_import_worker,
+        args=(token, csv_content),
+        daemon=True,
+    )
+    thread.start()
+    return token
+
+
+def run_csv_import_worker(token, csv_content):
+    state = IMPORT_STATE.get(token)
+    if state is None:
+        return
+
+    def progress(info):
+        st = IMPORT_STATE.get(token)
+        if not st:
+            return
+        st["status"] = info.get("status", st["status"])
+        st["index"] = info.get("index", st.get("index", 0))
+        st["total"] = info.get("total", st.get("total", 0))
+        st["domain"] = info.get("domain", st.get("domain"))
+        st["port"] = info.get("port")
+        st["message"] = info.get("message", st.get("message", "Working"))
+
+    def cancelled_check():
+        st = IMPORT_STATE.get(token)
+        return bool(st and st.get("cancelled"))
+
+    state["status"] = "running"
+    try:
+        summary = import_domains_from_csv(
+            csv_content,
+            progress_callback=progress,
+            cancelled_check=cancelled_check,
+        )
+        state["status"] = "complete"
+        state["summary"] = summary
+    except ImportCancelled:
+        state["status"] = "cancelled"
+        state["summary"] = {"cancelled": True}
+    except Exception as exc:
+        state["status"] = "error"
+        state["error"] = str(exc)
+    finally:
+        state["finished"] = True
+        state["port"] = None
+        state["message"] = "Import finished" if state["status"] == "complete" else state["status"]
+
+
 @app.route("/import", methods=["GET", "POST"])
 def handle_import():
     if request.method == "POST":
@@ -1018,6 +1162,19 @@ def start_import():
         return {"error": "No domain names were supplied."}, 400
 
     token = create_import_session(items)
+    return {"token": token, "status": "started"}
+
+
+@app.route("/import/csv/start", methods=["POST"])
+def start_csv_import():
+    if "csv_file" not in request.files or not request.files["csv_file"].filename:
+        return {"error": "No CSV file provided."}, 400
+    file = request.files["csv_file"]
+    content = file.read().decode("utf-8", errors="replace")
+    if not content.strip():
+        return {"error": "CSV file is empty."}, 400
+
+    token = create_csv_import_session(content)
     return {"token": token, "status": "started"}
 
 
@@ -1295,8 +1452,66 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
     lines.append(f"View live status at: http://127.0.0.1:{DEFAULT_PORT}/status")
 
     body = "\n".join(lines)
+
+    cards_html = []
+    for item in changes:
+        old_st = item["old_status"].upper()
+        new_st = item["new_status"].upper()
+        badge_color = "#059669" if new_st == "UP" else ("#dc2626" if new_st == "DOWN" else "#d97706")
+        ports_html = ""
+        if item.get("port_changes"):
+            p_items = "".join(f"<li style='margin: 2px 0;'>{p}</li>" for p in item["port_changes"])
+            ports_html = f"<div style='margin-top: 8px; font-size: 13px; color: #475569;'><strong>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
+        cards_html.append(
+            f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+    <strong style="font-size: 16px; color: #0f172a;">{item['domain']}</strong>
+    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: {badge_color}; color: #ffffff;">{new_st}</span>
+  </div>
+  <div style="font-size: 14px; color: #334155;">Status changed from <strong>{old_st}</strong> to <strong>{new_st}</strong></div>
+  {ports_html}
+</div>"""
+        )
+
+    domain_cards_str = "\n".join(cards_html)
+    html_body = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{subject}</title>
+</head>
+<body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+    <div style="background: #0f172a; padding: 18px 24px;">
+      <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
+        <tr>
+          <td style="vertical-align: middle; padding-right: 12px;">
+            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="36" height="36" style="display: block; border-radius: 8px;" />
+          </td>
+          <td style="vertical-align: middle;">
+            <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: -0.5px;">PulseCheck</span>
+          </td>
+        </tr>
+      </table>
+    </div>
+    <div style="padding: 24px;">
+      <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Domain State Change Alert</h2>
+      <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b;">Scan completed: {now_str}</p>
+      <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> domain{'s have' if count > 1 else ' has'} changed state since the previous scan:</p>
+      {domain_cards_str}
+      <div style="margin-top: 20px; text-align: center;">
+        <a href="http://127.0.0.1:{DEFAULT_PORT}/status" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
+      </div>
+    </div>
+    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
+      PulseCheck &bull; Network &amp; Domain Monitoring
+    </div>
+  </div>
+</body>
+</html>"""
+
     try:
-        success, msg = send_email(recipient, subject, body, settings=settings)
+        success, msg = send_email(recipient, subject, body, settings=settings, html_body=html_body)
         if not success:
             print(f"[PulseCheck Alert Error] Failed to send state change notification: {msg}")
         return success, msg

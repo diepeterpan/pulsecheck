@@ -24,6 +24,44 @@ header {
     margin-bottom: 24px;
 }
 
+.brand {
+    display: flex;
+    align-items: center;
+}
+
+.brand-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: inherit;
+    border-radius: 8px;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.brand-link:hover {
+    opacity: 0.95;
+    transform: translateY(-1px);
+}
+
+.brand-logo {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+    flex-shrink: 0;
+}
+
+.brand-title {
+    margin: 0;
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1d2433;
+    line-height: 1;
+    letter-spacing: -0.5px;
+}
+
 nav {
     display: flex;
     gap: 12px;

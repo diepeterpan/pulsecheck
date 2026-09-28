@@ -4,12 +4,21 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>PulseCheck</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16x16.png') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   </head>
   <body>
     <div class="container">
       <header>
-        <h1>PulseCheck</h1>
+        <div class="brand">
+          <a href="{{ url_for('status') }}" class="brand-link">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="PulseCheck Logo" class="brand-logo">
+            <h1 class="brand-title">PulseCheck</h1>
+          </a>
+        </div>
         <nav>
           <a href="{{ url_for('handle_import') }}" class="{% if request.endpoint in ('handle_import', 'start_import') %}active{% endif %}" {% if request.endpoint in ('handle_import', 'start_import') %}aria-current="page"{% endif %}>Import</a>
           <a href="{{ url_for('domains') }}" class="{% if request.endpoint in ('domains', 'add_domain_route', 'edit_domain') %}active{% endif %}" {% if request.endpoint in ('domains', 'add_domain_route', 'edit_domain') %}aria-current="page"{% endif %}>Domains</a>
