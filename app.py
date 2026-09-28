@@ -5,11 +5,13 @@ import http.client
 import os
 import sqlite3
 import socket
+import smtplib
 import ssl
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -66,6 +68,14 @@ def init_db():
             last_response_ms INTEGER,
             checked_at TEXT NOT NULL,
             FOREIGN KEY(domain_id) REFERENCES domains(id)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
         )
         """
     )
@@ -650,6 +660,93 @@ def get_status_rows():
     return result
 
 
+DEFAULT_SETTINGS = {
+    "smtp_host": "",
+    "smtp_port": "587",
+    "smtp_security": "tls",
+    "smtp_username": "",
+    "smtp_password": "",
+    "from_email": "",
+    "recipient_email": "",
+}
+
+
+def get_settings() -> dict[str, str]:
+    conn = get_db_connection()
+    rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    conn.close()
+    settings = dict(DEFAULT_SETTINGS)
+    for row in rows:
+        settings[row["key"]] = row["value"]
+    return settings
+
+
+def save_settings(new_settings: dict[str, str]) -> None:
+    conn = get_db_connection()
+    for key, value in new_settings.items():
+        if key in DEFAULT_SETTINGS:
+            val_to_save = str(value) if key == "smtp_password" else str(value).strip()
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, val_to_save),
+            )
+    conn.commit()
+    conn.close()
+
+
+def send_email(
+    to_email: str,
+    subject: str,
+    body: str,
+    settings: dict[str, str] | None = None,
+    timeout: int = 10,
+) -> tuple[bool, str]:
+    cfg = get_settings() if settings is None else settings
+    smtp_host = cfg.get("smtp_host", "").strip()
+    smtp_port_raw = cfg.get("smtp_port", "587").strip()
+    smtp_security = cfg.get("smtp_security", "tls").strip().lower()
+    smtp_username = cfg.get("smtp_username", "").strip()
+    smtp_password = cfg.get("smtp_password", "")
+    from_email = cfg.get("from_email", "").strip() or smtp_username
+
+    if not smtp_host:
+        return False, "SMTP Host is not configured."
+    if not to_email:
+        return False, "Destination email address is required."
+    if not from_email:
+        return False, "Sender (From) email address is required."
+
+    try:
+        smtp_port = int(smtp_port_raw)
+    except ValueError:
+        return False, f"Invalid SMTP Port: {smtp_port_raw}"
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = from_email
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    try:
+        if smtp_security == "ssl":
+            ssl_context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout, context=ssl_context) as server:
+                if smtp_username:
+                    server.login(smtp_username, smtp_password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
+                if smtp_security == "tls":
+                    ssl_context = ssl.create_default_context()
+                    server.starttls(context=ssl_context)
+                if smtp_username:
+                    server.login(smtp_username, smtp_password)
+                server.send_message(msg)
+        return True, f"Test email sent successfully to {to_email}."
+    except Exception as exc:
+        return False, f"Failed to send email: {exc}"
+
+
 @app.route("/")
 def index():
     return redirect(url_for("status"))
@@ -903,6 +1000,55 @@ def status():
     return render_template("status.html", grouped=grouped)
 
 
+@app.route("/settings", methods=["GET", "POST"])
+def settings_route():
+    current_settings = get_settings()
+    if request.method == "POST":
+        action = request.form.get("action", "save")
+        updated = {
+            "smtp_host": request.form.get("smtp_host", "").strip(),
+            "smtp_port": request.form.get("smtp_port", "587").strip(),
+            "smtp_security": request.form.get("smtp_security", "tls").strip(),
+            "smtp_username": request.form.get("smtp_username", "").strip(),
+            "smtp_password": request.form.get("smtp_password", ""),
+            "from_email": request.form.get("from_email", "").strip(),
+            "recipient_email": request.form.get("recipient_email", "").strip(),
+        }
+        if not updated["smtp_password"] and current_settings.get("smtp_password"):
+            updated["smtp_password"] = current_settings["smtp_password"]
+
+        save_settings(updated)
+
+        if action == "test":
+            dest = updated["recipient_email"]
+            if not dest:
+                flash("Destination email address is required to send a test message.", "error")
+            else:
+                now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                test_body = (
+                    "Hello from PulseCheck!\n\n"
+                    "This is a test notification confirming that your SMTP settings and destination "
+                    "email address are configured properly.\n\n"
+                    f"Timestamp: {now_str}\n"
+                    f"SMTP Host: {updated['smtp_host']}:{updated['smtp_port']} ({updated['smtp_security'].upper()})\n"
+                    f"Sender: {updated['from_email']}\n"
+                    f"Recipient: {dest}\n"
+                )
+                success, msg = send_email(
+                    dest,
+                    "[PulseCheck] SMTP Test Message",
+                    test_body,
+                    settings=updated,
+                )
+                flash(msg, "success" if success else "error")
+        else:
+            flash("Settings saved successfully.", "success")
+
+        return redirect(url_for("settings_route"))
+
+    return render_template("settings.html", settings=current_settings)
+
+
 def run_background_tasks():
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(check_all_domains, "interval", minutes=10, id="pulsecheck_scan")
@@ -922,9 +1068,10 @@ def cli_menu():
         print("1. Import domain list")
         print("2. Maintain domains")
         print("3. View status")
-        print("4. Start web app")
-        print("5. Start web with Explicit debugging")
-        print("6. Exit")
+        print("4. Email & SMTP settings")
+        print("5. Start web app")
+        print("6. Start web with Explicit debugging")
+        print("7. Exit")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
@@ -997,18 +1144,67 @@ def cli_menu():
                 print(f"{row['name']} port {port_label}: {state}; last success: {last_success}")
 
         elif choice == "4":
+            settings = get_settings()
+            print("\nCurrent Email & SMTP Settings:")
+            print(f"- SMTP Host: {settings['smtp_host'] or '(not set)'}")
+            print(f"- SMTP Port: {settings['smtp_port']}")
+            print(f"- Security: {settings['smtp_security']}")
+            print(f"- Username: {settings['smtp_username'] or '(not set)'}")
+            print(f"- Password: {'********' if settings['smtp_password'] else '(not set)'}")
+            print(f"- Sender (From): {settings['from_email'] or '(not set)'}")
+            print(f"- Destination Email: {settings['recipient_email'] or '(not set)'}")
+            print("\nOptions: [e]dit settings, [t]est email, or press Enter to return.")
+            sub_choice = input("Select: ").strip().lower()
+            if sub_choice == "e":
+                host = input(f"SMTP Host [{settings['smtp_host']}]: ").strip()
+                port = input(f"SMTP Port [{settings['smtp_port']}]: ").strip()
+                security = input(f"Security (tls/ssl/none) [{settings['smtp_security']}]: ").strip().lower()
+                username = input(f"Username [{settings['smtp_username']}]: ").strip()
+                pwd = input("Password (leave blank to keep current): ").strip()
+                from_addr = input(f"From Email [{settings['from_email']}]: ").strip()
+                dest_addr = input(f"Destination Email [{settings['recipient_email']}]: ").strip()
+
+                updated = {
+                    "smtp_host": host or settings["smtp_host"],
+                    "smtp_port": port or settings["smtp_port"],
+                    "smtp_security": security if security in ("tls", "ssl", "none") else settings["smtp_security"],
+                    "smtp_username": username or settings["smtp_username"],
+                    "smtp_password": pwd if pwd else settings["smtp_password"],
+                    "from_email": from_addr or settings["from_email"],
+                    "recipient_email": dest_addr or settings["recipient_email"],
+                }
+                save_settings(updated)
+                print("Settings updated successfully.")
+            elif sub_choice == "t":
+                dest = settings["recipient_email"]
+                if not dest:
+                    dest = input("Enter destination email for test: ").strip()
+                if dest:
+                    print(f"Sending test email to {dest}...")
+                    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    success, msg = send_email(
+                        dest,
+                        "[PulseCheck] SMTP Test Message",
+                        f"Hello from PulseCheck CLI!\n\nThis is a test message verifying SMTP configuration.\n\nTimestamp: {now_str}",
+                        settings=settings,
+                    )
+                    print(msg)
+                else:
+                    print("No destination email provided.")
+
+        elif choice == "5":
             print(f"Starting web application on http://127.0.0.1:{DEFAULT_PORT}")
             app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
             break
 
-        elif choice == "5":
+        elif choice == "6":
             global EXPLICIT_DEBUG
             EXPLICIT_DEBUG = True
             print(f"Starting web application with explicit debugging on http://127.0.0.1:{DEFAULT_PORT}")
             app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
             break
 
-        elif choice == "6":
+        elif choice == "7":
             print("Exiting PulseCheck.")
             break
         else:

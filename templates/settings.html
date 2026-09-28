@@ -1,0 +1,128 @@
+{% extends 'base.html' %}
+{% block content %}
+  <section class="panel settings-panel">
+    <div class="panel-header">
+      <div>
+        <h2>E-mail &amp; SMTP Settings</h2>
+        <p class="panel-subtitle">Configure outgoing SMTP server connection and notification recipient address.</p>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('settings_route') }}" class="settings-form">
+      <div class="settings-grid">
+        <div class="settings-card">
+          <div class="card-header">
+            <h3>Outgoing Mail Server</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="smtp_host">SMTP Server / Host</label>
+              <input type="text" id="smtp_host" name="smtp_host" value="{{ settings.smtp_host }}" placeholder="e.g. smtp.gmail.com or mail.example.com" autocomplete="off">
+              <span class="field-hint">Hostname or IP address of your mail provider.</span>
+            </div>
+
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="smtp_port">Port</label>
+                <input type="number" id="smtp_port" name="smtp_port" value="{{ settings.smtp_port }}" placeholder="587" min="1" max="65535">
+                <span class="field-hint">Common: 587 (STARTTLS), 465 (SSL), 25 (Plain).</span>
+              </div>
+
+              <div class="form-group">
+                <label for="smtp_security">Encryption / Security</label>
+                <select id="smtp_security" name="smtp_security">
+                  <option value="tls" {% if settings.smtp_security == 'tls' %}selected{% endif %}>STARTTLS (Recommended, port 587)</option>
+                  <option value="ssl" {% if settings.smtp_security == 'ssl' %}selected{% endif %}>SSL / TLS (Direct SSL, port 465)</option>
+                  <option value="none" {% if settings.smtp_security == 'none' %}selected{% endif %}>None (Plain text, port 25)</option>
+                </select>
+                <span class="field-hint">Connection encryption method.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="card-header">
+            <h3>Authentication</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="smtp_username">Username</label>
+              <input type="text" id="smtp_username" name="smtp_username" value="{{ settings.smtp_username }}" placeholder="e.g. alerts@example.com" autocomplete="username">
+              <span class="field-hint">Leave blank if SMTP server does not require authentication.</span>
+            </div>
+
+            <div class="form-group">
+              <label for="smtp_password">Password / App Password</label>
+              <div class="password-input-wrapper">
+                <input type="password" id="smtp_password" name="smtp_password" placeholder="{% if settings.smtp_password %}•••••••• (saved, leave blank to keep){% else %}Enter password{% endif %}" autocomplete="current-password">
+                <button type="button" id="toggle-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle password visibility">Show</button>
+              </div>
+              <span class="field-hint">{% if settings.smtp_password %}A password is saved. Leave blank to keep existing password.{% else %}SMTP user password or App Password.{% endif %}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-card settings-card-full">
+          <div class="card-header">
+            <h3>Notification Addresses</h3>
+          </div>
+          <div class="card-body form-row-2col">
+            <div class="form-group">
+              <label for="from_email">Sender (From) E-mail</label>
+              <input type="email" id="from_email" name="from_email" value="{{ settings.from_email }}" placeholder="e.g. pulsecheck@example.com">
+              <span class="field-hint">Address shown as sender for notifications (defaults to username if empty).</span>
+            </div>
+
+            <div class="form-group">
+              <label for="recipient_email">Destination (Recipient) E-mail</label>
+              <input type="email" id="recipient_email" name="recipient_email" value="{{ settings.recipient_email }}" placeholder="e.g. admin@example.com">
+              <span class="field-hint">Destination mailbox where alerts and test messages will be sent.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-actions">
+        <button type="submit" name="action" value="save" class="button primary">Save Settings</button>
+        <button type="submit" name="action" value="test" class="button secondary btn-test-email">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          Send Test Email
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <script>
+    const pwdInput = document.getElementById('smtp_password');
+    const toggleBtn = document.getElementById('toggle-pwd-btn');
+    if (toggleBtn && pwdInput) {
+      toggleBtn.addEventListener('click', () => {
+        if (pwdInput.type === 'password') {
+          pwdInput.type = 'text';
+          toggleBtn.textContent = 'Hide';
+        } else {
+          pwdInput.type = 'password';
+          toggleBtn.textContent = 'Show';
+        }
+      });
+    }
+
+    // Auto-fill sensible default port when security method changes
+    const securitySelect = document.getElementById('smtp_security');
+    const portInput = document.getElementById('smtp_port');
+    if (securitySelect && portInput) {
+      securitySelect.addEventListener('change', () => {
+        const val = securitySelect.value;
+        const currentPort = portInput.value.trim();
+        if (val === 'ssl' && (currentPort === '587' || currentPort === '25' || !currentPort)) {
+          portInput.value = '465';
+        } else if (val === 'tls' && (currentPort === '465' || currentPort === '25' || !currentPort)) {
+          portInput.value = '587';
+        } else if (val === 'none' && (currentPort === '587' || currentPort === '465' || !currentPort)) {
+          portInput.value = '25';
+        }
+      });
+    }
+  </script>
+{% endblock %}

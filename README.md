@@ -9,6 +9,7 @@ PulseCheck is a small Linux-friendly web application that stores domains in SQLi
 - Maintain the domain list with add, edit, and delete actions
 - Schedule automatic health checks every 10 minutes
 - View a green/red status page showing online/offline port state and last successful response time
+- Configure outgoing SMTP email settings and destination alert recipient
 
 ## Run
 
@@ -24,8 +25,10 @@ PulseCheck is a small Linux-friendly web application that stores domains in SQLi
 
 The app also includes a console menu when started directly, allowing you to:
 
-1. Import domains
-2. Maintain the domain list
-3. View the status report
-4. Start the web server
-5. Exit
+1. Import domain list
+2. Maintain domains
+3. View status
+4. Email & SMTP settings
+5. Start web app
+6. Start web with Explicit debugging
+7. Exit

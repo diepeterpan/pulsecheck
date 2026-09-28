@@ -14,13 +14,14 @@
           <a href="{{ url_for('handle_import') }}" class="{% if request.endpoint in ('handle_import', 'start_import') %}active{% endif %}" {% if request.endpoint in ('handle_import', 'start_import') %}aria-current="page"{% endif %}>Import</a>
           <a href="{{ url_for('domains') }}" class="{% if request.endpoint in ('domains', 'add_domain_route', 'edit_domain') %}active{% endif %}" {% if request.endpoint in ('domains', 'add_domain_route', 'edit_domain') %}aria-current="page"{% endif %}>Domains</a>
           <a href="{{ url_for('status') }}" class="{% if request.endpoint == 'status' %}active{% endif %}" {% if request.endpoint == 'status' %}aria-current="page"{% endif %}>Status</a>
+          <a href="{{ url_for('settings_route') }}" class="{% if request.endpoint == 'settings_route' %}active{% endif %}" {% if request.endpoint == 'settings_route' %}aria-current="page"{% endif %}>Settings</a>
         </nav>
       </header>
-      {% with messages = get_flashed_messages() %}
+      {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
           <ul class="flashes">
-            {% for message in messages %}
-              <li>{{ message }}</li>
+            {% for category, message in messages %}
+              <li class="flash-item{% if category and category != 'message' %} flash-{{ category }}{% endif %}">{{ message }}</li>
             {% endfor %}
           </ul>
         {% endif %}

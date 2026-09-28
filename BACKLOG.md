@@ -33,3 +33,8 @@ Use this format for new entries:
 - Menu function: Status page
 - Required future change: Use a grid layout to shorten the page, place ports next to each other, and add a hover tooltip showing the last successful scan and response time.
 - Status: completed
+
+- Menu function: Settings page
+- Required future change: Capture and maintain e-mail SMTP settings and a destination e-mail address to be used later in the system to send notifications.
+- Status: completed
+
