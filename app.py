@@ -55,6 +55,7 @@ def init_db():
             name TEXT NOT NULL UNIQUE,
             match TEXT NOT NULL DEFAULT '',
             url_path TEXT NOT NULL DEFAULT '',
+            comment TEXT NOT NULL DEFAULT '',
             paused INTEGER NOT NULL DEFAULT 0,
             ports TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -88,6 +89,8 @@ def init_db():
         conn.execute("ALTER TABLE domains ADD COLUMN match TEXT NOT NULL DEFAULT ''")
     if "url_path" not in domain_columns:
         conn.execute("ALTER TABLE domains ADD COLUMN url_path TEXT NOT NULL DEFAULT ''")
+    if "comment" not in domain_columns:
+        conn.execute("ALTER TABLE domains ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
     if "paused" not in domain_columns:
         conn.execute("ALTER TABLE domains ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
     conn.execute(
@@ -151,7 +154,7 @@ def parse_ports(value):
 def domain_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, paused, ports, created_at FROM domains ORDER BY name ASC"
+        "SELECT id, name, match, url_path, comment, paused, ports, created_at FROM domains ORDER BY name ASC"
     ).fetchall()
     conn.close()
     return [
@@ -160,6 +163,7 @@ def domain_list():
             "name": row["name"],
             "match": row["match"],
             "url_path": row["url_path"],
+            "comment": row["comment"] if "comment" in row.keys() else "",
             "paused": bool(row["paused"]),
             "ports": parse_ports(row["ports"]),
             "created_at": row["created_at"],
@@ -171,7 +175,7 @@ def domain_list():
 def get_domain_by_id(domain_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, paused, ports, created_at FROM domains WHERE id = ?",
+        "SELECT id, name, match, url_path, comment, paused, ports, created_at FROM domains WHERE id = ?",
         (domain_id,),
     ).fetchone()
     conn.close()
@@ -182,6 +186,7 @@ def get_domain_by_id(domain_id):
         "name": row["name"],
         "match": row["match"],
         "url_path": row["url_path"],
+        "comment": row["comment"] if "comment" in row.keys() else "",
         "paused": bool(row["paused"]),
         "ports": parse_ports(row["ports"]),
         "created_at": row["created_at"],
@@ -426,23 +431,31 @@ def sync_domain_ports(domain_id: int, domain_name: str, detected_ports: list[int
     )
 
 
-def add_domain(domain_name: str, match: str | None = None, url_path: str | None = None, paused: bool = False):
+def add_domain(
+    domain_name: str,
+    match: str | None = None,
+    url_path: str | None = None,
+    paused: bool = False,
+    comment: str = "",
+):
     normalized = normalize_domain(domain_name)
     if domain_exists(normalized):
         return None
     domain_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
+    detected = []
     if not paused:
         detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
-        (normalized, domain_match, normalized_path, int(paused), json.dumps(detected)),
+        "INSERT INTO domains (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
+        (normalized, domain_match, normalized_path, (comment or "").strip(), int(paused), json.dumps(detected)),
     )
     conn.commit()
     domain_id = cursor.lastrowid
     conn.close()
-    scan_domain(domain_id, normalized, detected, domain_match, url_path=normalized_path)
+    if detected and not paused:
+        scan_domain(domain_id, normalized, detected, domain_match, url_path=normalized_path)
     return domain_id
 
 
@@ -585,6 +598,8 @@ def import_domains_from_csv(
                 col_map["match"] = idx
             elif col in ("url path", "url_path", "path", "url"):
                 col_map["url_path"] = idx
+            elif col in ("comment", "comments", "note", "notes"):
+                col_map["comment"] = idx
             elif col in ("paused", "is_paused"):
                 col_map["paused"] = idx
             elif col in ("ports", "port", "monitored ports"):
@@ -642,6 +657,9 @@ def import_domains_from_csv(
         except ValueError:
             url_path_val = ""
 
+        c_idx = col_map.get("comment", -1)
+        comment_val = row[c_idx].strip() if c_idx != -1 and c_idx < len(row) else ""
+
         p_idx = col_map.get("paused", -1)
         paused_raw = row[p_idx].strip().lower() if p_idx != -1 and p_idx < len(row) else "0"
         paused_val = paused_raw in ("1", "true", "yes", "t", "y")
@@ -652,8 +670,8 @@ def import_domains_from_csv(
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
-            (normalized, match_val, url_path_val, int(paused_val), json.dumps(ports_val)),
+            "INSERT INTO domains (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
+            (normalized, match_val, url_path_val, comment_val, int(paused_val), json.dumps(ports_val)),
         )
         conn.commit()
         domain_id = cursor.lastrowid
@@ -683,13 +701,23 @@ def update_domain(
     match: str | None = None,
     url_path: str | None = None,
     paused: bool | None = None,
+    comment: str | None = None,
 ):
     normalized = normalize_domain(name)
     domain_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
-    if paused is None:
+    existing_domain = None
+    if paused is None or comment is None:
         existing_domain = get_domain_by_id(domain_id)
+
+    if paused is None:
         paused = existing_domain["paused"] if existing_domain else False
+
+    if comment is None:
+        comment_val = existing_domain["comment"] if existing_domain and "comment" in existing_domain.keys() else ""
+    else:
+        comment_val = str(comment).strip()
+
     incoming_ports = []
     if ports_input:
         raw_parts = ports_input.replace(",", "\n").splitlines()
@@ -703,11 +731,12 @@ def update_domain(
                 raise ValueError(f"Invalid port value '{value}'")
     conn = get_db_connection()
     conn.execute(
-        "UPDATE domains SET name = ?, match = ?, url_path = ?, paused = ?, ports = ? WHERE id = ?",
+        "UPDATE domains SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, ports = ? WHERE id = ?",
         (
             normalized,
             domain_match,
             normalized_path,
+            comment_val,
             int(paused),
             json.dumps(sorted({int(port) for port in incoming_ports})),
             domain_id,
@@ -1219,11 +1248,12 @@ def add_domain_route():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         match = request.form.get("match", "").strip()
+        comment = request.form.get("comment", "").strip()
         if not name:
             flash("A domain name is required.")
             return redirect(url_for("add_domain_route"))
         try:
-            result = add_domain(name, match or None, request.form.get("url_path", ""))
+            result = add_domain(name, match or None, request.form.get("url_path", ""), comment=comment)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("add_domain_route"))
@@ -1284,10 +1314,11 @@ def edit_domain(domain_id):
         name = request.form.get("name", "").strip()
         match = request.form.get("match", "").strip()
         url_path = request.form.get("url_path", "")
+        comment = request.form.get("comment", "").strip()
         ports_input = request.form.get("ports", "")
         paused = request.form.get("paused") == "on"
         try:
-            update_domain(domain_id, name, ports_input, match or None, url_path, paused)
+            update_domain(domain_id, name, ports_input, match or None, url_path, paused, comment=comment)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_domain", domain_id=domain_id))
@@ -1593,7 +1624,8 @@ def cli_menu():
             print("Saved domains:")
             for entry in entries:
                 ports = ", ".join(str(port) for port in entry["ports"]) or "none"
-                print(f"- {entry['id']}: {entry['name']} [{ports}]")
+                comment_suffix = f" ({entry['comment']})" if entry.get("comment") else ""
+                print(f"- {entry['id']}: {entry['name']} [{ports}]{comment_suffix}")
 
             selection = input("Enter domain id to edit, or 'd' to delete, or blank to return: ").strip()
             if not selection:
@@ -1617,8 +1649,10 @@ def cli_menu():
                 continue
             new_name = input(f"New domain name [{domain['name']}]: ").strip() or domain["name"]
             ports_value = input(f"Ports [{', '.join(str(port) for port in domain['ports'])}] : ").strip()
+            comment_input = input(f"Comment [{domain.get('comment', '')}]: ").strip()
+            comment_val = comment_input if comment_input else domain.get("comment", "")
             try:
-                update_domain(domain_id, new_name, ports_value)
+                update_domain(domain_id, new_name, ports_value, comment=comment_val)
                 print("Domain updated.")
             except ValueError as exc:
                 print(f"Update failed: {exc}")

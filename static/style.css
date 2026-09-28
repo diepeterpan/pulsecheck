@@ -527,6 +527,83 @@ button.danger {
     font-weight: 600;
 }
 
+.domain-name-container {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.domain-name-text {
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.domain-comment-badge {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #4338ca;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    cursor: help;
+    transition: all 0.15s ease;
+}
+
+.domain-comment-badge:hover,
+.domain-comment-badge:focus {
+    background: #4338ca;
+    color: #ffffff;
+    border-color: #4338ca;
+    outline: none;
+}
+
+.domain-comment-badge .tooltip-bubble {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background-color: #0f172a;
+    color: #ffffff;
+    text-align: left;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    max-width: 280px;
+    min-width: 120px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.domain-comment-badge .tooltip-bubble::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #0f172a transparent transparent transparent;
+}
+
+.domain-comment-badge:hover .tooltip-bubble,
+.domain-comment-badge:focus .tooltip-bubble {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
 .col-match {
     color: #475569;
 }

@@ -26,6 +26,10 @@
               <label for="url_path">URL path (optional)</label>
               <input type="text" id="url_path" name="url_path" placeholder="/test/test.asp">
             </div>
+            <div class="form-field">
+              <label for="comment">Comment (optional)</label>
+              <input type="text" id="comment" name="comment" placeholder="e.g. Production API, Staging, etc.">
+            </div>
             <div class="form-field form-field-btn">
               <button type="submit" class="button primary">Add Domain</button>
             </div>
@@ -110,10 +114,21 @@
                 data-domain="{{ domain.name | lower }}"
                 data-match="{{ domain.match | lower }}"
                 data-path="{{ (domain.url_path or '(root)') | lower }}"
+                data-comment="{{ (domain.comment or '') | lower }}"
                 data-paused="{{ 'paused' if domain.paused else 'active' }}"
                 data-ports="{{ (domain.ports | join(' ') if domain.ports else 'none') | lower }}">
               <td class="col-select"><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
-              <td class="col-domain"><strong>{{ domain.name }}</strong></td>
+              <td class="col-domain">
+                <div class="domain-name-container">
+                  <strong class="domain-name-text">{{ domain.name }}</strong>
+                  {% if domain.comment %}
+                    <span class="domain-comment-badge" title="{{ domain.comment }}" tabindex="0" aria-label="Comment: {{ domain.comment }}">
+                      <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                      <span class="tooltip-bubble">{{ domain.comment }}</span>
+                    </span>
+                  {% endif %}
+                </div>
+              </td>
               <td class="col-match">{{ domain.match }}</td>
               <td class="col-path">{% if domain.url_path %}<span class="path-pill">{{ domain.url_path }}</span>{% else %}<span class="path-root">(root)</span>{% endif %}</td>
               <td class="col-paused">{% if domain.paused %}<span class="badge paused">Paused</span>{% else %}<span class="badge active">Active</span>{% endif %}</td>

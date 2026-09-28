@@ -1,5 +1,7 @@
 import io
 import os
+from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -503,7 +505,140 @@ site3.com,site3,,0,80
         self.assertTrue(len(image_parts) >= 1)
         self.assertEqual(image_parts[0].get("Content-ID"), "<pulsecheck_logo>")
 
+    def test_comment_schema_migration_preserves_existing_data(self):
+        # Create a database with old schema (without comment column)
+        temp_dir = tempfile.TemporaryDirectory()
+        old_db_path = Path(temp_dir.name) / "old_pulsecheck.db"
+        orig_db_path = pulsecheck_app.DB_PATH
+        try:
+            conn = sqlite3.connect(old_db_path)
+            conn.execute(
+                """
+                CREATE TABLE domains (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    match TEXT NOT NULL DEFAULT '',
+                    url_path TEXT NOT NULL DEFAULT '',
+                    paused INTEGER NOT NULL DEFAULT 0,
+                    ports TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+                ("legacy-site.org", "legacy", "/app", 0, "[80, 443]"),
+            )
+            conn.commit()
+            conn.close()
+
+            # Point app DB_PATH to this older database and run init_db()
+            pulsecheck_app.DB_PATH = old_db_path
+            pulsecheck_app.init_db()
+
+            # Verify that comment column was added
+            conn = sqlite3.connect(old_db_path)
+            conn.row_factory = sqlite3.Row
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(domains)").fetchall()}
+            self.assertIn("comment", cols)
+
+            # Verify existing data is preserved intact
+            row = conn.execute("SELECT * FROM domains WHERE name = ?", ("legacy-site.org",)).fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["name"], "legacy-site.org")
+            self.assertEqual(row["match"], "legacy")
+            self.assertEqual(row["url_path"], "/app")
+            self.assertEqual(row["comment"], "")
+            conn.close()
+        finally:
+            pulsecheck_app.DB_PATH = orig_db_path
+            temp_dir.cleanup()
+
+    def test_domain_comment_crud(self):
+        with patch("app.scan_domain"):
+            domain_id = pulsecheck_app.add_domain(
+                "comment-test.com",
+                comment="Primary internal API server",
+            )
+            self.assertIsNotNone(domain_id)
+
+            domain = pulsecheck_app.get_domain_by_id(domain_id)
+            self.assertEqual(domain["comment"], "Primary internal API server")
+
+            # Update comment
+            pulsecheck_app.update_domain(
+                domain_id,
+                "comment-test.com",
+                ports_input="80, 443",
+                comment="Updated secondary API server",
+            )
+            domain = pulsecheck_app.get_domain_by_id(domain_id)
+            self.assertEqual(domain["comment"], "Updated secondary API server")
+
+    def test_domain_comment_web_ui(self):
+        with patch("app.scan_domain"):
+            # Add domain via web POST
+            resp = self.client.post(
+                "/domains/add",
+                data={
+                    "name": "web-comment.org",
+                    "match": "web",
+                    "url_path": "",
+                    "comment": "Customer billing system",
+                },
+                follow_redirects=True,
+            )
+            self.assertEqual(resp.status_code, 200)
+
+            # Check domain list page displays comment in tooltip and badge
+            list_resp = self.client.get("/domains")
+            self.assertEqual(list_resp.status_code, 200)
+            html = list_resp.data.decode("utf-8")
+            self.assertIn('class="domain-comment-badge"', html)
+            self.assertIn('Customer billing system', html)
+            self.assertIn('class="tooltip-bubble"', html)
+
+            # Check edit page contains the comment
+            domain = next(d for d in pulsecheck_app.domain_list() if d["name"] == "web-comment.org")
+            edit_get = self.client.get(f"/domains/{domain['id']}/edit")
+            self.assertEqual(edit_get.status_code, 200)
+            self.assertIn('value="Customer billing system"', edit_get.data.decode("utf-8"))
+
+            # Update comment via edit page POST
+            edit_post = self.client.post(
+                f"/domains/{domain['id']}/edit",
+                data={
+                    "name": "web-comment.org",
+                    "match": "web",
+                    "url_path": "",
+                    "comment": "Modified billing system",
+                    "ports": "80",
+                },
+                follow_redirects=True,
+            )
+            self.assertEqual(edit_post.status_code, 200)
+            updated = pulsecheck_app.get_domain_by_id(domain["id"])
+            self.assertEqual(updated["comment"], "Modified billing system")
+
+    def test_csv_import_with_comment_column(self):
+        with patch("app.scan_domain"):
+            # Import CSV containing a Comment column
+            csv_with_comment = "Domain,Match,URL path,Comment,Paused,Ports\nimported-comment.io,imported,,Cloud load balancer,0,80\n"
+            summary = pulsecheck_app.import_domains_from_csv(csv_with_comment)
+            self.assertEqual(summary["imported"], 1)
+
+            domain = next(d for d in pulsecheck_app.domain_list() if d["name"] == "imported-comment.io")
+            self.assertEqual(domain["comment"], "Cloud load balancer")
+
+            # Import CSV without a Comment column (legacy format)
+            legacy_csv = "Domain,Match,URL path,Paused,Ports\nlegacy-no-comment.io,legacy,,0,80\n"
+            summary2 = pulsecheck_app.import_domains_from_csv(legacy_csv)
+            self.assertEqual(summary2["imported"], 1)
+            domain2 = next(d for d in pulsecheck_app.domain_list() if d["name"] == "legacy-no-comment.io")
+            self.assertEqual(domain2["comment"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
