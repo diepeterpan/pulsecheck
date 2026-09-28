@@ -42,4 +42,9 @@ Use this format for new entries:
 - Required future change: Send an e-mail notification after check_all_domains completes with a list of all domains whose state changed since the previous scan.
 - Status: completed
 
+- Menu function: Import page
+- Required future change: Add CSV file export and import of domains with Domain, Match, URL path, Paused, and Ports, showing stats and skipping existing domains.
+- Status: completed
+
+
 

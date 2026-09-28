@@ -2,22 +2,75 @@
 {% block content %}
   <section class="panel">
     <div class="panel-header">
-      <h2>Import Domain List</h2>
+      <div>
+        <h2>Domain Import &amp; Export</h2>
+        <p class="panel-subtitle">Import or export domains via CSV files, or paste domain names directly.</p>
+      </div>
       <a class="button secondary" href="{{ url_for('domains') }}">View Domains</a>
     </div>
 
-    <div class="import-layout">
-      <div class="import-form-col">
-        <div class="import-instructions">
-          <p class="import-hint">Enter one domain per line. Existing domains will be skipped automatically. Port discovery runs for each new domain.</p>
+    <div class="csv-hub-grid">
+      <!-- CSV Export Card -->
+      <div class="hub-card export-card">
+        <div class="hub-card-header">
+          <h3>CSV File Export</h3>
+          <span class="hub-count-badge">{{ domain_count }} Domains</span>
         </div>
-        <form id="import-form" class="import-form">
-          <textarea id="domains" name="domains" rows="14" placeholder="example.com&#10;mail.example.com&#10;api.example.com"></textarea>
-          <div class="import-actions">
-            <button type="submit" id="import-button" class="button primary">↑ Start Import</button>
+        <div class="hub-card-body">
+          <p class="hub-description">
+            Export all saved domains and their configurations to a standard CSV file including:
+            <code>Domain</code>, <code>Match</code>, <code>URL path</code>, <code>Paused</code>, and <code>Ports</code>.
+          </p>
+          <div class="hub-card-actions">
+            <a href="{{ url_for('export_domains_route') }}" id="btn-export-csv" class="button secondary btn-hub-action">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export Domains (CSV)
+            </a>
           </div>
-        </form>
+          <div id="export-stats-banner" class="export-stats-banner hidden">
+            <span>✓ Export initiated for <strong>{{ domain_count }}</strong> domain(s). File download started.</span>
+          </div>
+        </div>
       </div>
+
+      <!-- CSV Import Card -->
+      <div class="hub-card import-card">
+        <div class="hub-card-header">
+          <h3>CSV File Import</h3>
+          <span class="hub-tag">CSV Format</span>
+        </div>
+        <div class="hub-card-body">
+          <p class="hub-description">
+            Upload a CSV file containing columns: <code>Domain, Match, URL path, Paused, Ports</code>.
+            Existing domains already in the database will be skipped automatically without duplicates.
+          </p>
+          <form action="{{ url_for('handle_import') }}" method="post" enctype="multipart/form-data" class="csv-upload-form">
+            <div class="file-upload-wrapper">
+              <input type="file" id="csv_file" name="csv_file" accept=".csv,text/csv" required>
+            </div>
+            <div class="hub-card-actions">
+              <button type="submit" class="button primary btn-hub-action">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import CSV File
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Raw Text Block Import Section -->
+    <div class="text-import-box">
+      <div class="text-import-header">
+        <h3>Quick Text Block Import</h3>
+        <p class="hub-description">Enter one domain per line. Existing domains are skipped. Port discovery runs for each new domain.</p>
+      </div>
+      <form id="import-form" class="import-form">
+        <textarea id="domains" name="domains" rows="8" placeholder="example.com&#10;mail.example.com&#10;api.example.com"></textarea>
+        <div class="import-actions">
+          <button type="submit" id="import-button" class="button secondary">Start Text Import</button>
+        </div>
+      </form>
     </div>
   </section>
 
@@ -38,6 +91,16 @@
   </div>
 
   <script>
+    // CSV Export Banner feedback
+    const exportBtn = document.getElementById('btn-export-csv');
+    const exportBanner = document.getElementById('export-stats-banner');
+    if (exportBtn && exportBanner) {
+      exportBtn.addEventListener('click', () => {
+        exportBanner.classList.remove('hidden');
+      });
+    }
+
+    // Text import logic
     const form = document.getElementById('import-form');
     const overlay = document.getElementById('import-overlay');
     const importButton = document.getElementById('import-button');
@@ -67,7 +130,10 @@
       if (state.status === 'complete' || state.status === 'cancelled' || state.status === 'error') {
         clearInterval(polling);
         polling = null;
-        setTimeout(() => setOverlay(false), 800);
+        setTimeout(() => {
+          setOverlay(false);
+          window.location.reload();
+        }, 1000);
       }
     }
 

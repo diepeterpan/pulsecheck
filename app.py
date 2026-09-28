@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import json
+import csv
 import http.client
+import io
+import json
 import os
+import re
 import sqlite3
 import socket
 import smtplib
@@ -17,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
@@ -516,6 +519,144 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
     return summary
 
 
+def parse_csv_ports(value: str) -> list[int] | None:
+    clean = (value or "").strip().strip("[]()")
+    if not clean:
+        return None
+    ports = []
+    for part in re.split(r"[,;\s]+", clean):
+        if part.strip():
+            try:
+                p = int(part.strip())
+                if 1 <= p <= 65535:
+                    ports.append(p)
+            except ValueError:
+                pass
+    return sorted(set(ports)) if ports else None
+
+
+def export_domains_csv() -> tuple[str, int]:
+    domains = domain_list()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Domain", "Match", "URL path", "Paused", "Ports"])
+    for d in domains:
+        ports_str = ", ".join(str(p) for p in d["ports"])
+        writer.writerow([
+            d["name"],
+            d["match"],
+            d["url_path"],
+            "1" if d["paused"] else "0",
+            ports_str,
+        ])
+    return output.getvalue(), len(domains)
+
+
+def import_domains_from_csv(csv_content: str) -> dict:
+    summary = {
+        "total": 0,
+        "imported": 0,
+        "skipped": 0,
+        "invalid": 0,
+        "imported_domains": [],
+        "skipped_domains": [],
+        "invalid_rows": [],
+    }
+
+    reader = csv.reader(io.StringIO(csv_content))
+    header = None
+    col_map = {}
+
+    for row_idx, row in enumerate(reader, start=1):
+        if not row or not any(cell.strip() for cell in row):
+            continue
+
+        if header is None:
+            first_cells = [c.strip().lower() for c in row]
+            has_domain_header = any(h in first_cells for h in ("domain", "domain name", "name"))
+            if has_domain_header:
+                header = first_cells
+                for idx, col in enumerate(header):
+                    if col in ("domain", "domain name", "name"):
+                        col_map["domain"] = idx
+                    elif col in ("match", "domain match"):
+                        col_map["match"] = idx
+                    elif col in ("url path", "url_path", "path", "url"):
+                        col_map["url_path"] = idx
+                    elif col in ("paused", "is_paused"):
+                        col_map["paused"] = idx
+                    elif col in ("ports", "port", "monitored ports"):
+                        col_map["ports"] = idx
+                continue
+            else:
+                header = ["domain", "match", "url path", "paused", "ports"]
+                col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
+
+        summary["total"] += 1
+        d_idx = col_map.get("domain", 0)
+        domain_val = row[d_idx].strip() if d_idx < len(row) else ""
+
+        if not domain_val or any(c.isspace() for c in domain_val):
+            summary["invalid"] += 1
+            summary["invalid_rows"].append(f"Row {row_idx}: Invalid domain '{domain_val}'")
+            continue
+
+        try:
+            normalized = normalize_domain(domain_val)
+        except ValueError:
+            summary["invalid"] += 1
+            summary["invalid_rows"].append(f"Row {row_idx}: Invalid domain '{domain_val}'")
+            continue
+
+        if domain_exists(normalized):
+            summary["skipped"] += 1
+            summary["skipped_domains"].append(normalized)
+            continue
+
+        m_idx = col_map.get("match", -1)
+        match_val = row[m_idx].strip() if m_idx != -1 and m_idx < len(row) else ""
+        if not match_val:
+            match_val = derive_match(normalized)
+
+        u_idx = col_map.get("url_path", -1)
+        url_raw = row[u_idx].strip() if u_idx != -1 and u_idx < len(row) else ""
+        try:
+            url_path_val = normalize_url_path(url_raw)
+        except ValueError:
+            url_path_val = ""
+
+        p_idx = col_map.get("paused", -1)
+        paused_raw = row[p_idx].strip().lower() if p_idx != -1 and p_idx < len(row) else "0"
+        paused_val = paused_raw in ("1", "true", "yes", "t", "y")
+
+        pts_idx = col_map.get("ports", -1)
+        ports_raw = row[pts_idx].strip() if pts_idx != -1 and pts_idx < len(row) else ""
+        ports_val = parse_csv_ports(ports_raw)
+
+        if ports_val is None:
+            if not paused_val:
+                ports_val = discover_ports(normalized)
+            else:
+                ports_val = []
+
+        conn = get_db_connection()
+        cursor = conn.execute(
+            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+            (normalized, match_val, url_path_val, int(paused_val), json.dumps(ports_val)),
+        )
+        conn.commit()
+        domain_id = cursor.lastrowid
+        conn.close()
+
+        if not paused_val and ports_val:
+            scan_domain(domain_id, normalized, ports_val, match_val, url_path=url_path_val)
+
+        summary["imported"] += 1
+        summary["imported_domains"].append(normalized)
+
+    return summary
+
+
 def update_domain(
     domain_id: int,
     name: str,
@@ -828,18 +969,45 @@ def run_import_worker(token, domain_names):
 @app.route("/import", methods=["GET", "POST"])
 def handle_import():
     if request.method == "POST":
+        # Check if CSV file was uploaded
+        if "csv_file" in request.files and request.files["csv_file"].filename:
+            file = request.files["csv_file"]
+            try:
+                content = file.read().decode("utf-8", errors="replace")
+                summary = import_domains_from_csv(content)
+                flash(
+                    f"CSV Import complete: {summary['imported']} imported, {summary['skipped']} skipped (already in database), {summary['invalid']} invalid (Total rows: {summary['total']}).",
+                    "success" if summary["imported"] > 0 else "message",
+                )
+            except Exception as exc:
+                flash(f"Error processing CSV file: {exc}", "error")
+            return redirect(url_for("handle_import"))
+
         raw_text = request.form.get("domains", "")
         items = [line.strip() for line in raw_text.splitlines() if line.strip()]
         if not items:
-            flash("No domain names were supplied.")
+            flash("No domain names or CSV file were supplied.", "error")
             return redirect(url_for("handle_import"))
 
         summary = import_domain_names(items)
         flash(
-            f"Imported {summary['imported']} domains; skipped {summary['skipped']} duplicate or invalid entries."
+            f"Imported {summary['imported']} domains; skipped {summary['skipped']} duplicate or invalid entries.",
+            "success",
         )
         return redirect(url_for("domains"))
-    return render_template("import.html")
+
+    domains = domain_list()
+    return render_template("import.html", domain_count=len(domains))
+
+
+@app.route("/import/export", methods=["GET"])
+@app.route("/domains/export.csv", methods=["GET"])
+def export_domains_route():
+    csv_content, count = export_domains_csv()
+    response = Response(csv_content, mimetype="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=pulsecheck_domains.csv"
+    response.headers["X-Exported-Count"] = str(count)
+    return response
 
 
 @app.route("/import/start", methods=["POST"])

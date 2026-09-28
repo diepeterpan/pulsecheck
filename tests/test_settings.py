@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import unittest
@@ -286,6 +287,98 @@ class SettingsTests(unittest.TestCase):
 
         self.assertEqual(changes, [])
         mock_send_email.assert_not_called()
+
+    def test_export_domains_csv(self):
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+            ("domain-a.com", "domain", "/test", 0, "[80, 443]"),
+        )
+        conn.execute(
+            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+            ("domain-b.com", "other", "", 1, "[8080]"),
+        )
+        conn.commit()
+        conn.close()
+
+        csv_text, count = pulsecheck_app.export_domains_csv()
+        self.assertEqual(count, 2)
+        lines = [line.strip() for line in csv_text.strip().splitlines()]
+        self.assertEqual(lines[0], "Domain,Match,URL path,Paused,Ports")
+        self.assertIn('domain-a.com,domain,/test,0,"80, 443"', lines)
+        self.assertIn("domain-b.com,other,,1,8080", lines)
+
+    @patch("app.scan_domain")
+    def test_import_domains_from_csv_success_and_skip_duplicates(self, mock_scan):
+        # Seed an existing domain in the database
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+            ("existing.com", "existing", "", 0, "[80]"),
+        )
+        conn.commit()
+        conn.close()
+
+        csv_data = """Domain,Match,URL path,Paused,Ports
+newsite.com,newsite,/api,0,"80, 443"
+existing.com,existing,,0,80
+pausedsite.com,pausedsite,,1,8080
+bad site!!,bad,,0,80
+"""
+        summary = pulsecheck_app.import_domains_from_csv(csv_data)
+        self.assertEqual(summary["total"], 4)
+        self.assertEqual(summary["imported"], 2)
+        self.assertEqual(summary["skipped"], 1)
+        self.assertEqual(summary["invalid"], 1)
+        self.assertIn("existing.com", summary["skipped_domains"])
+        self.assertIn("newsite.com", summary["imported_domains"])
+        self.assertIn("pausedsite.com", summary["imported_domains"])
+
+        # Check newsite.com in DB
+        domains = {d["name"]: d for d in pulsecheck_app.domain_list()}
+        self.assertEqual(domains["newsite.com"]["match"], "newsite")
+        self.assertEqual(domains["newsite.com"]["url_path"], "/api")
+        self.assertFalse(domains["newsite.com"]["paused"])
+        self.assertEqual(domains["newsite.com"]["ports"], [80, 443])
+
+        # Check pausedsite.com in DB
+        self.assertTrue(domains["pausedsite.com"]["paused"])
+        self.assertEqual(domains["pausedsite.com"]["ports"], [8080])
+
+    def test_export_route(self):
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
+            ("test.org", "test", "", 0, "[443]"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = self.client.get("/import/export")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content_type, "text/csv; charset=utf-8")
+        self.assertIn("attachment; filename=pulsecheck_domains.csv", response.headers["Content-Disposition"])
+        self.assertEqual(response.headers["X-Exported-Count"], "1")
+        self.assertIn(b"Domain,Match,URL path,Paused,Ports", response.data)
+        self.assertIn(b"test.org,test,,0,443", response.data)
+
+    @patch("app.scan_domain")
+    def test_import_route_csv_upload(self, mock_scan):
+        csv_file_bytes = b"Domain,Match,URL path,Paused,Ports\nuploaded.com,uploaded,,0,80\n"
+        data = {
+            "csv_file": (io.BytesIO(csv_file_bytes), "domains.csv"),
+        }
+        response = self.client.post(
+            "/import",
+            data=data,
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"CSV Import complete: 1 imported, 0 skipped", response.data)
+
+        domains = pulsecheck_app.domain_list()
+        self.assertTrue(any(d["name"] == "uploaded.com" for d in domains))
 
 
 if __name__ == "__main__":
