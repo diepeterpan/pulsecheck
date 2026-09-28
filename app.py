@@ -7,6 +7,7 @@ import sqlite3
 import socket
 import smtplib
 import ssl
+import sys
 import threading
 import time
 import uuid
@@ -19,7 +20,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, flash, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "pulsecheck.db"
+DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
 COMMON_PORTS = [80, 443, 22, 21, 25, 53, 110, 143, 587, 993, 995, 8080, 8443, 8444, 3306, 5432, 27017, 3000, 9000]
 HTTPS_PORTS = {443, 8443, 8444}
 DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
@@ -1324,6 +1325,10 @@ if __name__ == "__main__":
     init_db()
     scheduler = run_background_tasks()
     try:
-        cli_menu()
+        if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
+            print(f"Starting web application on http://0.0.0.0:{DEFAULT_PORT}")
+            app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
+        else:
+            cli_menu()
     finally:
         scheduler.shutdown(wait=False)

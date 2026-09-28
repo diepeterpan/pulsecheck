@@ -1,0 +1,57 @@
+services:
+  pulsecheck:
+    container_name: pulsecheck
+    image: pulsecheck:latest
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM debian:bookworm-slim
+
+        # Prevent interactive prompts during package installation
+        ENV DEBIAN_FRONTEND=noninteractive \
+            PYTHONUNBUFFERED=1 \
+            PULSECHECK_PORT=8182 \
+            PULSECHECK_HEADLESS=1 \
+            PULSECHECK_DB_PATH=/app/data/pulsecheck.db
+
+        # Install system dependencies: Python, pip, venv, curl, ca-certificates, and tar
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+            python3 \
+            python3-pip \
+            python3-venv \
+            curl \
+            ca-certificates \
+            tar \
+         && rm -rf /var/lib/apt/lists/*
+
+        WORKDIR /app
+
+        # Pull code from GitHub and unpack directly into /app
+        ARG REPO_URL=https://github.com/diepeterpan/pulsecheck/archive/refs/heads/main.tar.gz
+        RUN curl -fsSL "$$REPO_URL" -o /tmp/pulsecheck.tar.gz \
+         && tar -xzf /tmp/pulsecheck.tar.gz --strip-components=1 -C /app \
+         && rm -f /tmp/pulsecheck.tar.gz
+
+        # Set up Python virtual environment and install requirements
+        RUN python3 -m venv /app/.venv \
+         && /app/.venv/bin/pip install --no-cache-dir -r requirements.txt
+
+        # Create persistent data directory for SQLite database
+        RUN mkdir -p /app/data
+
+        EXPOSE 8182
+
+        # Start PulseCheck application
+        CMD ["/app/.venv/bin/python", "app.py"]
+    ports:
+      - "8182:8182"
+    environment:
+      - PULSECHECK_PORT=8182
+      - PULSECHECK_HEADLESS=1
+      - PULSECHECK_DB_PATH=/app/data/pulsecheck.db
+    volumes:
+      - pulsecheck-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  pulsecheck-data:

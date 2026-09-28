@@ -13,6 +13,7 @@ PulseCheck is a small Linux-friendly web application that stores domains in SQLi
 
 ## Run
 
+### Local environment:
 1. Create a virtual environment and install dependencies:
    python3 -m venv .venv
    source .venv/bin/activate
@@ -20,6 +21,14 @@ PulseCheck is a small Linux-friendly web application that stores domains in SQLi
 2. Start the app:
    python app.py
 3. Open the browser at http://127.0.0.1:8182
+
+### Docker Compose:
+Build and run the containerized application directly:
+```bash
+docker compose up -d --build
+```
+The application will be accessible at http://127.0.0.1:8182.
+
 
 ## Menu choices
 
