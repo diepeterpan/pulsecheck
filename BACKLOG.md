@@ -38,3 +38,8 @@ Use this format for new entries:
 - Required future change: Capture and maintain e-mail SMTP settings and a destination e-mail address to be used later in the system to send notifications.
 - Status: completed
 
+- Menu function: Background scanner
+- Required future change: Send an e-mail notification after check_all_domains completes with a list of all domains whose state changed since the previous scan.
+- Status: completed
+
+

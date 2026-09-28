@@ -176,6 +176,117 @@ class SettingsTests(unittest.TestCase):
         self.assertIn(b"Test email sent successfully to receiver@test.com.", response.data)
         mock_send_email.assert_called_once()
 
+    def test_compute_overall_status(self):
+        self.assertEqual(pulsecheck_app.compute_overall_status({}), "none")
+        self.assertEqual(pulsecheck_app.compute_overall_status({80: "online", 443: "online"}), "online")
+        self.assertEqual(pulsecheck_app.compute_overall_status({80: "offline", 443: "offline"}), "offline")
+        self.assertEqual(pulsecheck_app.compute_overall_status({80: "online", 443: "offline"}), "degraded")
+
+    @patch("app.send_email")
+    @patch("app.scan_domain")
+    def test_check_all_domains_sends_notification_on_state_change(self, mock_scan, mock_send_email):
+        mock_send_email.return_value = (True, "Sent")
+
+        # Configure SMTP settings
+        pulsecheck_app.save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "alerts@example.com",
+            "recipient_email": "admin@example.com",
+        })
+
+        # Add domain and simulate previous check state: online
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.execute(
+            "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, ?)",
+            ("service.example", "service", "[80, 443]", 0),
+        )
+        domain_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
+            (domain_id, 80),
+        )
+        conn.execute(
+            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
+            (domain_id, 443),
+        )
+        conn.commit()
+        conn.close()
+
+        # Simulate scan_domain changing port 80 to offline during scan
+        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path=""):
+            conn_inner = pulsecheck_app.get_db_connection()
+            conn_inner.execute(
+                "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 0, 'offline', '2026-09-28 12:10:00 UTC')",
+                (d_id, 80),
+            )
+            conn_inner.execute(
+                "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:10:00 UTC')",
+                (d_id, 443),
+            )
+            conn_inner.commit()
+            conn_inner.close()
+
+        mock_scan.side_effect = simulate_scan
+
+        changes = pulsecheck_app.check_all_domains()
+
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["domain"], "service.example")
+        self.assertEqual(changes[0]["old_status"], "online")
+        self.assertEqual(changes[0]["new_status"], "degraded")
+        self.assertIn("Port 80: ONLINE -> OFFLINE", changes[0]["port_changes"])
+
+        # Verify email was dispatched
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        to_addr, subject, body = call_args[0][0], call_args[0][1], call_args[0][2]
+        self.assertEqual(to_addr, "admin@example.com")
+        self.assertIn("State Change Alert", subject)
+        self.assertIn("service.example", body)
+        self.assertIn("ONLINE -> DEGRADED", body)
+        self.assertIn("Port 80: ONLINE -> OFFLINE", body)
+
+    @patch("app.send_email")
+    @patch("app.scan_domain")
+    def test_check_all_domains_no_notification_when_no_change(self, mock_scan, mock_send_email):
+        # Configure SMTP settings
+        pulsecheck_app.save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "alerts@example.com",
+            "recipient_email": "admin@example.com",
+        })
+
+        # Add domain with existing check state
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.execute(
+            "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, ?)",
+            ("stable.example", "stable", "[80]", 0),
+        )
+        domain_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
+            (domain_id, 80),
+        )
+        conn.commit()
+        conn.close()
+
+        # Simulate scan yielding the same state
+        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path=""):
+            conn_inner = pulsecheck_app.get_db_connection()
+            conn_inner.execute(
+                "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:10:00 UTC')",
+                (d_id, 80),
+            )
+            conn_inner.commit()
+            conn_inner.close()
+
+        mock_scan.side_effect = simulate_scan
+
+        changes = pulsecheck_app.check_all_domains()
+
+        self.assertEqual(changes, [])
+        mock_send_email.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

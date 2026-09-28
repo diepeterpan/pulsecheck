@@ -1056,10 +1056,119 @@ def run_background_tasks():
     return scheduler
 
 
-def check_all_domains():
+def compute_overall_status(port_statuses: dict[int, str]) -> str:
+    if not port_statuses:
+        return "none"
+    statuses = list(port_statuses.values())
+    if all(s == "online" for s in statuses):
+        return "online"
+    if all(s == "offline" for s in statuses):
+        return "offline"
+    return "degraded"
+
+
+def get_domain_snapshots() -> dict[int, dict]:
+    rows = get_status_rows()
+    domains: dict[int, dict] = {}
+    for row in rows:
+        d_id = row["id"]
+        if d_id not in domains:
+            domains[d_id] = {
+                "id": d_id,
+                "name": row["name"],
+                "has_checks": False,
+                "port_statuses": {},
+            }
+        if row["port"] is not None and row["checked_at"] is not None:
+            domains[d_id]["has_checks"] = True
+            domains[d_id]["port_statuses"][row["port"]] = row["status"]
+
+    for d_id, d_data in domains.items():
+        d_data["overall_status"] = compute_overall_status(d_data["port_statuses"])
+
+    return domains
+
+
+def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
+    if not changes:
+        return False, "No changes to notify."
+
+    settings = get_settings()
+    recipient = settings.get("recipient_email", "").strip()
+    if not recipient:
+        return False, "No recipient email configured."
+    if not settings.get("smtp_host", "").strip():
+        return False, "SMTP host not configured."
+
+    count = len(changes)
+    subject = f"[PulseCheck] State Change Alert: {count} domain{'s' if count > 1 else ''} updated"
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    lines = [
+        "PulseCheck Domain State Change Alert",
+        "====================================",
+        f"Scan Completed: {now_str}",
+        "",
+        f"The following {count} domain{'s have' if count > 1 else ' has'} changed state since the previous scan:",
+        "",
+    ]
+
+    for item in changes:
+        lines.append(f"• Domain: {item['domain']}")
+        lines.append(f"  Overall Status: {item['old_status'].upper()} -> {item['new_status'].upper()}")
+        if item.get("port_changes"):
+            lines.append("  Port Details:")
+            for p_change in item["port_changes"]:
+                lines.append(f"    - {p_change}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append(f"View live status at: http://127.0.0.1:{DEFAULT_PORT}/status")
+
+    body = "\n".join(lines)
+    try:
+        success, msg = send_email(recipient, subject, body, settings=settings)
+        if not success:
+            print(f"[PulseCheck Alert Error] Failed to send state change notification: {msg}")
+        return success, msg
+    except Exception as exc:
+        print(f"[PulseCheck Alert Error] Exception sending state change notification: {exc}")
+        return False, str(exc)
+
+
+def check_all_domains() -> list[dict]:
+    before_snapshots = get_domain_snapshots()
+
     for domain in domain_list():
         if not domain["paused"]:
             scan_domain(domain["id"], domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
+
+    after_snapshots = get_domain_snapshots()
+    changes = []
+
+    for domain_id, after_info in after_snapshots.items():
+        before_info = before_snapshots.get(domain_id)
+        if not before_info or not before_info["has_checks"]:
+            continue
+
+        port_changes = []
+        for port, new_status in after_info["port_statuses"].items():
+            old_status = before_info["port_statuses"].get(port)
+            if old_status and old_status != new_status:
+                port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
+
+        if before_info["overall_status"] != after_info["overall_status"] or port_changes:
+            changes.append({
+                "domain": after_info["name"],
+                "old_status": before_info["overall_status"],
+                "new_status": after_info["overall_status"],
+                "port_changes": port_changes,
+            })
+
+    if changes:
+        send_state_change_notification(changes)
+
+    return changes
 
 
 def cli_menu():
