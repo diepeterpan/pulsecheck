@@ -3,74 +3,269 @@
   <section class="panel">
     <div class="panel-header">
       <div>
-        <h2>Domain Import &amp; Export</h2>
-        <p class="panel-subtitle">Import or export domains via CSV files, or paste domain names directly.</p>
+        <h2>Import &amp; Export</h2>
+        <p class="panel-subtitle">Import or export domains via text blocks and standard CSV files.</p>
       </div>
-      <a class="button secondary" href="{{ url_for('domains') }}">View Domains</a>
     </div>
 
-    <div class="csv-hub-grid">
-      <!-- CSV Export Card -->
-      <div class="hub-card export-card">
-        <div class="hub-card-header">
-          <h3>CSV File Export</h3>
-          <span class="hub-count-badge">{{ domain_count }} Domains</span>
+    <!-- Segmented Tab Bar -->
+    <div class="tab-nav-wrapper">
+      <div class="import-tab-bar" role="tablist" aria-label="Import and Export Modes">
+        <button type="button" class="import-tab-btn active" role="tab" id="tab-text" aria-selected="true" aria-controls="panel-text" data-tab="text">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+          Quick Text Block Import
+        </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-csv-import" aria-selected="false" aria-controls="panel-csv-import" data-tab="csv-import">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          CSV File Import
+        </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-csv-export" aria-selected="false" aria-controls="panel-csv-export" data-tab="csv-export">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV Export
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB A: Quick Text Block Import -->
+    <div id="panel-text" class="import-tab-panel" role="tabpanel" aria-labelledby="tab-text">
+      <div class="tab-2col-layout">
+        <!-- Main Input Column -->
+        <div class="tab-main-card">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              Paste Domain Names
+            </h3>
+            <span id="text-domain-count" class="counter-badge">0 domains detected</span>
+          </div>
+          <p class="tab-card-subtitle">Enter domain names (one per line). Existing domains in the database will be skipped automatically.</p>
+          <form id="import-form" class="import-form">
+            <textarea id="domains" name="domains" rows="12" class="code-textarea" placeholder="example.com&#10;api.example.com&#10;auth.internal.local&#10;portal.example.org" spellcheck="false" autocomplete="off"></textarea>
+            <div class="tab-actions-bar">
+              <button type="submit" id="import-button" class="button primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Start Text Import
+              </button>
+              <div class="tab-actions-left">
+                <button type="button" id="load-sample-text-btn" class="button secondary btn-sm" title="Insert sample domains for testing">Load Sample</button>
+                <button type="button" id="clear-text-btn" class="button secondary btn-sm" title="Clear all text">Clear</button>
+              </div>
+            </div>
+          </form>
         </div>
-        <div class="hub-card-body">
-          <p class="hub-description">
-            Export all saved domains and their configurations to a standard CSV file including:
-            <code>Domain</code>, <code>Match</code>, <code>URL path</code>, <code>Comment</code>, <code>Paused</code>, <code>Proxy</code>, and <code>Ports</code>.
-          </p>
-          <div class="hub-card-actions">
-            <a href="{{ url_for('export_domains_route') }}" id="btn-export-csv" class="button secondary btn-hub-action">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export Domains (CSV)
-            </a>
+
+        <!-- Sidebar / Guidance Column -->
+        <div class="tab-side-card guide-card">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              Quick Import Guide
+            </h3>
           </div>
-          <div id="export-stats-banner" class="export-stats-banner hidden">
-            <span>✓ Export initiated for <strong>{{ domain_count }}</strong> domain(s). File download started.</span>
-          </div>
+          <ul class="guide-list">
+            <li class="guide-item">
+              <span class="guide-icon">1</span>
+              <div>
+                <strong>One Hostname Per Line</strong>
+                <div>Use bare domain names or IP addresses. Protocol prefixes (<code>http://</code>, <code>https://</code>) are automatically stripped.</div>
+              </div>
+            </li>
+            <li class="guide-item">
+              <span class="guide-icon">2</span>
+              <div>
+                <strong>Automatic Port Discovery</strong>
+                <div>PulseCheck automatically probes each new domain across standard ports (80, 443, 8080, 8443, etc.) to detect active services.</div>
+              </div>
+            </li>
+            <li class="guide-item">
+              <span class="guide-icon">3</span>
+              <div>
+                <strong>Duplicate Protection</strong>
+                <div>Domains already registered in the system are skipped without modifying their existing configuration or port checks.</div>
+              </div>
+            </li>
+            <li class="guide-item">
+              <span class="guide-icon">4</span>
+              <div>
+                <strong>Background Execution</strong>
+                <div>Imports run asynchronously in a worker pool. You can monitor progress live or safely cancel anytime.</div>
+              </div>
+            </li>
+          </ul>
         </div>
       </div>
+    </div>
 
-      <!-- CSV Import Card -->
-      <div class="hub-card import-card">
-        <div class="hub-card-header">
-          <h3>CSV File Import</h3>
-          <span class="hub-tag">CSV Format</span>
-        </div>
-        <div class="hub-card-body">
-          <p class="hub-description">
-            Upload a CSV file containing columns: <code>Domain, Match, URL path, Comment, Paused, Proxy, Ports</code>.
-            Existing domains in the database are skipped automatically. Records without ports will not be scanned.
-          </p>
-          <form id="csv-import-form" action="{{ url_for('handle_import') }}" method="post" enctype="multipart/form-data" class="csv-upload-form">
-            <div class="file-upload-wrapper">
-              <input type="file" id="csv_file" name="csv_file" accept=".csv,text/csv" required>
+    <!-- TAB B: CSV File Import -->
+    <div id="panel-csv-import" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-csv-import">
+      <div class="tab-2col-layout">
+        <!-- Main Upload Column -->
+        <div class="tab-main-card">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              Upload CSV File
+            </h3>
+            <span class="hub-tag">CSV Format</span>
+          </div>
+          <p class="tab-card-subtitle">Upload a CSV file containing your domain monitoring configuration. Existing domains are skipped automatically.</p>
+
+          <form id="csv-import-form" action="{{ url_for('handle_import') }}" method="post" enctype="multipart/form-data">
+            <!-- Modern Dropzone File Picker -->
+            <div id="dropzone" class="dropzone-container" tabindex="0" role="button" aria-label="Drop CSV file here or click to browse">
+              <input type="file" id="csv_file" name="csv_file" accept=".csv,text/csv" class="dropzone-input" required>
+              <div class="dropzone-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <p class="dropzone-text">Click to choose a CSV file or drag and drop</p>
+              <p class="dropzone-hint">Standard CSV files up to 10 MB (UTF-8 encoded)</p>
             </div>
-            <div class="hub-card-actions">
-              <button type="submit" id="csv-import-button" class="button primary btn-hub-action">
+
+            <!-- Selected File Card (hidden until file chosen) -->
+            <div id="file-selected-box" class="file-selected-card hidden">
+              <span class="file-selected-name">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span id="selected-file-label">filename.csv</span>
+              </span>
+              <button type="button" id="remove-file-btn" class="button secondary btn-sm">Change File</button>
+            </div>
+
+            <div class="tab-actions-bar">
+              <button type="submit" id="csv-import-button" class="button primary" disabled>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 Import CSV File
               </button>
             </div>
           </form>
         </div>
+
+        <!-- CSV Specification Column -->
+        <div class="tab-side-card guide-card">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              Supported Columns
+            </h3>
+          </div>
+          <table class="spec-table">
+            <thead>
+              <tr>
+                <th>Column</th>
+                <th>Type</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>Domain</code></td>
+                <td><span class="tag-required">Required</span></td>
+                <td>Domain name or host IP</td>
+              </tr>
+              <tr>
+                <td><code>Match</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>Verification text token</td>
+              </tr>
+              <tr>
+                <td><code>URL path</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>Custom probe path (e.g. <code>/health</code>)</td>
+              </tr>
+              <tr>
+                <td><code>Comment</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>Description or notes</td>
+              </tr>
+              <tr>
+                <td><code>Paused</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td><code>0</code> = Active, <code>1</code> = Paused</td>
+              </tr>
+              <tr>
+                <td><code>Proxy</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td><code>1</code> = Proxy, <code>0</code> = Direct</td>
+              </tr>
+              <tr>
+                <td><code>Ports</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>Ports e.g. <code>"80, 443"</code></td>
+              </tr>
+            </tbody>
+          </table>
+          <div style="margin-top: 14px;">
+            <a href="data:text/csv;charset=utf-8,Domain%2CMatch%2CURL%20path%2CComment%2CPaused%2CProxy%2CPorts%0Ainternal.corp.local%2Cwelcome%2C%2Fhealth%2CInternal%20Gateway%2C0%2C1%2C%2280%2C%20443%22%0Aapi.example.com%2Capi%2C%2CProduction%20API%2C0%2C0%2C%22443%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download Sample CSV Template
+            </a>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Raw Text Block Import Section -->
-    <div class="text-import-box">
-      <div class="text-import-header">
-        <h3>Quick Text Block Import</h3>
-        <p class="hub-description">Enter one domain per line. Existing domains are skipped. Port discovery runs for each new domain.</p>
-      </div>
-      <form id="import-form" class="import-form">
-        <textarea id="domains" name="domains" rows="8" placeholder="example.com&#10;mail.example.com&#10;api.example.com"></textarea>
-        <div class="import-actions">
-          <button type="submit" id="import-button" class="button secondary">Start Text Import</button>
+    <!-- TAB C: CSV Export -->
+    <div id="panel-csv-export" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-csv-export">
+      <div class="tab-2col-layout">
+        <!-- Main Export Actions Column -->
+        <div class="tab-main-card">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #059669;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export Domains to CSV
+            </h3>
+            <span class="hub-count-badge">{{ domain_count }} Domains</span>
+          </div>
+
+          <!-- Summary Metric Strip -->
+          <div class="export-stats-strip">
+            <div class="export-stat-box">
+              <span class="export-stat-val">{{ domain_count }}</span>
+              <span class="export-stat-lbl">Saved Domains</span>
+            </div>
+            <div class="export-stat-box">
+              <span class="export-stat-val">7</span>
+              <span class="export-stat-lbl">Columns Included</span>
+            </div>
+            <div class="export-stat-box">
+              <span class="export-stat-val">RFC 4180</span>
+              <span class="export-stat-lbl">CSV Standard</span>
+            </div>
+          </div>
+
+          <p class="tab-card-subtitle">
+            Download a full snapshot of your monitored domains. The export includes domain names, match tokens, health check paths, comments, paused states, proxy routing flags, and monitored port lists.
+          </p>
+
+          <div style="margin-top: 20px;">
+            <a href="{{ url_for('export_domains_route') }}" id="btn-export-csv" class="button primary btn-large" style="display: inline-flex; align-items: center; gap: 8px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Download All Domains (CSV)
+            </a>
+          </div>
+
+          <div id="export-stats-banner" class="export-stats-banner hidden">
+            <span>✓ Export initiated for <strong>{{ domain_count }}</strong> domain(s). File download started.</span>
+          </div>
         </div>
-      </form>
+
+        <!-- Preview Column -->
+        <div class="tab-side-card guide-card">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Export Structure &amp; Preview
+            </h3>
+          </div>
+          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured as follows:</p>
+          <div class="code-preview-block">Domain,Match,URL path,Comment,Paused,Proxy,Ports
+internal.corp.local,internal,/health,Gateway,0,1,"80, 443"
+api.example.com,api,,Production API,0,0,"443, 8443"
+backup-portal.example,backup,/login,DR Site,1,0,"80"</div>
+          <p class="hub-description" style="margin: 0; font-size: 0.82rem; color: #64748b;">
+            This file can be opened directly in Microsoft Excel, Google Sheets, or re-imported into another PulseCheck deployment.
+          </p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -92,6 +287,151 @@
   </div>
 
   <script>
+    // Tab Navigation Logic
+    const tabButtons = Array.from(document.querySelectorAll('.import-tab-btn'));
+    const tabPanels = {
+      'text': document.getElementById('panel-text'),
+      'csv-import': document.getElementById('panel-csv-import'),
+      'csv-export': document.getElementById('panel-csv-export'),
+    };
+
+    function activateTab(tabKey) {
+      if (!tabPanels[tabKey]) tabKey = 'text';
+
+      tabButtons.forEach(btn => {
+        const isMatch = btn.dataset.tab === tabKey;
+        btn.classList.toggle('active', isMatch);
+        btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+      });
+
+      Object.keys(tabPanels).forEach(key => {
+        const panel = tabPanels[key];
+        if (panel) {
+          panel.classList.toggle('hidden', key !== tabKey);
+        }
+      });
+
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', `#${tabKey}`);
+      }
+    }
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        activateTab(btn.dataset.tab);
+      });
+    });
+
+    // Handle deep-linking via URL hash (e.g. #csv-import, #csv-export, #text)
+    window.addEventListener('DOMContentLoaded', () => {
+      const hash = (window.location.hash || '').replace('#', '').toLowerCase();
+      if (hash === 'csv-import' || hash === 'csv' || hash === 'csvimport') {
+        activateTab('csv-import');
+      } else if (hash === 'csv-export' || hash === 'export' || hash === 'csvexport') {
+        activateTab('csv-export');
+      } else {
+        activateTab('text');
+      }
+    });
+
+    // Quick Text Block helpers (line count & samples)
+    const textarea = document.getElementById('domains');
+    const domainCountBadge = document.getElementById('text-domain-count');
+    const clearTextBtn = document.getElementById('clear-text-btn');
+    const loadSampleTextBtn = document.getElementById('load-sample-text-btn');
+
+    function updateDomainCount() {
+      if (!textarea || !domainCountBadge) return;
+      const lines = textarea.value.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      domainCountBadge.textContent = `${lines.length} domain${lines.length === 1 ? '' : 's'} detected`;
+    }
+
+    if (textarea) {
+      textarea.addEventListener('input', updateDomainCount);
+      updateDomainCount();
+    }
+
+    if (clearTextBtn && textarea) {
+      clearTextBtn.addEventListener('click', () => {
+        textarea.value = '';
+        textarea.focus();
+        updateDomainCount();
+      });
+    }
+
+    if (loadSampleTextBtn && textarea) {
+      loadSampleTextBtn.addEventListener('click', () => {
+        textarea.value = "example.com\napi.example.com\nportal.example.org\nstatus.internal.local";
+        textarea.focus();
+        updateDomainCount();
+      });
+    }
+
+    // Drag and Drop & File Selector feedback for CSV Import
+    const fileInput = document.getElementById('csv_file');
+    const dropzone = document.getElementById('dropzone');
+    const fileSelectedBox = document.getElementById('file-selected-box');
+    const selectedFileLabel = document.getElementById('selected-file-label');
+    const removeFileBtn = document.getElementById('remove-file-btn');
+    const csvImportBtn = document.getElementById('csv-import-button');
+
+    function handleFileSelected(file) {
+      if (!file) return;
+      selectedFileLabel.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      dropzone.classList.add('hidden');
+      fileSelectedBox.classList.remove('hidden');
+      csvImportBtn.disabled = false;
+    }
+
+    function clearFileSelected() {
+      fileInput.value = '';
+      dropzone.classList.remove('hidden');
+      fileSelectedBox.classList.add('hidden');
+      csvImportBtn.disabled = true;
+    }
+
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files && fileInput.files[0]) {
+          handleFileSelected(fileInput.files[0]);
+        } else {
+          clearFileSelected();
+        }
+      });
+    }
+
+    if (removeFileBtn) {
+      removeFileBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        clearFileSelected();
+      });
+    }
+
+    if (dropzone) {
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add('dragover');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove('dragover');
+        });
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          fileInput.files = e.dataTransfer.files;
+          handleFileSelected(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
     // CSV Export Banner feedback
     const exportBtn = document.getElementById('btn-export-csv');
     const exportBanner = document.getElementById('export-stats-banner');
@@ -101,6 +441,7 @@
       });
     }
 
+    // Progress Veil / Overlay polling logic
     const overlay = document.getElementById('import-overlay');
     const cancelButton = document.getElementById('cancel-import');
     const progressTitle = document.getElementById('import-progress-title');
@@ -114,9 +455,8 @@
       overlay.classList.toggle('hidden', !visible);
       cancelButton.disabled = false;
       const textBtn = document.getElementById('import-button');
-      const csvBtn = document.getElementById('csv-import-button');
       if (textBtn) textBtn.disabled = visible;
-      if (csvBtn) csvBtn.disabled = visible;
+      if (csvImportBtn) csvImportBtn.disabled = visible;
     }
 
     function updateProgress(state) {
@@ -155,12 +495,11 @@
       }
     }
 
-    // CSV Form Submission via AJAX to show the veil and progress
+    // CSV Form Submission via AJAX
     const csvForm = document.getElementById('csv-import-form');
     if (csvForm) {
       csvForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const fileInput = document.getElementById('csv_file');
         if (!fileInput.files || !fileInput.files[0]) {
           alert('Please select a CSV file to import.');
           return;

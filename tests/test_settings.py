@@ -1471,6 +1471,62 @@ direct.example,direct,,Direct site,0,0,8080
         for p in ports_list:
             self.assertIn(f">{p}</strong>", html)
 
+    def test_import_and_export_tabbed_page_rendering(self):
+        resp = self.client.get("/import")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        # 1. Verify navigation menu item is renamed to "Import & Export"
+        self.assertIn(">Import &amp; Export<", html)
+
+        # 2. Verify all 3 tab buttons exist
+        self.assertIn("Quick Text Block Import", html)
+        self.assertIn("CSV File Import", html)
+        self.assertIn("CSV Export", html)
+
+        # 3. Verify all 3 tab panels exist with their IDs
+        self.assertIn('id="panel-text"', html)
+        self.assertIn('id="panel-csv-import"', html)
+        self.assertIn('id="panel-csv-export"', html)
+
+        # 4. Verify primary forms and buttons are preserved
+        self.assertIn('id="import-form"', html)
+        self.assertIn('id="csv-import-form"', html)
+        self.assertIn('id="btn-export-csv"', html)
+        self.assertIn('id="import-overlay"', html)
+
+    def test_settings_tabbed_page_rendering(self):
+        resp = self.client.get("/settings")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        # 1. Verify both tab buttons exist
+        self.assertIn("E-mail &amp; SMTP Settings", html)
+        self.assertIn("HTTP Proxy Server", html)
+
+        # 2. Verify both tab panels exist with their IDs
+        self.assertIn('id="panel-smtp"', html)
+        self.assertIn('id="panel-proxy"', html)
+
+        # 3. Verify SMTP fields exist
+        self.assertIn('id="smtp_host"', html)
+        self.assertIn('id="smtp_port"', html)
+        self.assertIn('id="smtp_security"', html)
+        self.assertIn('id="smtp_username"', html)
+        self.assertIn('id="smtp_password"', html)
+        self.assertIn('id="from_email"', html)
+        self.assertIn('id="recipient_email"', html)
+
+        # 4. Verify Proxy fields exist
+        self.assertIn('id="proxy_host"', html)
+        self.assertIn('id="proxy_port"', html)
+        self.assertIn('id="proxy_username"', html)
+        self.assertIn('id="proxy_password"', html)
+
+        # 5. Verify action buttons
+        self.assertIn("Save Settings", html)
+        self.assertIn("Send Test Email", html)
+
 
 if __name__ == "__main__":
     unittest.main()

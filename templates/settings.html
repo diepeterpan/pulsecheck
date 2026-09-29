@@ -3,136 +3,320 @@
   <section class="panel settings-panel">
     <div class="panel-header">
       <div>
-        <h2>E-mail &amp; SMTP Settings</h2>
-        <p class="panel-subtitle">Configure outgoing SMTP server connection and notification recipient address.</p>
+        <h2>System Settings</h2>
+        <p class="panel-subtitle">Configure email alert notifications and corporate HTTP proxy routing.</p>
       </div>
     </div>
 
-    <form method="post" action="{{ url_for('settings_route') }}" class="settings-form">
-      <div class="settings-grid">
-        <div class="settings-card">
-          <div class="card-header">
-            <h3>Outgoing Mail Server</h3>
-          </div>
-          <div class="card-body">
-            <div class="form-group">
-              <label for="smtp_host">SMTP Server / Host</label>
-              <input type="text" id="smtp_host" name="smtp_host" value="{{ settings.smtp_host }}" placeholder="e.g. smtp.gmail.com or mail.example.com" autocomplete="off">
-              <span class="field-hint">Hostname or IP address of your mail provider.</span>
+    <!-- Segmented Tab Bar -->
+    <div class="tab-nav-wrapper">
+      <div class="import-tab-bar settings-tab-bar" role="tablist" aria-label="Settings Categories">
+        <button type="button" class="import-tab-btn active" role="tab" id="tab-smtp" aria-selected="true" aria-controls="panel-smtp" data-tab="smtp">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          E-mail &amp; SMTP Settings
+        </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-proxy" aria-selected="false" aria-controls="panel-proxy" data-tab="proxy">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          HTTP Proxy Server
+        </button>
+      </div>
+    </div>
+
+    <form method="post" action="{{ url_for('settings_route') }}" class="settings-form" id="settings-form">
+      <!-- TAB A: E-mail & SMTP Settings -->
+      <div id="panel-smtp" class="import-tab-panel" role="tabpanel" aria-labelledby="tab-smtp">
+        <div class="tab-2col-layout">
+          <!-- Main Form Column -->
+          <div class="tab-main-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                E-mail &amp; SMTP Configuration
+              </h3>
+              <span class="hub-tag">Alert Notifications</span>
             </div>
+            <p class="tab-card-subtitle">Configure outbound SMTP credentials to receive instant email notifications when monitored domains change status.</p>
 
-            <div class="form-row-2col">
-              <div class="form-group">
-                <label for="smtp_port">Port</label>
-                <input type="number" id="smtp_port" name="smtp_port" value="{{ settings.smtp_port }}" placeholder="587" min="1" max="65535">
-                <span class="field-hint">Common: 587 (STARTTLS), 465 (SSL), 25 (Plain).</span>
-              </div>
-
-              <div class="form-group">
-                <label for="smtp_security">Encryption / Security</label>
-                <select id="smtp_security" name="smtp_security">
-                  <option value="tls" {% if settings.smtp_security == 'tls' %}selected{% endif %}>STARTTLS (Recommended, port 587)</option>
-                  <option value="ssl" {% if settings.smtp_security == 'ssl' %}selected{% endif %}>SSL / TLS (Direct SSL, port 465)</option>
-                  <option value="none" {% if settings.smtp_security == 'none' %}selected{% endif %}>None (Plain text, port 25)</option>
-                </select>
-                <span class="field-hint">Connection encryption method.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-card">
-          <div class="card-header">
-            <h3>Authentication</h3>
-          </div>
-          <div class="card-body">
-            <div class="form-group">
-              <label for="smtp_username">Username</label>
-              <input type="text" id="smtp_username" name="smtp_username" value="{{ settings.smtp_username }}" placeholder="e.g. alerts@example.com" autocomplete="username">
-              <span class="field-hint">Leave blank if SMTP server does not require authentication.</span>
-            </div>
-
-            <div class="form-group">
-              <label for="smtp_password">Password / App Password</label>
-              <div class="password-input-wrapper">
-                <input type="password" id="smtp_password" name="smtp_password" placeholder="{% if settings.smtp_password %}•••••••• (saved, leave blank to keep){% else %}Enter password{% endif %}" autocomplete="current-password">
-                <button type="button" id="toggle-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle password visibility">Show</button>
-              </div>
-              <span class="field-hint">{% if settings.smtp_password %}A password is saved. Leave blank to keep existing password.{% else %}SMTP user password or App Password.{% endif %}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-card settings-card-full">
-          <div class="card-header">
-            <h3>Notification Addresses</h3>
-          </div>
-          <div class="card-body form-row-2col">
-            <div class="form-group">
-              <label for="from_email">Sender (From) E-mail</label>
-              <input type="email" id="from_email" name="from_email" value="{{ settings.from_email }}" placeholder="e.g. pulsecheck@example.com">
-              <span class="field-hint">Address shown as sender for notifications (defaults to username if empty).</span>
-            </div>
-
-            <div class="form-group">
-              <label for="recipient_email">Destination (Recipient) E-mail</label>
-              <input type="email" id="recipient_email" name="recipient_email" value="{{ settings.recipient_email }}" placeholder="e.g. admin@example.com">
-              <span class="field-hint">Destination mailbox where alerts and test messages will be sent.</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-card settings-card-full">
-          <div class="card-header">
-            <h3>HTTP Proxy Server</h3>
-          </div>
-          <div class="card-body">
-            <p class="field-hint" style="margin-top: 0; margin-bottom: 16px; font-size: 0.88rem;">Configure an HTTP proxy server for monitored domains configured to route their HTTP and HTTPS requests through a proxy.</p>
-            <div class="form-row-2col">
-              <div class="form-group">
-                <label for="proxy_host">Proxy Host / IP</label>
-                <input type="text" id="proxy_host" name="proxy_host" value="{{ settings.proxy_host }}" placeholder="e.g. proxy.corp.example.com or 10.0.0.1" autocomplete="off">
-                <span class="field-hint">Hostname or IP address of the HTTP proxy server (leave blank to disable).</span>
-              </div>
+            <!-- Section 1: Outgoing Server -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                Outgoing Mail Server
+              </h3>
 
               <div class="form-group">
-                <label for="proxy_port">Proxy Port</label>
-                <input type="number" id="proxy_port" name="proxy_port" value="{{ settings.proxy_port or '8080' }}" placeholder="8080" min="1" max="65535">
-                <span class="field-hint">Common: 8080, 3128, 80.</span>
-              </div>
-            </div>
+                <label for="smtp_host">SMTP Server / Host</label>
+                <input type="text" id="smtp_host" name="smtp_host" value="{{ settings.smtp_host }}" placeholder="e.g. smtp.gmail.com or mail.example.com" autocomplete="off">
+                <span class="field-hint">Hostname or IP address of your mail provider.</span>
 
-            <div class="form-row-2col" style="margin-top: 14px;">
-              <div class="form-group">
-                <label for="proxy_username">Proxy Username (Optional)</label>
-                <input type="text" id="proxy_username" name="proxy_username" value="{{ settings.proxy_username }}" placeholder="Leave blank if proxy requires no authentication" autocomplete="off">
-                <span class="field-hint">Username for HTTP Proxy Basic authentication.</span>
-              </div>
-
-              <div class="form-group">
-                <label for="proxy_password">Proxy Password (Optional)</label>
-                <div class="password-input-wrapper">
-                  <input type="password" id="proxy_password" name="proxy_password" placeholder="{% if settings.proxy_password %}•••••••• (saved, leave blank to keep){% else %}Enter proxy password{% endif %}" autocomplete="new-password">
-                  <button type="button" id="toggle-proxy-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle proxy password visibility">Show</button>
+                <!-- Quick Presets -->
+                <div class="preset-pills-row">
+                  <span style="font-size: 0.75rem; color: #64748b; margin-right: 4px; align-self: center;">Presets:</span>
+                  <button type="button" class="btn-preset-pill" data-host="smtp.gmail.com" data-port="587" data-sec="tls">Gmail</button>
+                  <button type="button" class="btn-preset-pill" data-host="smtp.office365.com" data-port="587" data-sec="tls">Outlook 365</button>
+                  <button type="button" class="btn-preset-pill" data-host="smtp.mailgun.org" data-port="587" data-sec="tls">Mailgun</button>
+                  <button type="button" class="btn-preset-pill" data-host="smtp.sendgrid.net" data-port="587" data-sec="tls">SendGrid</button>
                 </div>
-                <span class="field-hint">{% if settings.proxy_password %}A password is saved. Leave blank to keep existing password.{% else %}Proxy authentication password.{% endif %}</span>
+              </div>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="smtp_port">Port</label>
+                  <input type="number" id="smtp_port" name="smtp_port" value="{{ settings.smtp_port }}" placeholder="587" min="1" max="65535">
+                  <span class="field-hint">Standard: 587 (STARTTLS), 465 (SSL), 25 (Plain).</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="smtp_security">Encryption / Security</label>
+                  <select id="smtp_security" name="smtp_security">
+                    <option value="tls" {% if settings.smtp_security == 'tls' %}selected{% endif %}>STARTTLS (Recommended, port 587)</option>
+                    <option value="ssl" {% if settings.smtp_security == 'ssl' %}selected{% endif %}>SSL / TLS (Direct SSL, port 465)</option>
+                    <option value="none" {% if settings.smtp_security == 'none' %}selected{% endif %}>None (Plain text, port 25)</option>
+                  </select>
+                  <span class="field-hint">Connection encryption method.</span>
+                </div>
               </div>
             </div>
+
+            <!-- Section 2: Authentication Credentials -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Authentication Credentials
+              </h3>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="smtp_username">Username</label>
+                  <input type="text" id="smtp_username" name="smtp_username" value="{{ settings.smtp_username }}" placeholder="e.g. alerts@example.com" autocomplete="username">
+                  <span class="field-hint">Leave blank if SMTP server requires no login.</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="smtp_password">Password / App Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="smtp_password" name="smtp_password" placeholder="{% if settings.smtp_password %}•••••••• (saved, leave blank to keep){% else %}Enter password{% endif %}" autocomplete="current-password">
+                    <button type="button" id="toggle-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle password visibility">Show</button>
+                  </div>
+                  <span class="field-hint">{% if settings.smtp_password %}A password is saved. Leave blank to keep existing password.{% else %}SMTP user password or App Password.{% endif %}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 3: Notification Addresses -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"/></svg>
+                Notification Addresses
+              </h3>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="from_email">Sender (From) E-mail</label>
+                  <input type="email" id="from_email" name="from_email" value="{{ settings.from_email }}" placeholder="e.g. pulsecheck@example.com">
+                  <span class="field-hint">Address shown as sender (defaults to username if empty).</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="recipient_email">Destination (Recipient) E-mail</label>
+                  <input type="email" id="recipient_email" name="recipient_email" value="{{ settings.recipient_email }}" placeholder="e.g. admin@example.com">
+                  <span class="field-hint">Mailbox where state alerts and test emails will be delivered.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Actions Bar -->
+            <div class="settings-actions">
+              <button type="submit" name="action" value="save" class="button primary">Save Settings</button>
+              <button type="submit" name="action" value="test" class="button secondary btn-test-email">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                Send Test Email
+              </button>
+            </div>
+          </div>
+
+          <!-- Guidance / Help Column -->
+          <div class="tab-side-card guide-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                Alerting &amp; Delivery Guide
+              </h3>
+            </div>
+
+            <ul class="guide-list">
+              <li class="guide-item">
+                <span class="guide-icon">1</span>
+                <div>
+                  <strong>Automatic State Change Alerts</strong>
+                  <div>Emails are automatically dispatched whenever any domain transitions between <code>Online</code>, <code>Degraded</code>, and <code>Offline</code>.</div>
+                </div>
+              </li>
+              <li class="guide-item">
+                <span class="guide-icon">2</span>
+                <div>
+                  <strong>Timestamp Localization</strong>
+                  <div>All timestamps in alert emails are automatically formatted to your server's local timezone (configured via <code>PULSECHECK_TIMEZONE</code>).</div>
+                </div>
+              </li>
+              <li class="guide-item">
+                <span class="guide-icon">3</span>
+                <div>
+                  <strong>Gmail &amp; Microsoft 365 Setup</strong>
+                  <div>Major cloud email providers require an dedicated <em>App Password</em> instead of your account password when 2-Factor Authentication is active.</div>
+                </div>
+              </li>
+              <li class="guide-item">
+                <span class="guide-icon">4</span>
+                <div>
+                  <strong>Verify Deliverability</strong>
+                  <div>Use the <strong>"Send Test Email"</strong> button anytime to confirm your SMTP credentials and delivery path without waiting for a scan event.</div>
+                </div>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
 
-      <div class="settings-actions">
-        <button type="submit" name="action" value="save" class="button primary">Save Settings</button>
-        <button type="submit" name="action" value="test" class="button secondary btn-test-email">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-          Send Test Email
-        </button>
+      <!-- TAB B: HTTP Proxy Server -->
+      <div id="panel-proxy" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-proxy">
+        <div class="tab-2col-layout">
+          <!-- Main Form Column -->
+          <div class="tab-main-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                HTTP Proxy Server
+              </h3>
+              <span class="hub-tag">Forward Proxy</span>
+            </div>
+            <p class="tab-card-subtitle">Configure an HTTP forward proxy server. Monitored domains flagged with <code>Use Proxy Server</code> will route all HTTP and HTTPS checks through this gateway.</p>
+
+            <!-- Section 1: Proxy Host & Port -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">Connection Parameters</h3>
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="proxy_host">Proxy Host / IP Address</label>
+                  <input type="text" id="proxy_host" name="proxy_host" value="{{ settings.proxy_host }}" placeholder="e.g. proxy.corp.example.com or 10.0.0.1" autocomplete="off">
+                  <span class="field-hint">Hostname or IP of the proxy server (leave blank to disable).</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="proxy_port">Proxy Port</label>
+                  <input type="number" id="proxy_port" name="proxy_port" value="{{ settings.proxy_port or '8080' }}" placeholder="8080" min="1" max="65535">
+                  <span class="field-hint">Common proxy ports: 8080, 3128, 80.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 2: Optional Authentication -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">Basic Authentication (Optional)</h3>
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="proxy_username">Proxy Username</label>
+                  <input type="text" id="proxy_username" name="proxy_username" value="{{ settings.proxy_username }}" placeholder="Leave blank if no proxy authentication is required" autocomplete="off">
+                  <span class="field-hint">Username for HTTP Proxy Basic authentication.</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="proxy_password">Proxy Password</label>
+                  <div class="password-input-wrapper">
+                    <input type="password" id="proxy_password" name="proxy_password" placeholder="{% if settings.proxy_password %}•••••••• (saved, leave blank to keep){% else %}Enter proxy password{% endif %}" autocomplete="new-password">
+                    <button type="button" id="toggle-proxy-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle proxy password visibility">Show</button>
+                  </div>
+                  <span class="field-hint">{% if settings.proxy_password %}A password is saved. Leave blank to keep existing password.{% else %}Proxy authentication password.{% endif %}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Actions Bar -->
+            <div class="settings-actions">
+              <button type="submit" name="action" value="save" class="button primary">Save Settings</button>
+            </div>
+          </div>
+
+          <!-- Guidance Column -->
+          <div class="tab-side-card guide-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                Proxy Architecture &amp; Usage
+              </h3>
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>1. HTTP Forward Proxying</strong>
+              Standard HTTP requests are transmitted using absolute request URIs (e.g. <code>GET http://target/health</code>) with host and proxy credentials.
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>2. HTTPS CONNECT Tunneling</strong>
+              For secure endpoints, PulseCheck issues an HTTP <code>CONNECT</code> command to establish a bidirectional tunnel before starting the TLS handshake.
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>3. Socket Probe Protection</strong>
+              Direct raw socket fallbacks are automatically disabled for proxied domains to ensure traffic never bypasses your corporate proxy.
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>4. Domain Activation</strong>
+              Enable the <strong>"Use Proxy Server"</strong> checkbox when adding or editing domains. A blue <code>Proxy</code> badge will appear on Status and Domains pages.
+            </div>
+          </div>
+        </div>
       </div>
     </form>
   </section>
 
   <script>
+    // Tab Navigation Logic
+    const tabButtons = Array.from(document.querySelectorAll('.settings-tab-bar .import-tab-btn'));
+    const tabPanels = {
+      'smtp': document.getElementById('panel-smtp'),
+      'proxy': document.getElementById('panel-proxy'),
+    };
+
+    function activateTab(tabKey) {
+      if (!tabPanels[tabKey]) tabKey = 'smtp';
+
+      tabButtons.forEach(btn => {
+        const isMatch = btn.dataset.tab === tabKey;
+        btn.classList.toggle('active', isMatch);
+        btn.setAttribute('aria-selected', isMatch ? 'true' : 'false');
+      });
+
+      Object.keys(tabPanels).forEach(key => {
+        const panel = tabPanels[key];
+        if (panel) {
+          panel.classList.toggle('hidden', key !== tabKey);
+        }
+      });
+
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', `#${tabKey}`);
+      }
+    }
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        activateTab(btn.dataset.tab);
+      });
+    });
+
+    // Deep-linking via URL hash (e.g. #proxy, #http-proxy, #smtp, #email)
+    window.addEventListener('DOMContentLoaded', () => {
+      const hash = (window.location.hash || '').replace('#', '').toLowerCase();
+      if (hash === 'proxy' || hash === 'http-proxy' || hash === 'httpproxy') {
+        activateTab('proxy');
+      } else {
+        activateTab('smtp');
+      }
+    });
+
+    // Password visibility toggles
     const pwdInput = document.getElementById('smtp_password');
     const toggleBtn = document.getElementById('toggle-pwd-btn');
     if (toggleBtn && pwdInput) {
@@ -177,5 +361,17 @@
         }
       });
     }
+
+    // Provider Presets
+    const hostInput = document.getElementById('smtp_host');
+    const presetButtons = Array.from(document.querySelectorAll('.btn-preset-pill'));
+    presetButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (hostInput) hostInput.value = btn.dataset.host || '';
+        if (portInput) portInput.value = btn.dataset.port || '587';
+        if (securitySelect) securitySelect.value = btn.dataset.sec || 'tls';
+        if (hostInput) hostInput.focus();
+      });
+    });
   </script>
 {% endblock %}
