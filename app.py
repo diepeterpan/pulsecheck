@@ -419,6 +419,58 @@ def decompress_socket_response_if_gzip(data: bytes) -> bytes:
     return data
 
 
+def format_response_headers(response) -> bytes:
+    if response is None:
+        return b""
+    headers_obj = getattr(response, "headers", None) or getattr(response, "msg", None)
+    if headers_obj is not None:
+        if hasattr(headers_obj, "as_bytes"):
+            try:
+                raw = headers_obj.as_bytes()
+                if raw:
+                    if not (raw.endswith(b"\r\n\r\n") or raw.endswith(b"\n\n")):
+                        raw = raw.rstrip(b"\r\n") + b"\r\n\r\n"
+                    return raw
+            except Exception:
+                pass
+        if hasattr(headers_obj, "items"):
+            try:
+                lines = [f"{k}: {v}".encode("latin1", errors="replace") for k, v in headers_obj.items()]
+                if lines:
+                    return b"\r\n".join(lines) + b"\r\n\r\n"
+            except Exception:
+                pass
+        if isinstance(headers_obj, (bytes, bytearray)):
+            raw = bytes(headers_obj)
+            if raw and not (raw.endswith(b"\r\n\r\n") or raw.endswith(b"\n\n")):
+                raw = raw.rstrip(b"\r\n") + b"\r\n\r\n"
+            return raw
+        if isinstance(headers_obj, str):
+            raw = headers_obj.encode("latin1", errors="replace")
+            if raw and not (raw.endswith(b"\r\n\r\n") or raw.endswith(b"\n\n")):
+                raw = raw.rstrip(b"\r\n") + b"\r\n\r\n"
+            return raw
+
+    if hasattr(response, "getheaders") and callable(response.getheaders):
+        try:
+            h_list = response.getheaders()
+            if h_list:
+                lines = [f"{k}: {v}".encode("latin1", errors="replace") for k, v in h_list]
+                return b"\r\n".join(lines) + b"\r\n\r\n"
+        except Exception:
+            pass
+
+    if hasattr(response, "_headers") and isinstance(response._headers, dict):
+        try:
+            lines = [f"{k}: {v}".encode("latin1", errors="replace") for k, v in response._headers.items()]
+            if lines:
+                return b"\r\n".join(lines) + b"\r\n\r\n"
+        except Exception:
+            pass
+
+    return b""
+
+
 def fetch_response(
     domain_name: str,
     port: int,
@@ -514,6 +566,9 @@ def fetch_response(
             content_encoding = (response.getheader("Content-Encoding") or "").lower()
             if "gzip" in content_encoding:
                 body = decompress_gzip_payload(body)
+            header_bytes = format_response_headers(response)
+            if header_bytes:
+                body = header_bytes + body
             if explicit_debug:
                 proxy_info = f" proxy={proxy_host}:{proxy_port}" if use_proxy else ""
                 print(

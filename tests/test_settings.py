@@ -1282,6 +1282,111 @@ direct.example,direct,,Direct site,0,0,8080
         # Verify direct socket fallback was NOT attempted
         mock_socket.assert_not_called()
 
+    def test_fetch_response_concatenates_headers_to_body(self):
+        class FakeResponse:
+            status = 200
+            headers = {"Server": "CustomEdge/1.0", "X-App-Status": "healthy"}
+            def read(self, size):
+                return b"<html><body>Hello World</body></html>"
+            def getheader(self, name):
+                return self.headers.get(name)
+
+        class FakeHTTPConnection:
+            def __init__(self, host, port, **kwargs):
+                pass
+            def request(self, method, path, headers=None):
+                pass
+            def getresponse(self):
+                return FakeResponse()
+            def close(self):
+                pass
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            body, code, url = pulsecheck_app.fetch_response("test-headers.local", 80, "http")
+
+        self.assertEqual(code, 200)
+        # Headers should be at the front of the body
+        self.assertTrue(body.startswith(b"Server: CustomEdge/1.0"))
+        self.assertIn(b"X-App-Status: healthy", body)
+        self.assertIn(b"<html><body>Hello World</body></html>", body)
+
+    def test_fetch_response_gzip_decompresses_body_then_concatenates_headers(self):
+        import gzip
+        raw_html = b"<html><body>Decompressed Secret Content</body></html>"
+        compressed_body = gzip.compress(raw_html)
+
+        class FakeGzipResponseWithHeaders:
+            status = 200
+            headers = {
+                "Content-Encoding": "gzip",
+                "Content-Type": "text/html",
+                "X-Custom-Header": "EdgeV2",
+            }
+            def read(self, size):
+                return compressed_body
+            def getheader(self, name):
+                for k, v in self.headers.items():
+                    if k.lower() == name.lower():
+                        return v
+                return None
+
+        class FakeHTTPConnection:
+            def __init__(self, host, port, **kwargs):
+                pass
+            def request(self, method, path, headers=None):
+                pass
+            def getresponse(self):
+                return FakeGzipResponseWithHeaders()
+            def close(self):
+                pass
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            body, code, url = pulsecheck_app.fetch_response("gzip-headers.local", 80, "http")
+
+        self.assertEqual(code, 200)
+        # Verify headers are at the front
+        self.assertTrue(body.startswith(b"Content-Encoding: gzip") or b"X-Custom-Header: EdgeV2" in body)
+        self.assertIn(b"X-Custom-Header: EdgeV2", body)
+        # Verify body was decompressed
+        self.assertIn(b"Decompressed Secret Content", body)
+
+    def test_scan_domain_matches_token_in_headers(self):
+        class FakeResponseWithHeaderToken:
+            status = 200
+            headers = {"X-Cluster-Node": "WorkerNode77"}
+            def read(self, size):
+                return b"generic body without token"
+            def getheader(self, name):
+                return self.headers.get(name)
+
+        class FakeHTTPConnection:
+            def __init__(self, host, port, **kwargs):
+                pass
+            def request(self, method, path, headers=None):
+                pass
+            def getresponse(self):
+                return FakeResponseWithHeaderToken()
+            def close(self):
+                pass
+
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO domains (name, match, ports) VALUES ('header-match.local', 'WorkerNode77', '[80]')")
+        domain_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            pulsecheck_app.scan_domain(domain_id, "header-match.local", [80], match="WorkerNode77")
+
+        conn = pulsecheck_app.get_db_connection()
+        row = conn.execute("SELECT status, is_online FROM port_checks WHERE domain_id = ? AND port = 80", (domain_id,)).fetchone()
+        conn.close()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "online")
+        self.assertEqual(row["is_online"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
