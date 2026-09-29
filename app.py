@@ -119,9 +119,10 @@ def init_db():
         "UPDATE domains SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
         "WHERE match = ''"
     )
-    rows = conn.execute("SELECT id, name FROM domains WHERE match LIKE '%-%'").fetchall()
-    for row in rows:
-        conn.execute("UPDATE domains SET match = ? WHERE id = ?", (derive_match(row["name"]), row["id"]))
+    # Don't think this is required, messes up existing match values
+    #rows = conn.execute("SELECT id, name FROM domains WHERE match LIKE '%-%'").fetchall()
+    #for row in rows:
+    #    conn.execute("UPDATE domains SET match = ? WHERE id = ?", (derive_match(row["name"]), row["id"]))
     port_check_columns = {row["name"] for row in conn.execute("PRAGMA table_info(port_checks)")}
     if "status" not in port_check_columns:
         conn.execute("ALTER TABLE port_checks ADD COLUMN status TEXT NOT NULL DEFAULT 'offline'")
