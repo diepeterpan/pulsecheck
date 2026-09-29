@@ -168,6 +168,14 @@ def get_server_timezone():
     return datetime.now().astimezone().tzinfo
 
 
+def get_current_local_time_str() -> str:
+    now = datetime.now(get_server_timezone())
+    tz_label = now.strftime("%Z")
+    if tz_label:
+        return now.strftime("%Y-%m-%d %H:%M:%S") + f" {tz_label}"
+    return now.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def format_local_time(value: str | None) -> str | None:
     if not value:
         return None
@@ -1463,7 +1471,7 @@ def settings_route():
             if not dest:
                 flash("Destination email address is required to send a test message.", "error")
             else:
-                now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                now_str = get_current_local_time_str()
                 test_body = (
                     "Hello from PulseCheck!\n\n"
                     "This is a test notification confirming that your SMTP settings and destination "
@@ -1541,7 +1549,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
     count = len(changes)
     subject = f"[PulseCheck] State Change Alert: {count} domain{'s' if count > 1 else ''} updated"
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    now_str = get_current_local_time_str()
 
     lines = [
         "PulseCheck Domain State Change Alert",
@@ -1790,7 +1798,7 @@ def cli_menu():
                     dest = input("Enter destination email for test: ").strip()
                 if dest:
                     print(f"Sending test email to {dest}...")
-                    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    now_str = get_current_local_time_str()
                     success, msg = send_email(
                         dest,
                         "[PulseCheck] SMTP Test Message",

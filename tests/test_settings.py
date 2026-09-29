@@ -799,6 +799,22 @@ site3.com,site3,,0,80
             # Should display the latest check 07:00 UTC converted to 09:00 SAST
             self.assertIn("2026-09-29 09:00:00 SAST", html)
 
+            # Verify get_current_local_time_str uses local system time
+            current_local = pulsecheck_app.get_current_local_time_str()
+            self.assertTrue(current_local.endswith(" SAST"))
+
+            # Verify notification email contains local system time in Scan completed
+            with patch("app.send_email") as mock_email, patch("app.get_settings") as mock_settings:
+                mock_settings.return_value = {"smtp_host": "smtp.example.com", "recipient_email": "admin@test.com"}
+                mock_email.return_value = (True, "OK")
+                pulsecheck_app.send_state_change_notification(
+                    [{"domain": "multiport.org", "old_status": "online", "new_status": "offline", "port_changes": []}]
+                )
+                body = mock_email.call_args[0][2]
+                self.assertIn("Scan Completed:", body)
+                self.assertIn("SAST", body)
+                self.assertNotIn("UTC", body)
+
 
 if __name__ == "__main__":
     unittest.main()
