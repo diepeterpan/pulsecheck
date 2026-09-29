@@ -895,6 +895,75 @@ site3.com,site3,,0,80
         self.assertEqual(row[0], "online")
         self.assertEqual(row[1], 1)
 
+    def test_gzip_content_encoding_decompression(self):
+        import gzip
+
+        original_text = (b"<html><body><h1>PulseCheck Monitoring Target</h1>" + b"<p>Repeating block</p>" * 200 + b"</body></html>")
+        compressed_full = gzip.compress(original_text)
+        # Truncate compressed stream to simulate reading only partial response
+        compressed_partial = compressed_full[:120]
+
+        # 1. Test helper with full and partial gzip
+        decomp_full = pulsecheck_app.decompress_gzip_payload(compressed_full)
+        self.assertEqual(decomp_full, original_text)
+
+        decomp_partial = pulsecheck_app.decompress_gzip_payload(compressed_partial)
+        self.assertIn(b"PulseCheck Monitoring Target", decomp_partial)
+
+        # 2. Test socket helper
+        socket_data = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Encoding: gzip\r\n\r\n" + compressed_partial
+        decomp_socket = pulsecheck_app.decompress_socket_response_if_gzip(socket_data)
+        self.assertIn(b"PulseCheck Monitoring Target", decomp_socket)
+
+        # 3. Test fetch_response with Content-Encoding: gzip
+        class FakeGzipResponse:
+            def __init__(self, body, encoding="gzip"):
+                self.status = 200
+                self._body = body
+                self._encoding = encoding
+
+            def read(self, size):
+                return self._body
+
+            def getheader(self, name):
+                if name.lower() == "content-encoding":
+                    return self._encoding
+                return None
+
+        class FakeHTTPConnection:
+            def __init__(self, host, port, **kwargs):
+                pass
+            def request(self, method, path, headers):
+                pass
+            def getresponse(self):
+                return FakeGzipResponse(compressed_partial, "gzip")
+            def close(self):
+                pass
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            body, code, url = pulsecheck_app.fetch_response("gzip-site.local", 80, "http")
+            self.assertEqual(code, 200)
+            self.assertIn(b"PulseCheck Monitoring Target", body)
+
+        # 4. Test scan_domain matches decompressed keyword and sets status to online
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO domains (name, match, ports) VALUES ('gzip-scan.local', 'Monitoring Target', '[80]')")
+        d_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            pulsecheck_app.scan_domain(d_id, "gzip-scan.local", [80], match="Monitoring Target")
+
+        conn = pulsecheck_app.get_db_connection()
+        row = conn.execute("SELECT status, is_online FROM port_checks WHERE domain_id = ? AND port = 80 ORDER BY id DESC LIMIT 1", (d_id,)).fetchone()
+        conn.close()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "online")
+        self.assertEqual(row[1], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

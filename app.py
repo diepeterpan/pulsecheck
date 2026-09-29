@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import http.client
 import io
 import json
@@ -15,6 +16,7 @@ import threading
 import time
 import uuid
 import warnings
+import zlib
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -370,6 +372,38 @@ def is_ssl_handshake_failure(exc: Exception) -> bool:
     return False
 
 
+def decompress_gzip_payload(data: bytes) -> bytes:
+    if not data or not isinstance(data, (bytes, bytearray)):
+        return data
+    try:
+        return gzip.decompress(data)
+    except Exception:
+        pass
+    try:
+        decompressor = zlib.decompressobj(wbits=31)
+        decompressed = decompressor.decompress(data)
+        try:
+            decompressed += decompressor.flush()
+        except Exception:
+            pass
+        if decompressed:
+            return decompressed
+    except Exception:
+        pass
+    return data
+
+
+def decompress_socket_response_if_gzip(data: bytes) -> bytes:
+    if not data or not isinstance(data, (bytes, bytearray)):
+        return data
+    if b"\r\n\r\n" in data:
+        header_part, body_part = data.split(b"\r\n\r\n", 1)
+        if re.search(rb"(?i)content-encoding:\s*gzip", header_part):
+            decompressed_body = decompress_gzip_payload(body_part)
+            return header_part + b"\r\n\r\n" + decompressed_body
+    return data
+
+
 def fetch_response(
     domain_name: str,
     port: int,
@@ -405,6 +439,9 @@ def fetch_response(
             body = response.read(16384)
             status_code = response.status
             location = response.getheader("Location")
+            content_encoding = (response.getheader("Content-Encoding") or "").lower()
+            if "gzip" in content_encoding:
+                body = decompress_gzip_payload(body)
             if explicit_debug:
                 print(
                     f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={domain_name} port={port} "
@@ -456,7 +493,7 @@ def fetch_socket_response(domain_name: str, port: int, url_path: str = ""):
         connection.sendall(
             f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
         )
-        return connection.recv(16384)
+        return decompress_socket_response_if_gzip(connection.recv(16384))
 
 
 def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", allow_legacy_ssl: bool = False):
@@ -467,7 +504,7 @@ def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", a
                 connection.sendall(
                     f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
                 )
-                return connection.recv(16384)
+                return decompress_socket_response_if_gzip(connection.recv(16384))
     except Exception as exc:
         if not allow_legacy_ssl and is_ssl_handshake_failure(exc):
             return fetch_socket_ssl_response(domain_name, port, url_path=url_path, allow_legacy_ssl=True)
