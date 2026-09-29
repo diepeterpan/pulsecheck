@@ -1,59 +1,143 @@
 # PulseCheck
 
-PulseCheck is a small Linux-friendly web application that stores domains in SQLite, discovers open ports for each domain, and monitors the health of those ports on a 10-minute schedule.
+PulseCheck is a lightweight, Linux-friendly web application and monitoring daemon that stores domains in SQLite, discovers open ports, and monitors the health and availability of those services on an automated schedule.
 
-## Features
+---
 
-- Import a list of domain names from a text block
-- Detect which common ports are listening for each domain
-- Maintain the domain list with add, edit, and delete actions
-- Schedule automatic health checks every 10 minutes
-- View a green/red status page showing online/offline port state and last successful response time
-- Configure outgoing SMTP email settings and destination alert recipient
+## Key Features
 
-## Run
+- **Automated Health Monitoring**:
+  - Scheduled scans run in the background (default every 10 minutes) across all active domains.
+  - Multi-threaded parallel scanning with configurable retry attempts and backoff intervals.
+  - HTTP and HTTPS protocol verification with redirection handling (up to 5 hops).
+  - Prepending of response headers to decompressed response bodies for full-header keyword matching (e.g. matching `Server`, `X-Powered-By`, or custom response headers).
+  - Automatic gzip payload decompression and legacy TLS handshake fallback for older appliances.
+  - Optional raw TCP socket fallback for non-HTTP services.
 
-### Local environment:
-1. Create a virtual environment and install dependencies:
+- **HTTP Proxy Support**:
+  - Global HTTP proxy server configuration (host/IP, port, optional username, and password).
+  - Per-domain **Proxy Server** toggle (`use_proxy`) to direct all HTTP and HTTPS requests through the proxy.
+  - Supports HTTP forward proxying and HTTPS `CONNECT` tunneling with optional Basic authentication.
+
+- **Email Alerts & Notifications**:
+  - Configurable outgoing SMTP settings (STARTTLS, SSL/TLS, or plain) with password encryption/storage.
+  - State change notifications: automatically sends email alerts when any monitored domain changes state (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
+  - "Send Test Email" feature directly from the Settings interface.
+
+- **Domain Management**:
+  - Maintain domains with Add, Edit, Delete, and manual Rescan actions.
+  - Custom match tokens, optional URL paths (e.g. `/health`, `/status`), and descriptive comments/notes.
+  - Bulk port management: add or remove ports across multiple selected domains simultaneously, or perform bulk deletion.
+  - Interactive column filters (Domain, Match, URL path, Paused/Active status, and Ports) with URL query parameter preservation.
+  - Pause individual domains to temporarily bypass monitoring without deleting records.
+
+- **Live Status Dashboard**:
+  - Responsive grid layout displaying all active domains and their monitored ports.
+  - Visual status badges: **Online** (green), **Degraded** (amber), and **Offline** (red).
+  - Interactive tooltips showing the last successful check timestamp (converted to server local time) and round-trip response latency (in ms).
+
+- **Data Import & Export**:
+  - **CSV File Export**: Download all saved domains and configurations in a single standard CSV file.
+  - **CSV File Import**: Upload domain lists with automatic duplicate skipping and background progress tracking with cancel capability.
+  - **Quick Text Block Import**: Paste raw lists of domain names for rapid onboarding with automatic port discovery.
+
+---
+
+## Getting Started
+
+### Local Environment
+
+1. **Clone repository and set up virtual environment**:
+   ```bash
+   git clone https://github.com/diepeterpan/pulsecheck.git
+   cd pulsecheck
    python3 -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
-2. Start the app:
-   python app.py
-3. Open the browser at http://127.0.0.1:8182
+   ```
 
-### Docker Compose:
-Build and run the containerized application directly:
+2. **Run PulseCheck**:
+   ```bash
+   python app.py
+   ```
+   *When running in an interactive terminal, the console menu will appear.*
+
+3. **Access the Web Interface**:
+   Open your browser at [http://127.0.0.1:8182](http://127.0.0.1:8182).
+
+### Docker Compose
+
+Run PulseCheck directly with persistent storage and automatic restarts:
+
 ```bash
 docker compose up -d --build
 ```
-The application will be accessible at http://127.0.0.1:8182 (or the configured hostname).
+
+The application runs in headless mode inside the container and is immediately accessible on [http://127.0.0.1:8182](http://127.0.0.1:8182).
+
+---
+
+## Interactive Console Menu
+
+When launched directly in an interactive terminal (non-headless), PulseCheck displays a simplified startup menu:
+
+```text
+PulseCheck menu
+1. Start web app
+2. Start web with Explicit debugging
+3. Exit
+```
+
+- **Option 1**: Starts the Flask web server with production-level output.
+- **Option 2**: Starts the web server with verbose protocol-level debug logging for HTTP, HTTPS, sockets, proxy routing, and SSL handshakes.
+- **Option 3**: Shuts down background tasks and exits cleanly.
+
+---
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PULSECHECK_IP` | `0.0.0.0` | IP address for the web server to listen/bind on (`DEFAULT_IP`) |
-| `PULSECHECK_HOSTNAME` | `127.0.0.1` | Hostname / domain used in HTTP/HTTPS URLs without port (e.g. `pulsecheck.example.com` or `127.0.0.1`) |
-| `PULSECHECK_SSL` | `FALSE` | Set to `TRUE` (or `1`) to use `https://` instead of `http://` in generated URLs and email links |
+| `PULSECHECK_IP` | `0.0.0.0` | IP address for the web server to bind on |
 | `PULSECHECK_PORT` | `8182` | Web server listening port |
-| `PULSECHECK_HEADLESS` | `0` (or `1` in Docker) | Set to `1` to run without interactive console menu |
+| `PULSECHECK_HOSTNAME` | `127.0.0.1` | Hostname / IP used for generating links in alert emails |
+| `PULSECHECK_SSL` | `FALSE` | Set to `TRUE` (or `1`) if PulseCheck is served over HTTPS |
+| `PULSECHECK_HEADLESS` | `0` (`1` in Docker) | Set to `1` to bypass the interactive console menu and start the web server directly |
 | `PULSECHECK_DB_PATH` | `./pulsecheck.db` | Path to the SQLite database file |
-| `PULSECHECK_TIMEZONE` / `TZ` | System local time | Timezone for status page and alert timestamps (e.g. `Africa/Johannesburg`, `Europe/London`, `America/New_York`) |
-| `PULSECHECK_SCAN_WORKERS` | `5` | Number of domains scanned in parallel during periodic scans |
-| `PULSECHECK_SCAN_RETRIES` | `3` | Number of retries when a domain check fails during periodic scans |
-| `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between scan retries |
+| `PULSECHECK_TIMEZONE` / `TZ` | System local time | Timezone for dashboard and alert timestamps (e.g. `Africa/Johannesburg`, `Europe/London`, `UTC`) |
+| `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel domain health checks |
+| `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a domain check fails |
+| `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
 
+---
 
+## CSV File Specification
 
-## Menu choices
+PulseCheck supports importing and exporting domains via CSV.
 
-The app also includes a console menu when started directly, allowing you to:
+### Columns
+`Domain, Match, URL path, Comment, Paused, Proxy, Ports`
 
-1. Import domain list
-2. Maintain domains
-3. View status
-4. Email & SMTP settings
-5. Start web app
-6. Start web with Explicit debugging
-7. Exit
+### Example
+```csv
+Domain,Match,URL path,Comment,Paused,Proxy,Ports
+internal.corp.local,internal,/health,Main API Gateway,0,1,"80, 443"
+api.example.com,api,,Production API,0,0,"443, 8443"
+backup-portal.example,backup,/login,DR Site,1,0,"80"
+```
+
+- **Paused**: `1` (or `true`) to pause, `0` (or `false`) to monitor actively.
+- **Proxy**: `1` (or `true`) to route requests through the configured HTTP proxy, `0` (or `false`) for direct access.
+- **Ports**: Comma-separated list of numeric ports (enclosed in quotes if containing spaces).
+
+---
+
+## Testing
+
+PulseCheck includes an automated test suite covering settings persistence, database migrations, proxy tunneling, CSV import/export, and health check workflows.
+
+Run tests using Python's built-in `unittest` runner:
+
+```bash
+.venv/bin/python -m unittest discover tests
+```
