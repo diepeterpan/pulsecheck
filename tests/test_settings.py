@@ -1387,6 +1387,90 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertEqual(row["status"], "online")
         self.assertEqual(row["is_online"], 1)
 
+    def test_status_page_domain_and_match_truncation_and_hover_box(self):
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        long_domain = "really-long-subdomain-12345.production.api.internal-cloud-network.company.com"
+        long_match = "Corporate Authentication Portal - Cluster Edge Node 42"
+        c.execute(
+            "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, 0)",
+            (long_domain, long_match, "[443]"),
+        )
+        d_id = c.lastrowid
+        c.execute(
+            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, 443, 1, 'online', '2026-09-29 08:00:00 UTC')",
+            (d_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        resp = self.client.get("/status")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        # Verify cell-truncate-wrapper, truncate-text, and cell-hover-box are rendered
+        self.assertIn("cell-truncate-wrapper", html)
+        self.assertIn("truncate-text", html)
+        self.assertIn("cell-hover-box", html)
+        self.assertIn(long_domain, html)
+        self.assertIn(long_match, html)
+        self.assertIn('<span class="hover-box-label">Domain</span>', html)
+        self.assertIn('<span class="hover-box-label">Match</span>', html)
+        self.assertIn("cell-ports-wrapper", html)
+        self.assertIn("status-ports-inline", html)
+        self.assertIn("cell-hover-box-ports", html)
+        self.assertIn("Monitored Ports", html)
+
+    def test_status_page_proxy_indicator_badge(self):
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO domains (name, match, ports, paused, use_proxy) VALUES (?, ?, ?, 0, 1)",
+            ("proxied-service.internal", "proxytoken", "[8080]"),
+        )
+        d_id = c.lastrowid
+        c.execute(
+            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, 8080, 1, 'online', '2026-09-29 08:00:00 UTC')",
+            (d_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        resp = self.client.get("/status")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        # Verify proxy badge appears on status page
+        self.assertIn('class="badge badge-proxy"', html)
+        self.assertIn('title="Accessed via Proxy Server">Proxy</span>', html)
+        self.assertIn("Proxy Server", html)
+
+    def test_status_page_many_ports_truncation_and_hover_list(self):
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        ports_list = [80, 443, 8080, 8443, 3000, 5000, 8000, 8888, 9000, 9443]
+        c.execute(
+            "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, 0)",
+            ("manyports.example", "cluster", str(ports_list)),
+        )
+        d_id = c.lastrowid
+        for p in ports_list:
+            c.execute(
+                "INSERT INTO port_checks (domain_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, ?, 1, 'online', 25, '2026-09-29 08:30:00 UTC')",
+                (d_id, p),
+            )
+        conn.commit()
+        conn.close()
+
+        resp = self.client.get("/status")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        # Verify all 10 ports appear in the hover list
+        self.assertIn("Monitored Ports (10)", html)
+        for p in ports_list:
+            self.assertIn(f">{p}</strong>", html)
+
 
 if __name__ == "__main__":
     unittest.main()

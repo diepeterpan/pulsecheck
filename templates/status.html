@@ -64,27 +64,64 @@
 
               <tr class="domain-row status-row" data-domain="{{ domain_name | lower }}" data-status="{{ overall_status }}">
                 <td class="col-domain">
-                  <strong><a class="status-domain-link" href="{{ url_for('domains', filter=domain_name) }}">{{ domain_name }}</a></strong>
+                  <div class="cell-truncate-wrapper" tabindex="0">
+                    <strong class="status-domain-strong truncate-text">
+                      <a class="status-domain-link" href="{{ url_for('domains', filter=domain_name) }}" title="{{ domain_name }}">{{ domain_name }}</a>
+                    </strong>
+                    {% if first_entry.use_proxy %}
+                      <span class="badge badge-proxy" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
+                    {% endif %}
+                    <span class="cell-hover-box" role="tooltip">
+                      <span class="hover-box-label">Domain</span>
+                      <span class="hover-box-value">{{ domain_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}</span>
+                    </span>
+                  </div>
                 </td>
-                <td class="col-match">{{ first_entry.match }}</td>
+                <td class="col-match">
+                  {% if first_entry.match %}
+                    <div class="cell-truncate-wrapper" tabindex="0">
+                      <span class="status-match-text truncate-text" title="{{ first_entry.match }}">{{ first_entry.match }}</span>
+                      <span class="cell-hover-box" role="tooltip">
+                        <span class="hover-box-label">Match</span>
+                        <span class="hover-box-value">{{ first_entry.match }}</span>
+                      </span>
+                    </div>
+                  {% else %}
+                    <span class="match-none">&mdash;</span>
+                  {% endif %}
+                </td>
                 <td class="col-status">
                   <span class="badge status-badge {{ overall_status }}">{{ status_label }}</span>
                 </td>
                 <td class="col-ports">
                   {% if valid_ports %}
-                    <ul class="status-grid">
-                      {% for entry in valid_ports %}
-                        <li class="status-item {{ entry.status }}" tabindex="0" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
-                          <strong class="status-port">{{ entry.port }}</strong>
-                          <span class="status-tooltip" role="tooltip">
-                            <strong>Port {{ entry.port }}</strong> &bull; {{ entry.status|upper }}<br>
-                            Match: {{ entry.match }}<br>
-                            Last scan: {{ entry.checked_at_local or 'Not scanned yet' }}<br>
-                            Response: {{ (entry.last_response_ms|string + ' ms') if entry.last_response_ms is not none else 'Unavailable' }}
+                    <div class="cell-truncate-wrapper cell-ports-wrapper" tabindex="0">
+                      <div class="status-ports-inline truncate-text" title="{% for p in valid_ports %}{{ p.port }} ({{ p.status }}){% if not loop.last %}, {% endif %}{% endfor %}">
+                        {% for entry in valid_ports %}
+                          <span class="status-item {{ entry.status }}" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
+                            <strong class="status-port">{{ entry.port }}</strong>
                           </span>
-                        </li>
-                      {% endfor %}
-                    </ul>
+                        {% endfor %}
+                      </div>
+                      <span class="cell-hover-box cell-hover-box-ports" role="tooltip">
+                        <span class="hover-box-label">Monitored Ports ({{ valid_ports|length }})</span>
+                        <div class="hover-box-ports-list">
+                          {% for entry in valid_ports %}
+                            <div class="hover-box-port-row">
+                              <span class="status-item {{ entry.status }} status-item-sm">
+                                <strong class="status-port">{{ entry.port }}</strong>
+                              </span>
+                              <span class="hover-port-status {{ entry.status }}">{{ entry.status|upper }}</span>
+                              <span class="hover-port-meta">
+                                {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}&mdash;{% endif %}
+                                &bull;
+                                {{ entry.checked_at_local or 'Never' }}
+                              </span>
+                            </div>
+                          {% endfor %}
+                        </div>
+                      </span>
+                    </div>
                   {% else %}
                     <span class="no-ports">None detected</span>
                   {% endif %}

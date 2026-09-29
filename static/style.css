@@ -806,6 +806,270 @@ button.danger {
     border: 1px solid #e2e8f0;
 }
 
+/* Status Table Layout and Column Optimization */
+.status-table {
+    width: 100%;
+    table-layout: fixed;
+    min-width: 720px;
+}
+
+.status-table .col-domain {
+    width: 22%;
+}
+
+.status-table .col-match {
+    width: 16%;
+}
+
+.status-table .col-status {
+    width: 9%;
+}
+
+.status-table .col-ports {
+    width: 17%;
+}
+
+.status-table .col-latency {
+    width: 9%;
+}
+
+.status-table .col-time {
+    width: 15%;
+}
+
+.status-table .col-actions {
+    width: 12%;
+}
+
+.badge-proxy {
+    background: rgba(14, 165, 233, 0.15);
+    color: #0284c7;
+    font-size: 0.72rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    font-weight: 600;
+    flex-shrink: 0;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.status-table td.col-domain,
+.status-table td.col-match,
+.status-table td.col-ports {
+    position: relative;
+    overflow: visible;
+}
+
+.status-table .cell-truncate-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    max-width: 100%;
+    min-width: 0;
+    cursor: default;
+}
+
+.status-table .cell-truncate-wrapper:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.status-table .truncate-text {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.status-table .status-domain-strong {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+}
+
+.status-table .status-domain-link {
+    color: #0f172a;
+    text-decoration: none;
+    display: inline;
+    transition: color 0.15s ease;
+}
+
+.status-table .status-domain-link:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.status-table .status-match-text {
+    color: #475569;
+}
+
+.status-table .match-none {
+    color: #94a3b8;
+}
+
+/* Hover Box for Truncated Domain and Match Fields */
+.status-table .cell-hover-box {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    z-index: 150;
+    width: max-content;
+    max-width: min(340px, 85vw);
+    padding: 7px 11px;
+    border-radius: 6px;
+    background: #0f172a;
+    color: #ffffff;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+    transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    text-align: left;
+}
+
+.status-table .cell-hover-box::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 14px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #0f172a transparent transparent transparent;
+}
+
+/* For first row, show hover box below to avoid clipping against table top/header */
+.status-table tbody tr:first-child .cell-hover-box {
+    bottom: auto;
+    top: calc(100% + 8px);
+    transform: translateY(-4px);
+}
+
+.status-table tbody tr:first-child .cell-hover-box::after {
+    top: auto;
+    bottom: 100%;
+    border-color: transparent transparent #0f172a transparent;
+}
+
+.status-table .cell-truncate-wrapper:hover .cell-hover-box,
+.status-table .cell-truncate-wrapper:focus .cell-hover-box,
+.status-table .cell-truncate-wrapper:focus-within .cell-hover-box {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.status-table .cell-hover-box .hover-box-label {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+
+.status-table .cell-hover-box .hover-box-value {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #f8fafc;
+    word-break: break-all;
+    white-space: normal;
+    line-height: 1.35;
+}
+
+/* Ports Inline Truncation and Ports Hover Box */
+.status-table .status-ports-inline {
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+
+.status-table .status-ports-inline .status-item {
+    display: inline-flex;
+    vertical-align: middle;
+    margin-right: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.status-table .status-ports-inline .status-item:last-child {
+    margin-right: 0;
+}
+
+.status-table .cell-hover-box.cell-hover-box-ports {
+    min-width: 280px;
+    max-width: min(400px, 85vw);
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 9px 12px;
+}
+
+.status-table .hover-box-ports-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.status-table .hover-box-port-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.status-table .hover-box-port-row:last-child {
+    border-bottom: none;
+}
+
+.status-table .status-item-sm {
+    padding: 1px 6px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.status-table .hover-port-status {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.status-table .hover-port-status.online {
+    color: #34d399;
+}
+
+.status-table .hover-port-status.degraded {
+    color: #fbbf24;
+}
+
+.status-table .hover-port-status.offline {
+    color: #f87171;
+}
+
+.status-table .hover-port-meta {
+    margin-left: auto;
+    font-size: 0.72rem;
+    color: #94a3b8;
+    white-space: nowrap;
+}
+
 .status-table .status-grid {
     display: inline-flex;
     flex-wrap: wrap;
