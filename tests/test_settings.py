@@ -30,6 +30,10 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings["smtp_password"], "")
         self.assertEqual(settings["from_email"], "")
         self.assertEqual(settings["recipient_email"], "")
+        self.assertEqual(settings["proxy_host"], "")
+        self.assertEqual(settings["proxy_port"], "8080")
+        self.assertEqual(settings["proxy_username"], "")
+        self.assertEqual(settings["proxy_password"], "")
 
     def test_save_and_retrieve_settings(self):
         new_settings = {
@@ -306,9 +310,9 @@ class SettingsTests(unittest.TestCase):
         csv_text, count = pulsecheck_app.export_domains_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Domain,Match,URL path,Comment,Paused,Ports")
-        self.assertIn('domain-a.com,domain,/test,Internal gateway,0,"80, 443"', lines)
-        self.assertIn("domain-b.com,other,,,1,8080", lines)
+        self.assertEqual(lines[0], "Domain,Match,URL path,Comment,Paused,Proxy,Ports")
+        self.assertIn('domain-a.com,domain,/test,Internal gateway,0,0,"80, 443"', lines)
+        self.assertIn("domain-b.com,other,,,1,0,8080", lines)
 
     @patch("app.scan_domain")
     def test_import_domains_from_csv_success_and_skip_duplicates(self, mock_scan):
@@ -361,8 +365,8 @@ bad site!!,bad,,0,80
         self.assertEqual(response.content_type, "text/csv; charset=utf-8")
         self.assertIn("attachment; filename=pulsecheck_domains.csv", response.headers["Content-Disposition"])
         self.assertEqual(response.headers["X-Exported-Count"], "1")
-        self.assertIn(b"Domain,Match,URL path,Comment,Paused,Ports", response.data)
-        self.assertIn(b"test.org,test,,,0,443", response.data)
+        self.assertIn(b"Domain,Match,URL path,Comment,Paused,Proxy,Ports", response.data)
+        self.assertIn(b"test.org,test,,,0,0,443", response.data)
 
     @patch("app.scan_domain")
     def test_import_route_csv_upload(self, mock_scan):
@@ -1043,6 +1047,240 @@ site3.com,site3,,0,80
 
         self.assertEqual(len(scanned_domains), 6)
         self.assertEqual(set(scanned_domains), {f"dom{i}.local" for i in range(1, 7)})
+
+    def test_proxy_settings_storage_and_password_preservation(self):
+        new_settings = {
+            "proxy_host": "proxy.corp.internal",
+            "proxy_port": "3128",
+            "proxy_username": "proxyuser",
+            "proxy_password": "supersecretpassword",
+        }
+        pulsecheck_app.save_settings(new_settings)
+        loaded = pulsecheck_app.get_settings()
+        self.assertEqual(loaded["proxy_host"], "proxy.corp.internal")
+        self.assertEqual(loaded["proxy_port"], "3128")
+        self.assertEqual(loaded["proxy_username"], "proxyuser")
+        self.assertEqual(loaded["proxy_password"], "supersecretpassword")
+
+        # Test web route preserving password when left blank
+        response = self.client.post("/settings", data={
+            "action": "save",
+            "proxy_host": "proxy-updated.internal",
+            "proxy_port": "8080",
+            "proxy_username": "newuser",
+            "proxy_password": "",  # Empty should preserve existing
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        reloaded = pulsecheck_app.get_settings()
+        self.assertEqual(reloaded["proxy_host"], "proxy-updated.internal")
+        self.assertEqual(reloaded["proxy_password"], "supersecretpassword")
+
+    @patch("app.scan_domain")
+    def test_domain_use_proxy_database_field_and_edit(self, mock_scan):
+        # 1. Add domain with use_proxy default (False)
+        domain_id = pulsecheck_app.add_domain("plain.example", paused=True)
+        d = pulsecheck_app.get_domain_by_id(domain_id)
+        self.assertFalse(d["use_proxy"])
+
+        # 2. Update domain with use_proxy=True
+        pulsecheck_app.update_domain(domain_id, "plain.example", "80, 443", paused=True, use_proxy=True)
+        d_updated = pulsecheck_app.get_domain_by_id(domain_id)
+        self.assertTrue(d_updated["use_proxy"])
+
+        # 3. Edit via web route POST
+        response = self.client.post(f"/domains/{domain_id}/edit", data={
+            "name": "plain.example",
+            "match": "plain",
+            "url_path": "",
+            "comment": "Testing proxy",
+            "ports": "80",
+            "use_proxy": "on",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        d_web = pulsecheck_app.get_domain_by_id(domain_id)
+        self.assertTrue(d_web["use_proxy"])
+
+        # 4. Turn use_proxy off via web route POST (checkbox omitted)
+        response = self.client.post(f"/domains/{domain_id}/edit", data={
+            "name": "plain.example",
+            "match": "plain",
+            "url_path": "",
+            "comment": "Testing proxy",
+            "ports": "80",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        d_web_off = pulsecheck_app.get_domain_by_id(domain_id)
+        self.assertFalse(d_web_off["use_proxy"])
+
+    @patch("app.scan_domain")
+    def test_csv_import_and_export_with_proxy_indicator(self, mock_scan):
+        # Import CSV containing Proxy column
+        csv_data = """Domain,Match,URL path,Comment,Paused,Proxy,Ports
+proxied.example,proxied,/health,Gateway,0,1,"80, 443"
+direct.example,direct,,Direct site,0,0,8080
+"""
+        summary = pulsecheck_app.import_domains_from_csv(csv_data)
+        self.assertEqual(summary["imported"], 2)
+
+        domains = {d["name"]: d for d in pulsecheck_app.domain_list()}
+        self.assertTrue(domains["proxied.example"]["use_proxy"])
+        self.assertFalse(domains["direct.example"]["use_proxy"])
+
+        # Export and verify the Proxy column
+        csv_text, count = pulsecheck_app.export_domains_csv()
+        self.assertEqual(count, 2)
+        lines = [line.strip() for line in csv_text.strip().splitlines()]
+        self.assertEqual(lines[0], "Domain,Match,URL path,Comment,Paused,Proxy,Ports")
+        self.assertIn('proxied.example,proxied,/health,Gateway,0,1,"80, 443"', lines)
+        self.assertIn("direct.example,direct,,Direct site,0,0,8080", lines)
+
+    def test_fetch_response_http_uses_proxy_server(self):
+        class FakeResponse:
+            status = 200
+            def read(self, size):
+                return b"proxied http content"
+            def getheader(self, name):
+                return None
+
+        connection_log = {}
+
+        class FakeHTTPConnection:
+            def __init__(self, host, port, **kwargs):
+                connection_log["host"] = host
+                connection_log["port"] = port
+
+            def request(self, method, url, headers=None):
+                connection_log["method"] = method
+                connection_log["url"] = url
+                connection_log["headers"] = headers or {}
+
+            def getresponse(self):
+                return FakeResponse()
+
+            def close(self):
+                connection_log["closed"] = True
+
+        proxy_cfg = {
+            "proxy_host": "10.0.0.50",
+            "proxy_port": "8080",
+            "proxy_username": "agent",
+            "proxy_password": "secret",
+        }
+
+        with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
+            body, code, url = pulsecheck_app.fetch_response(
+                "internal.example",
+                80,
+                "http",
+                url_path="/status",
+                use_proxy=True,
+                proxy_settings=proxy_cfg,
+            )
+
+        self.assertEqual(body, b"proxied http content")
+        self.assertEqual(code, 200)
+        self.assertEqual(connection_log["host"], "10.0.0.50")
+        self.assertEqual(connection_log["port"], 8080)
+        self.assertEqual(connection_log["method"], "GET")
+        self.assertEqual(connection_log["url"], "http://internal.example/status")
+        self.assertEqual(connection_log["headers"]["Host"], "internal.example")
+        self.assertIn("Proxy-Authorization", connection_log["headers"])
+        self.assertTrue(connection_log["headers"]["Proxy-Authorization"].startswith("Basic "))
+
+    def test_fetch_response_https_uses_proxy_tunnel(self):
+        class FakeResponse:
+            status = 200
+            def read(self, size):
+                return b"proxied https content"
+            def getheader(self, name):
+                return None
+
+        tunnel_log = {}
+
+        class FakeHTTPSConnection:
+            def __init__(self, host, port, **kwargs):
+                tunnel_log["host"] = host
+                tunnel_log["port"] = port
+
+            def set_tunnel(self, target_host, port=None, headers=None):
+                tunnel_log["target_host"] = target_host
+                tunnel_log["target_port"] = port
+                tunnel_log["tunnel_headers"] = headers or {}
+
+            def request(self, method, path, headers=None):
+                tunnel_log["method"] = method
+                tunnel_log["path"] = path
+                tunnel_log["headers"] = headers or {}
+
+            def getresponse(self):
+                return FakeResponse()
+
+            def close(self):
+                tunnel_log["closed"] = True
+
+        proxy_cfg = {
+            "proxy_host": "proxy.mycorp.com",
+            "proxy_port": "3128",
+            "proxy_username": "myuser",
+            "proxy_password": "mypassword",
+        }
+
+        with patch("app.http.client.HTTPSConnection", FakeHTTPSConnection):
+            body, code, url = pulsecheck_app.fetch_response(
+                "secure.example",
+                443,
+                "https",
+                url_path="/api/data",
+                use_proxy=True,
+                proxy_settings=proxy_cfg,
+            )
+
+        self.assertEqual(body, b"proxied https content")
+        self.assertEqual(code, 200)
+        self.assertEqual(tunnel_log["host"], "proxy.mycorp.com")
+        self.assertEqual(tunnel_log["port"], 3128)
+        self.assertEqual(tunnel_log["target_host"], "secure.example")
+        self.assertEqual(tunnel_log["target_port"], 443)
+        self.assertIn("Proxy-Authorization", tunnel_log["tunnel_headers"])
+        self.assertEqual(tunnel_log["method"], "GET")
+        self.assertEqual(tunnel_log["path"], "/api/data")
+        self.assertEqual(tunnel_log["headers"]["Host"], "secure.example")
+
+    def test_fetch_response_requires_proxy_host_when_use_proxy_true(self):
+        with self.assertRaises(OSError) as ctx:
+            pulsecheck_app.fetch_response(
+                "target.example",
+                80,
+                "http",
+                use_proxy=True,
+                proxy_settings={"proxy_host": ""},
+            )
+        self.assertIn("requires proxy access", str(ctx.exception))
+
+    @patch("app.fetch_socket_response")
+    @patch("app.fetch_response")
+    def test_scan_domain_uses_proxy_and_skips_socket_fallback(self, mock_fetch, mock_socket):
+        # Configure domain in DB with use_proxy=1
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.execute(
+            "INSERT INTO domains (name, match, ports, use_proxy) VALUES (?, ?, ?, 1)",
+            ("proxied-host.local", "mismatch-token", "[80]"),
+        )
+        domain_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Simulate fetch_response returning content that does NOT match -> status will be offline/degraded
+        mock_fetch.return_value = (b"some response", 200, "http://proxied-host.local:80/")
+
+        pulsecheck_app.scan_domain(domain_id, "proxied-host.local", [80], match="mismatch-token")
+
+        # Verify fetch_response was called with use_proxy=True
+        mock_fetch.assert_called_once()
+        self.assertTrue(mock_fetch.call_args.kwargs.get("use_proxy"))
+
+        # Verify direct socket fallback was NOT attempted
+        mock_socket.assert_not_called()
 
 
 if __name__ == "__main__":

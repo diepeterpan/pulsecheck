@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import csv
 import gzip
 import http.client
@@ -86,6 +87,7 @@ def init_db():
             url_path TEXT NOT NULL DEFAULT '',
             comment TEXT NOT NULL DEFAULT '',
             paused INTEGER NOT NULL DEFAULT 0,
+            use_proxy INTEGER NOT NULL DEFAULT 0,
             ports TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -122,6 +124,8 @@ def init_db():
         conn.execute("ALTER TABLE domains ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
     if "paused" not in domain_columns:
         conn.execute("ALTER TABLE domains ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
+    if "use_proxy" not in domain_columns:
+        conn.execute("ALTER TABLE domains ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
     conn.execute(
         "UPDATE domains SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
         "WHERE match = ''"
@@ -239,7 +243,7 @@ def parse_ports(value):
 def domain_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, ports, created_at FROM domains ORDER BY name ASC"
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM domains ORDER BY name ASC"
     ).fetchall()
     conn.close()
     return [
@@ -250,6 +254,7 @@ def domain_list():
             "url_path": row["url_path"],
             "comment": row["comment"] if "comment" in row.keys() else "",
             "paused": bool(row["paused"]),
+            "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
             "ports": parse_ports(row["ports"]),
             "created_at": row["created_at"],
         }
@@ -260,7 +265,7 @@ def domain_list():
 def get_domain_by_id(domain_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, ports, created_at FROM domains WHERE id = ?",
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM domains WHERE id = ?",
         (domain_id,),
     ).fetchone()
     conn.close()
@@ -273,6 +278,7 @@ def get_domain_by_id(domain_id):
         "url_path": row["url_path"],
         "comment": row["comment"] if "comment" in row.keys() else "",
         "paused": bool(row["paused"]),
+        "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
         "ports": parse_ports(row["ports"]),
         "created_at": row["created_at"],
     }
@@ -421,29 +427,86 @@ def fetch_response(
     max_redirects: int = 5,
     explicit_debug: bool = False,
     allow_legacy_ssl: bool = False,
+    use_proxy: bool = False,
+    proxy_settings: dict[str, str] | None = None,
 ):
     current_url = f"{scheme}://{domain_name}:{port}{url_path or '/'}"
     ssl_context = create_ssl_context(legacy=allow_legacy_ssl)
 
+    proxy_host = ""
+    proxy_port = 8080
+    proxy_auth_header = None
+    if use_proxy:
+        cfg = get_settings() if proxy_settings is None else proxy_settings
+        raw_host = (cfg.get("proxy_host") or "").strip()
+        if raw_host:
+            if "://" in raw_host:
+                parsed_proxy = urlsplit(raw_host)
+                proxy_host = parsed_proxy.hostname or raw_host
+                if parsed_proxy.port:
+                    proxy_port = parsed_proxy.port
+            elif ":" in raw_host and not raw_host.startswith("["):
+                parts = raw_host.split(":", 1)
+                proxy_host = parts[0].strip()
+                try:
+                    proxy_port = int(parts[1].strip())
+                except ValueError:
+                    pass
+            else:
+                proxy_host = raw_host
+        if not proxy_host:
+            raise OSError(f"Domain '{domain_name}' requires proxy access, but no HTTP proxy host is configured in settings.")
+        if cfg.get("proxy_port") and proxy_port == 8080:
+            try:
+                proxy_port = int(str(cfg.get("proxy_port")).strip())
+            except ValueError:
+                pass
+        p_user = (cfg.get("proxy_username") or "").strip()
+        p_pass = cfg.get("proxy_password") or ""
+        if p_user:
+            creds = f"{p_user}:{p_pass}"
+            proxy_auth_header = f"Basic {base64.b64encode(creds.encode('latin1')).decode('ascii')}"
+
     for redirect_count in range(max_redirects + 1):
         parsed = urlsplit(current_url)
         target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        connection_class = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         connection_kwargs = {"timeout": 2}
-        if parsed.scheme == "https":
-            connection_kwargs["context"] = ssl_context
-        connection = connection_class(parsed.hostname, target_port, **connection_kwargs)
         error = None
         should_retry_legacy = False
+
+        if use_proxy:
+            if parsed.scheme == "https":
+                connection_kwargs["context"] = ssl_context
+                connection = http.client.HTTPSConnection(proxy_host, proxy_port, **connection_kwargs)
+                tunnel_headers = {}
+                if proxy_auth_header:
+                    tunnel_headers["Proxy-Authorization"] = proxy_auth_header
+                connection.set_tunnel(parsed.hostname, target_port, headers=tunnel_headers)
+            else:
+                connection = http.client.HTTPConnection(proxy_host, proxy_port, **connection_kwargs)
+        else:
+            connection_class = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+            if parsed.scheme == "https":
+                connection_kwargs["context"] = ssl_context
+            connection = connection_class(parsed.hostname, target_port, **connection_kwargs)
+
         try:
             request_path = parsed.path or "/"
             if parsed.query:
                 request_path += f"?{parsed.query}"
-            connection.request(
-                "GET",
-                request_path,
-                headers={"Host": parsed.hostname, "Connection": "close"},
-            )
+
+            if use_proxy and parsed.scheme == "http":
+                host_hdr = parsed.hostname if target_port == 80 else f"{parsed.hostname}:{target_port}"
+                req_headers = {"Host": host_hdr, "Connection": "close"}
+                if proxy_auth_header:
+                    req_headers["Proxy-Authorization"] = proxy_auth_header
+                proxy_target_url = f"http://{host_hdr}{request_path}"
+                connection.request("GET", proxy_target_url, headers=req_headers)
+            else:
+                host_hdr = parsed.hostname if (target_port == 443 if parsed.scheme == "https" else target_port == 80) else f"{parsed.hostname}:{target_port}"
+                req_headers = {"Host": host_hdr, "Connection": "close"}
+                connection.request("GET", request_path, headers=req_headers)
+
             response = connection.getresponse()
             body = response.read(16384)
             status_code = response.status
@@ -452,8 +515,9 @@ def fetch_response(
             if "gzip" in content_encoding:
                 body = decompress_gzip_payload(body)
             if explicit_debug:
+                proxy_info = f" proxy={proxy_host}:{proxy_port}" if use_proxy else ""
                 print(
-                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={domain_name} port={port} "
+                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={domain_name} port={port}{proxy_info} "
                     f"status={status_code} current_url={current_url} legacy_ssl={allow_legacy_ssl} "
                     f"body={body[:16384]!r}"
                 )
@@ -465,15 +529,16 @@ def fetch_response(
                 raise
         finally:
             if explicit_debug and error is not None:
+                proxy_info = f" proxy={proxy_host}:{proxy_port}" if use_proxy else ""
                 if should_retry_legacy:
                     print(
-                        f"[DEBUG scan fetchresponse] protocol=https domain={parsed.hostname} port={target_port} "
+                        f"[DEBUG scan fetchresponse] protocol=https domain={parsed.hostname} port={target_port}{proxy_info} "
                         f"handshake failed ({error}); retrying with older TLS versions..."
                     )
                 else:
                     print(
                         f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={parsed.hostname} "
-                        f"port={target_port} error={error!r}"
+                        f"port={target_port}{proxy_info} error={error!r}"
                     )
             connection.close()
 
@@ -486,6 +551,8 @@ def fetch_response(
                 max_redirects=max_redirects,
                 explicit_debug=explicit_debug,
                 allow_legacy_ssl=True,
+                use_proxy=use_proxy,
+                proxy_settings=proxy_settings,
             )
 
         if status_code not in {301, 302, 303, 307, 308} or not location:
@@ -520,10 +587,21 @@ def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", a
         raise
 
 
-def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None, url_path: str = ""):
+def scan_domain(
+    domain_id: int,
+    domain_name: str,
+    ports,
+    match: str = "",
+    explicit_debug: bool | None = None,
+    url_path: str = "",
+    use_proxy: bool | None = None,
+):
     domain = get_domain_by_id(domain_id)
     if domain is not None and domain["paused"]:
         return {}
+    if use_proxy is None:
+        use_proxy = bool(domain["use_proxy"]) if domain and "use_proxy" in domain else False
+    proxy_settings = get_settings() if use_proxy else None
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
         ports = parse_ports(ports)
@@ -535,13 +613,19 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         response = b""
         try:
             response, status_code, final_url = fetch_response(
-                domain_name, port, "http", url_path, explicit_debug=debug_enabled
+                domain_name,
+                port,
+                "http",
+                url_path,
+                explicit_debug=debug_enabled,
+                use_proxy=use_proxy,
+                proxy_settings=proxy_settings,
             )
             response_ms = int((time.monotonic() - start) * 1000)
             if debug_enabled:
                 print(
                     f"[DEBUG scan] protocol=http domain={domain_name} port={port} "
-                    f"status={status_code} url={final_url} match={match!r} "
+                    f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
                     f"response={response[:16384]!r}"
                 )
         except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
@@ -569,13 +653,19 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         elif port in HTTPS_PORTS:
             try:
                 https_response, status_code, final_url = fetch_response(
-                    domain_name, port, "https", url_path, explicit_debug=debug_enabled
+                    domain_name,
+                    port,
+                    "https",
+                    url_path,
+                    explicit_debug=debug_enabled,
+                    use_proxy=use_proxy,
+                    proxy_settings=proxy_settings,
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
                         f"[DEBUG scan] protocol=https domain={domain_name} port={port} "
-                        f"status={status_code} url={final_url} match={match!r} "
+                        f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
                         f"response={https_response[:16384]!r}"
                     )
                 if https_response and match_bytes in https_response.lower():
@@ -596,7 +686,7 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         elif response:
             status = "degraded"
 
-        if status != "online":
+        if status != "online" and not use_proxy:
             try:
                 socket_response = fetch_socket_response(domain_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
@@ -661,6 +751,7 @@ def add_domain(
     url_path: str | None = None,
     paused: bool = False,
     comment: str = "",
+    use_proxy: bool = False,
 ):
     normalized = normalize_domain(domain_name)
     if domain_exists(normalized):
@@ -672,14 +763,14 @@ def add_domain(
         detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO domains (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
-        (normalized, domain_match, normalized_path, (comment or "").strip(), int(paused), json.dumps(detected)),
+        "INSERT INTO domains (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (normalized, domain_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), json.dumps(detected)),
     )
     conn.commit()
     domain_id = cursor.lastrowid
     conn.close()
     if detected and not paused:
-        scan_domain(domain_id, normalized, detected, domain_match, url_path=normalized_path)
+        scan_domain(domain_id, normalized, detected, domain_match, url_path=normalized_path, use_proxy=use_proxy)
     return domain_id
 
 
@@ -776,7 +867,7 @@ def export_domains_csv() -> tuple[str, int]:
     domains = domain_list()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Domain", "Match", "URL path", "Comment", "Paused", "Ports"])
+    writer.writerow(["Domain", "Match", "URL path", "Comment", "Paused", "Proxy", "Ports"])
     for d in domains:
         ports_str = ", ".join(str(p) for p in d["ports"])
         writer.writerow([
@@ -785,6 +876,7 @@ def export_domains_csv() -> tuple[str, int]:
             d["url_path"],
             d.get("comment", "") or "",
             "1" if d["paused"] else "0",
+            "1" if d.get("use_proxy") else "0",
             ports_str,
         ])
     return output.getvalue(), len(domains)
@@ -827,12 +919,16 @@ def import_domains_from_csv(
                 col_map["comment"] = idx
             elif col in ("paused", "is_paused"):
                 col_map["paused"] = idx
+            elif col in ("proxy", "use_proxy", "use proxy", "is_proxy", "proxy server", "proxy_server"):
+                col_map["proxy"] = idx
             elif col in ("ports", "port", "monitored ports"):
                 col_map["ports"] = idx
         data_rows = raw_rows[1:]
     else:
         first_len = len(raw_rows[0])
-        if first_len >= 6:
+        if first_len >= 7:
+            col_map = {"domain": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "ports": 6}
+        elif first_len == 6:
             col_map = {"domain": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "ports": 5}
         else:
             col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
@@ -893,14 +989,18 @@ def import_domains_from_csv(
         paused_raw = row[p_idx].strip().lower() if p_idx != -1 and p_idx < len(row) else "0"
         paused_val = paused_raw in ("1", "true", "yes", "t", "y")
 
+        prx_idx = col_map.get("proxy", -1)
+        proxy_raw = row[prx_idx].strip().lower() if prx_idx != -1 and prx_idx < len(row) else "0"
+        proxy_val = proxy_raw in ("1", "true", "yes", "t", "y")
+
         pts_idx = col_map.get("ports", -1)
         ports_raw = row[pts_idx].strip() if pts_idx != -1 and pts_idx < len(row) else ""
         ports_val = parse_csv_ports(ports_raw) or []
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
-            (normalized, match_val, url_path_val, comment_val, int(paused_val), json.dumps(ports_val)),
+            "INSERT INTO domains (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), json.dumps(ports_val)),
         )
         conn.commit()
         domain_id = cursor.lastrowid
@@ -915,7 +1015,7 @@ def import_domains_from_csv(
                     "status": "scanning",
                     "message": f"Scanning ports for {normalized} ({', '.join(str(p) for p in ports_val)})",
                 })
-            scan_domain(domain_id, normalized, ports_val, match_val, url_path=url_path_val)
+            scan_domain(domain_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val)
 
         summary["imported"] += 1
         summary["imported_domains"].append(normalized)
@@ -931,16 +1031,22 @@ def update_domain(
     url_path: str | None = None,
     paused: bool | None = None,
     comment: str | None = None,
+    use_proxy: bool | None = None,
 ):
     normalized = normalize_domain(name)
     domain_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     existing_domain = None
-    if paused is None or comment is None:
+    if paused is None or comment is None or use_proxy is None:
         existing_domain = get_domain_by_id(domain_id)
 
     if paused is None:
         paused = existing_domain["paused"] if existing_domain else False
+
+    if use_proxy is None:
+        use_proxy_val = existing_domain["use_proxy"] if existing_domain and "use_proxy" in existing_domain else False
+    else:
+        use_proxy_val = bool(use_proxy)
 
     if comment is None:
         comment_val = existing_domain["comment"] if existing_domain and "comment" in existing_domain.keys() else ""
@@ -960,13 +1066,14 @@ def update_domain(
                 raise ValueError(f"Invalid port value '{value}'")
     conn = get_db_connection()
     conn.execute(
-        "UPDATE domains SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, ports = ? WHERE id = ?",
+        "UPDATE domains SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, ports = ? WHERE id = ?",
         (
             normalized,
             domain_match,
             normalized_path,
             comment_val,
             int(paused),
+            int(use_proxy_val),
             json.dumps(sorted({int(port) for port in incoming_ports})),
             domain_id,
         ),
@@ -974,7 +1081,7 @@ def update_domain(
     conn.commit()
     conn.close()
     if incoming_ports and not paused:
-        scan_domain(domain_id, normalized, incoming_ports, domain_match, url_path=normalized_path)
+        scan_domain(domain_id, normalized, incoming_ports, domain_match, url_path=normalized_path, use_proxy=use_proxy_val)
 
 
 def parse_port_values(ports_input: str):
@@ -1051,7 +1158,7 @@ def get_status_rows():
                    ROW_NUMBER() OVER (PARTITION BY domain_id, port ORDER BY checked_at DESC) AS rn
             FROM port_checks
         )
-         SELECT d.id, d.name, d.match, d.ports, latest.port, latest.is_online,
+         SELECT d.id, d.name, d.match, d.ports, d.use_proxy, latest.port, latest.is_online,
              COALESCE(latest.status, CASE WHEN latest.is_online = 1 THEN 'online' ELSE 'offline' END) AS status,
              latest.last_response_ms, latest.checked_at
         FROM domains d
@@ -1068,6 +1175,7 @@ def get_status_rows():
             "name": row["name"],
             "match": row["match"],
             "ports": parse_ports(row["ports"]),
+            "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
             "port": row["port"],
             "is_online": bool(row["is_online"]),
             "status": row["status"],
@@ -1086,6 +1194,10 @@ DEFAULT_SETTINGS = {
     "smtp_password": "",
     "from_email": "",
     "recipient_email": "",
+    "proxy_host": "",
+    "proxy_port": "8080",
+    "proxy_username": "",
+    "proxy_password": "",
 }
 
 
@@ -1103,7 +1215,7 @@ def save_settings(new_settings: dict[str, str]) -> None:
     conn = get_db_connection()
     for key, value in new_settings.items():
         if key in DEFAULT_SETTINGS:
-            val_to_save = str(value) if key == "smtp_password" else str(value).strip()
+            val_to_save = str(value) if key in ("smtp_password", "proxy_password") else str(value).strip()
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (key, val_to_save),
@@ -1478,11 +1590,12 @@ def add_domain_route():
         name = request.form.get("name", "").strip()
         match = request.form.get("match", "").strip()
         comment = request.form.get("comment", "").strip()
+        use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         if not name:
             flash("A domain name is required.")
             return redirect(url_for("add_domain_route"))
         try:
-            result = add_domain(name, match or None, request.form.get("url_path", ""), comment=comment)
+            result = add_domain(name, match or None, request.form.get("url_path", ""), comment=comment, use_proxy=use_proxy)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("add_domain_route"))
@@ -1556,8 +1669,9 @@ def edit_domain(domain_id):
         comment = request.form.get("comment", "").strip()
         ports_input = request.form.get("ports", "")
         paused = request.form.get("paused") == "on"
+        use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         try:
-            update_domain(domain_id, name, ports_input, match or None, url_path, paused, comment=comment)
+            update_domain(domain_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_domain", domain_id=domain_id, return_to=return_to))
@@ -1585,7 +1699,7 @@ def rescan_domain_route(domain_id):
     if domain is None:
         flash("Domain not found.")
         return redirect(url_for("domains"))
-    scan_domain(domain_id, domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
+    scan_domain(domain_id, domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"], use_proxy=domain.get("use_proxy", False))
     flash(f"Rescanned {domain['name']}.")
     return redirect(url_for("status"))
 
@@ -1612,9 +1726,15 @@ def settings_route():
             "smtp_password": request.form.get("smtp_password", ""),
             "from_email": request.form.get("from_email", "").strip(),
             "recipient_email": request.form.get("recipient_email", "").strip(),
+            "proxy_host": request.form.get("proxy_host", "").strip(),
+            "proxy_port": request.form.get("proxy_port", "8080").strip(),
+            "proxy_username": request.form.get("proxy_username", "").strip(),
+            "proxy_password": request.form.get("proxy_password", ""),
         }
         if not updated["smtp_password"] and current_settings.get("smtp_password"):
             updated["smtp_password"] = current_settings["smtp_password"]
+        if not updated["proxy_password"] and current_settings.get("proxy_password"):
+            updated["proxy_password"] = current_settings["proxy_password"]
 
         save_settings(updated)
 
@@ -1810,6 +1930,7 @@ def scan_domain_with_retries(
                 domain["match"],
                 explicit_debug=debug_enabled,
                 url_path=domain.get("url_path", ""),
+                use_proxy=domain.get("use_proxy", False),
             )
             overall = compute_overall_status(port_statuses)
             if overall == "online" or not port_statuses:
@@ -1928,7 +2049,8 @@ def cli_menu():
             for entry in entries:
                 ports = ", ".join(str(port) for port in entry["ports"]) or "none"
                 comment_suffix = f" ({entry['comment']})" if entry.get("comment") else ""
-                print(f"- {entry['id']}: {entry['name']} [{ports}]{comment_suffix}")
+                proxy_suffix = " [PROXY]" if entry.get("use_proxy") else ""
+                print(f"- {entry['id']}: {entry['name']}{proxy_suffix} [{ports}]{comment_suffix}")
 
             selection = input("Enter domain id to edit, or 'd' to delete, or blank to return: ").strip()
             if not selection:
@@ -1954,8 +2076,10 @@ def cli_menu():
             ports_value = input(f"Ports [{', '.join(str(port) for port in domain['ports'])}] : ").strip()
             comment_input = input(f"Comment [{domain.get('comment', '')}]: ").strip()
             comment_val = comment_input if comment_input else domain.get("comment", "")
+            use_proxy_input = input(f"Use Proxy (y/n) [{'y' if domain.get('use_proxy') else 'n'}]: ").strip().lower()
+            use_proxy_val = domain.get("use_proxy", False) if not use_proxy_input else use_proxy_input in ("y", "yes", "true", "1")
             try:
-                update_domain(domain_id, new_name, ports_value, comment=comment_val)
+                update_domain(domain_id, new_name, ports_value, comment=comment_val, use_proxy=use_proxy_val)
                 print("Domain updated.")
             except ValueError as exc:
                 print(f"Update failed: {exc}")
@@ -1971,11 +2095,13 @@ def cli_menu():
                 last_success = "never"
                 if row["is_online"]:
                     last_success = row["checked_at_local"] or row["checked_at"]
-                print(f"{row['name']} port {port_label}: {state}; last success: {last_success}")
+                proxy_label = " (via proxy)" if row.get("use_proxy") else ""
+                print(f"{row['name']}{proxy_label} port {port_label}: {state}; last success: {last_success}")
 
         elif choice == "4":
             settings = get_settings()
-            print("\nCurrent Email & SMTP Settings:")
+            print("\nCurrent Settings:")
+            print("--- Outgoing Mail (SMTP) ---")
             print(f"- SMTP Host: {settings['smtp_host'] or '(not set)'}")
             print(f"- SMTP Port: {settings['smtp_port']}")
             print(f"- Security: {settings['smtp_security']}")
@@ -1983,7 +2109,12 @@ def cli_menu():
             print(f"- Password: {'********' if settings['smtp_password'] else '(not set)'}")
             print(f"- Sender (From): {settings['from_email'] or '(not set)'}")
             print(f"- Destination Email: {settings['recipient_email'] or '(not set)'}")
-            print("\nOptions: [e]dit settings, [t]est email, or press Enter to return.")
+            print("--- HTTP Proxy Server ---")
+            print(f"- Proxy Host: {settings['proxy_host'] or '(not set)'}")
+            print(f"- Proxy Port: {settings['proxy_port']}")
+            print(f"- Proxy Username: {settings['proxy_username'] or '(not set)'}")
+            print(f"- Proxy Password: {'********' if settings['proxy_password'] else '(not set)'}")
+            print("\nOptions: [e]dit email settings, [p]roxy settings, [t]est email, or press Enter to return.")
             sub_choice = input("Select: ").strip().lower()
             if sub_choice == "e":
                 host = input(f"SMTP Host [{settings['smtp_host']}]: ").strip()
@@ -2004,7 +2135,21 @@ def cli_menu():
                     "recipient_email": dest_addr or settings["recipient_email"],
                 }
                 save_settings(updated)
-                print("Settings updated successfully.")
+                print("Email settings updated successfully.")
+            elif sub_choice == "p":
+                phost = input(f"Proxy Host [{settings['proxy_host']}]: ").strip()
+                pport = input(f"Proxy Port [{settings['proxy_port']}]: ").strip()
+                puser = input(f"Proxy Username [{settings['proxy_username']}]: ").strip()
+                ppwd = input("Proxy Password (leave blank to keep current): ").strip()
+
+                updated = {
+                    "proxy_host": phost or settings["proxy_host"],
+                    "proxy_port": pport or settings["proxy_port"],
+                    "proxy_username": puser or settings["proxy_username"],
+                    "proxy_password": ppwd if ppwd else settings["proxy_password"],
+                }
+                save_settings(updated)
+                print("Proxy settings updated successfully.")
             elif sub_choice == "t":
                 dest = settings["recipient_email"]
                 if not dest:

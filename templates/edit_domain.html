@@ -20,10 +20,16 @@
       <label for="comment">Comment (optional)</label>
       <input type="text" id="comment" name="comment" value="{{ domain.comment or '' }}" placeholder="Notes, purpose, or owner">
 
-      <label for="paused">
-        <input type="checkbox" id="paused" name="paused" {% if domain.paused %}checked{% endif %}>
-        Paused
-      </label>
+      <div style="display: flex; gap: 24px; align-items: center; margin: 12px 0;">
+        <label for="paused" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="paused" name="paused" {% if domain.paused %}checked{% endif %}>
+          Paused
+        </label>
+        <label for="use_proxy" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="use_proxy" name="use_proxy" {% if domain.use_proxy %}checked{% endif %}>
+          Use Proxy Server
+        </label>
+      </div>
 
       <label for="ports">Ports</label>
       <input type="text" id="ports" name="ports" value="{{ domain.ports | join(', ') }}" placeholder="80, 443, 8443">

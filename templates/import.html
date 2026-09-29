@@ -19,7 +19,7 @@
         <div class="hub-card-body">
           <p class="hub-description">
             Export all saved domains and their configurations to a standard CSV file including:
-            <code>Domain</code>, <code>Match</code>, <code>URL path</code>, <code>Comment</code>, <code>Paused</code>, and <code>Ports</code>.
+            <code>Domain</code>, <code>Match</code>, <code>URL path</code>, <code>Comment</code>, <code>Paused</code>, <code>Proxy</code>, and <code>Ports</code>.
           </p>
           <div class="hub-card-actions">
             <a href="{{ url_for('export_domains_route') }}" id="btn-export-csv" class="button secondary btn-hub-action">
@@ -41,7 +41,7 @@
         </div>
         <div class="hub-card-body">
           <p class="hub-description">
-            Upload a CSV file containing columns: <code>Domain, Match, URL path, Comment, Paused, Ports</code>.
+            Upload a CSV file containing columns: <code>Domain, Match, URL path, Comment, Paused, Proxy, Ports</code>.
             Existing domains in the database are skipped automatically. Records without ports will not be scanned.
           </p>
           <form id="csv-import-form" action="{{ url_for('handle_import') }}" method="post" enctype="multipart/form-data" class="csv-upload-form">

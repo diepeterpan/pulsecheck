@@ -81,6 +81,45 @@
             </div>
           </div>
         </div>
+
+        <div class="settings-card settings-card-full">
+          <div class="card-header">
+            <h3>HTTP Proxy Server</h3>
+          </div>
+          <div class="card-body">
+            <p class="field-hint" style="margin-top: 0; margin-bottom: 16px; font-size: 0.88rem;">Configure an HTTP proxy server for monitored domains configured to route their HTTP and HTTPS requests through a proxy.</p>
+            <div class="form-row-2col">
+              <div class="form-group">
+                <label for="proxy_host">Proxy Host / IP</label>
+                <input type="text" id="proxy_host" name="proxy_host" value="{{ settings.proxy_host }}" placeholder="e.g. proxy.corp.example.com or 10.0.0.1" autocomplete="off">
+                <span class="field-hint">Hostname or IP address of the HTTP proxy server (leave blank to disable).</span>
+              </div>
+
+              <div class="form-group">
+                <label for="proxy_port">Proxy Port</label>
+                <input type="number" id="proxy_port" name="proxy_port" value="{{ settings.proxy_port or '8080' }}" placeholder="8080" min="1" max="65535">
+                <span class="field-hint">Common: 8080, 3128, 80.</span>
+              </div>
+            </div>
+
+            <div class="form-row-2col" style="margin-top: 14px;">
+              <div class="form-group">
+                <label for="proxy_username">Proxy Username (Optional)</label>
+                <input type="text" id="proxy_username" name="proxy_username" value="{{ settings.proxy_username }}" placeholder="Leave blank if proxy requires no authentication" autocomplete="off">
+                <span class="field-hint">Username for HTTP Proxy Basic authentication.</span>
+              </div>
+
+              <div class="form-group">
+                <label for="proxy_password">Proxy Password (Optional)</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="proxy_password" name="proxy_password" placeholder="{% if settings.proxy_password %}•••••••• (saved, leave blank to keep){% else %}Enter proxy password{% endif %}" autocomplete="new-password">
+                  <button type="button" id="toggle-proxy-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle proxy password visibility">Show</button>
+                </div>
+                <span class="field-hint">{% if settings.proxy_password %}A password is saved. Leave blank to keep existing password.{% else %}Proxy authentication password.{% endif %}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="settings-actions">
@@ -104,6 +143,20 @@
         } else {
           pwdInput.type = 'password';
           toggleBtn.textContent = 'Show';
+        }
+      });
+    }
+
+    const proxyPwdInput = document.getElementById('proxy_password');
+    const toggleProxyBtn = document.getElementById('toggle-proxy-pwd-btn');
+    if (toggleProxyBtn && proxyPwdInput) {
+      toggleProxyBtn.addEventListener('click', () => {
+        if (proxyPwdInput.type === 'password') {
+          proxyPwdInput.type = 'text';
+          toggleProxyBtn.textContent = 'Hide';
+        } else {
+          proxyPwdInput.type = 'password';
+          toggleProxyBtn.textContent = 'Show';
         }
       });
     }
