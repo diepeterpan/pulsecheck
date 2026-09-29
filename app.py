@@ -36,8 +36,8 @@ DEFAULT_IP = os.getenv("PULSECHECK_IP", os.getenv("PULSECHECK_HOST", "0.0.0.0"))
 DEFAULT_HOSTNAME = os.getenv("PULSECHECK_HOSTNAME", "127.0.0.1")
 DEFAULT_SSL = os.getenv("PULSECHECK_SSL", "FALSE").strip().lower() in ("true", "1", "yes")
 DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
-DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "3"))
-DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "10"))
+DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
+DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
 
 
@@ -159,10 +159,15 @@ def normalize_url_path(value: str | None) -> str:
     path = (value or "").strip()
     if not path:
         return ""
+    if path.startswith("?"):
+        path = "/" + path
     if not path.startswith("/") or any(character.isspace() for character in path):
         raise ValueError("URL path must start with '/' and contain no spaces.")
-    if "?" in path or "#" in path or "://" in path:
-        raise ValueError("URL path must contain only a path, without query, fragment, or full URL.")
+    parsed = urlsplit(path)
+    if parsed.scheme or parsed.netloc:
+        raise ValueError("URL path must contain only a path and optional query, without full URL or host.")
+    if parsed.fragment:
+        raise ValueError("URL path must not contain a fragment ('#').")
     return path
 
 

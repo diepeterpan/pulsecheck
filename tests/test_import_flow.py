@@ -217,8 +217,12 @@ class ImportFlowTests(unittest.TestCase):
 
     def test_url_path_validation(self):
         self.assertEqual(pulsecheck_app.normalize_url_path("/test/test.asp"), "/test/test.asp")
+        self.assertEqual(pulsecheck_app.normalize_url_path("/test?value=1"), "/test?value=1")
+        self.assertEqual(pulsecheck_app.normalize_url_path("/test/test.asp?foo=bar&baz=1"), "/test/test.asp?foo=bar&baz=1")
+        self.assertEqual(pulsecheck_app.normalize_url_path("?value=1"), "/?value=1")
+        self.assertEqual(pulsecheck_app.normalize_url_path("/?value=1"), "/?value=1")
         self.assertEqual(pulsecheck_app.normalize_url_path(""), "")
-        for invalid_path in ("test.asp", "/test path", "/test?value=1", "https://example.com/test"):
+        for invalid_path in ("test.asp", "/test path", "https://example.com/test", "//example.com/test", "/test#fragment", "/test?value=1#fragment"):
             with self.subTest(invalid_path=invalid_path):
                 with self.assertRaises(ValueError):
                     pulsecheck_app.normalize_url_path(invalid_path)
@@ -254,9 +258,9 @@ class ImportFlowTests(unittest.TestCase):
                 pass
 
         with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
-            pulsecheck_app.fetch_response("acme.example", 80, "http", "/test/test.asp")
+            pulsecheck_app.fetch_response("acme.example", 80, "http", "/test/test.asp?token=123")
 
-        self.assertEqual(FakeHTTPConnection.last_request_path, "/test/test.asp")
+        self.assertEqual(FakeHTTPConnection.last_request_path, "/test/test.asp?token=123")
 
     def test_fetch_response_logs_errors_before_close_only_in_debug_mode(self):
         events = []
