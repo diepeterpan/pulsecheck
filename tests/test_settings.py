@@ -637,8 +637,65 @@ site3.com,site3,,0,80
             domain2 = next(d for d in pulsecheck_app.domain_list() if d["name"] == "legacy-no-comment.io")
             self.assertEqual(domain2["comment"], "")
 
+    def test_domains_filter_query_params_prefill(self):
+        with patch("app.scan_domain"):
+            pulsecheck_app.add_domain("alpha.com")
+        resp = self.client.get("/domains?filter_domain=alpha&filter_match=alp&filter_path=/test&filter_paused=active&filter_ports=443")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+        self.assertIn('value="alpha"', html)
+        self.assertIn('value="alp"', html)
+        self.assertIn('value="/test"', html)
+        self.assertIn('value="active" selected', html)
+        self.assertIn('value="443"', html)
+
+    def test_edit_domain_maintains_filter_return_to(self):
+        with patch("app.scan_domain"):
+            domain_id = pulsecheck_app.add_domain("filter-preserve.com")
+            return_url = "/domains?filter_domain=filter-preserve&filter_paused=active"
+
+            # 1. GET edit page with return_to (properly URL-encoded)
+            import html as html_lib
+            import urllib.parse
+            encoded_return = urllib.parse.quote(return_url)
+            get_resp = self.client.get(f"/domains/{domain_id}/edit?return_to={encoded_return}")
+            self.assertEqual(get_resp.status_code, 200)
+            html = get_resp.data.decode("utf-8")
+            self.assertIn(f'value="{html_lib.escape(return_url)}"', html)
+            self.assertIn(f'href="{html_lib.escape(return_url)}"', html)
+
+            # 2. POST save changes and verify redirect back to return_url
+            post_resp = self.client.post(
+                f"/domains/{domain_id}/edit",
+                data={
+                    "name": "filter-preserve.com",
+                    "match": "filter-preserve",
+                    "url_path": "",
+                    "comment": "Preserved comment",
+                    "ports": "80, 443",
+                    "return_to": return_url,
+                },
+                follow_redirects=False,
+            )
+            self.assertEqual(post_resp.status_code, 302)
+            self.assertEqual(post_resp.location, return_url)
+
+            # 3. Disallow untrusted return_to
+            unsafe_resp = self.client.post(
+                f"/domains/{domain_id}/edit",
+                data={
+                    "name": "filter-preserve.com",
+                    "match": "filter-preserve",
+                    "return_to": "https://attacker.com/phish",
+                },
+                follow_redirects=False,
+            )
+            self.assertEqual(unsafe_resp.status_code, 302)
+            self.assertEqual(unsafe_resp.location, "/domains")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

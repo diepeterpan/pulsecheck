@@ -47,6 +47,7 @@
         </div>
 
         <form method="post" action="{{ url_for('bulk_ports_route') }}" class="bulk-port-form" id="bulk-port-form">
+          <input type="hidden" name="return_to" id="bulk-return-to" value="">
           <div class="bulk-controls-wrapper">
             <div class="bulk-group selection-group">
               <button type="button" id="select-all-domains" class="btn-tool">Select all</button>
@@ -84,23 +85,23 @@
             <tr class="filter-header-row">
               <th class="col-filter-cell col-select"></th>
               <th class="col-filter-cell col-domain">
-                <input type="search" id="filter-col-domain" class="column-filter-input" data-col="domain" placeholder="Filter domain..." value="{{ request.args.get('filter', '') }}" autocomplete="off" aria-label="Filter domain">
+                <input type="search" id="filter-col-domain" class="column-filter-input" data-col="domain" placeholder="Filter domain..." value="{{ request.args.get('filter_domain', request.args.get('filter', '')) }}" autocomplete="off" aria-label="Filter domain">
               </th>
               <th class="col-filter-cell col-match">
-                <input type="search" id="filter-col-match" class="column-filter-input" data-col="match" placeholder="Filter match..." autocomplete="off" aria-label="Filter match">
+                <input type="search" id="filter-col-match" class="column-filter-input" data-col="match" placeholder="Filter match..." value="{{ request.args.get('filter_match', '') }}" autocomplete="off" aria-label="Filter match">
               </th>
               <th class="col-filter-cell col-path">
-                <input type="search" id="filter-col-path" class="column-filter-input" data-col="path" placeholder="Filter path..." autocomplete="off" aria-label="Filter URL path">
+                <input type="search" id="filter-col-path" class="column-filter-input" data-col="path" placeholder="Filter path..." value="{{ request.args.get('filter_path', '') }}" autocomplete="off" aria-label="Filter URL path">
               </th>
               <th class="col-filter-cell col-paused">
                 <select id="filter-col-paused" class="column-filter-select" data-col="paused" aria-label="Filter paused status">
                   <option value="">All</option>
-                  <option value="active">Active</option>
-                  <option value="paused">Paused</option>
+                  <option value="active" {% if request.args.get('filter_paused') == 'active' %}selected{% endif %}>Active</option>
+                  <option value="paused" {% if request.args.get('filter_paused') == 'paused' %}selected{% endif %}>Paused</option>
                 </select>
               </th>
               <th class="col-filter-cell col-ports">
-                <input type="search" id="filter-col-ports" class="column-filter-input" data-col="ports" placeholder="Filter port..." autocomplete="off" aria-label="Filter ports">
+                <input type="search" id="filter-col-ports" class="column-filter-input" data-col="ports" placeholder="Filter port..." value="{{ request.args.get('filter_ports', '') }}" autocomplete="off" aria-label="Filter ports">
               </th>
               <th class="col-filter-cell col-actions">
                 <button type="button" id="reset-all-filters" class="btn-reset-filters" title="Reset all column filters" disabled>Reset</button>
@@ -137,6 +138,7 @@
                 <div class="row-actions">
                   <a class="btn-action edit" href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('delete_domain_route', domain_id=domain.id) }}" class="inline-form">
+                    <input type="hidden" name="return_to" class="delete-domain-return-to" value="">
                     <button type="submit" class="btn-action danger" onclick="return confirm('Delete {{ domain.name }}?');">Delete</button>
                   </form>
                 </div>
@@ -163,6 +165,43 @@
       const filterPorts = document.getElementById('filter-col-ports');
 
       const filterInputs = [filterDomain, filterMatch, filterPath, filterPaused, filterPorts].filter(Boolean);
+
+      function initFilters() {
+        const urlParams = new URLSearchParams(window.location.search);
+        let hasUrlParam = false;
+        ['filter_domain', 'filter', 'filter_match', 'filter_path', 'filter_paused', 'filter_ports'].forEach(k => {
+          if (urlParams.has(k) && urlParams.get(k).trim()) hasUrlParam = true;
+        });
+
+        if (hasUrlParam) {
+          if (filterDomain && (urlParams.get('filter_domain') || urlParams.get('filter'))) {
+            filterDomain.value = urlParams.get('filter_domain') || urlParams.get('filter');
+          }
+          if (filterMatch && urlParams.get('filter_match')) {
+            filterMatch.value = urlParams.get('filter_match');
+          }
+          if (filterPath && urlParams.get('filter_path')) {
+            filterPath.value = urlParams.get('filter_path');
+          }
+          if (filterPaused && urlParams.get('filter_paused')) {
+            filterPaused.value = urlParams.get('filter_paused');
+          }
+          if (filterPorts && urlParams.get('filter_ports')) {
+            filterPorts.value = urlParams.get('filter_ports');
+          }
+        } else {
+          try {
+            const saved = JSON.parse(sessionStorage.getItem('pulsecheck_domain_filters') || 'null');
+            if (saved) {
+              if (filterDomain && saved.domain) filterDomain.value = saved.domain;
+              if (filterMatch && saved.match) filterMatch.value = saved.match;
+              if (filterPath && saved.path) filterPath.value = saved.path;
+              if (filterPaused && saved.paused) filterPaused.value = saved.paused;
+              if (filterPorts && saved.ports) filterPorts.value = saved.ports;
+            }
+          } catch (e) {}
+        }
+      }
 
       function applyColumnFilters() {
         const domainQuery = (filterDomain ? filterDomain.value : '').trim().toLowerCase();
@@ -199,6 +238,53 @@
         if (resetButton) {
           resetButton.disabled = !hasFilter;
         }
+
+        // Sync with URL and sessionStorage
+        const params = new URLSearchParams();
+        if (domainQuery) params.set('filter_domain', (filterDomain ? filterDomain.value : '').trim());
+        if (matchQuery) params.set('filter_match', (filterMatch ? filterMatch.value : '').trim());
+        if (pathQuery) params.set('filter_path', (filterPath ? filterPath.value : '').trim());
+        if (pausedQuery) params.set('filter_paused', pausedQuery);
+        if (portsQuery) params.set('filter_ports', (filterPorts ? filterPorts.value : '').trim());
+
+        const queryString = params.toString();
+        const newRelativePathQuery = window.location.pathname + (queryString ? '?' + queryString : '');
+        window.history.replaceState(null, '', newRelativePathQuery);
+
+        if (hasFilter) {
+          try {
+            sessionStorage.setItem('pulsecheck_domain_filters', JSON.stringify({
+              domain: (filterDomain ? filterDomain.value : '').trim(),
+              match: (filterMatch ? filterMatch.value : '').trim(),
+              path: (filterPath ? filterPath.value : '').trim(),
+              paused: pausedQuery,
+              ports: (filterPorts ? filterPorts.value : '').trim()
+            }));
+          } catch (e) {}
+        } else {
+          try {
+            sessionStorage.removeItem('pulsecheck_domain_filters');
+          } catch (e) {}
+        }
+
+        // Update Edit buttons hrefs with return_to
+        const returnToParam = encodeURIComponent(newRelativePathQuery);
+        document.querySelectorAll('.btn-action.edit').forEach((link) => {
+          const baseHref = link.getAttribute('data-base-href') || link.getAttribute('href').split('?')[0];
+          link.setAttribute('data-base-href', baseHref);
+          link.href = queryString ? `${baseHref}?return_to=${returnToParam}` : baseHref;
+        });
+
+        // Update Delete form return_to inputs
+        document.querySelectorAll('.delete-domain-return-to').forEach((input) => {
+          input.value = newRelativePathQuery;
+        });
+
+        const bulkReturnTo = document.getElementById('bulk-return-to');
+        if (bulkReturnTo) {
+          bulkReturnTo.value = newRelativePathQuery;
+        }
+
         updateSelectAllLabel();
       }
 
@@ -214,6 +300,9 @@
           if (filterPath) filterPath.value = '';
           if (filterPaused) filterPaused.value = '';
           if (filterPorts) filterPorts.value = '';
+          try {
+            sessionStorage.removeItem('pulsecheck_domain_filters');
+          } catch (e) {}
           applyColumnFilters();
         });
       }
@@ -243,6 +332,7 @@
 
       domainCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelectAllLabel));
 
+      initFilters();
       applyColumnFilters();
     </script>
   {% endif %}

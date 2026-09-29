@@ -1268,6 +1268,9 @@ def add_domain_route():
 @app.route("/domains/bulk-ports", methods=["POST"])
 def bulk_ports_route():
     raw_ids = request.form.getlist("domain_ids")
+    return_to = request.form.get("return_to", "").strip()
+    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+        return_to = ""
     try:
         domain_ids = sorted({int(value) for value in raw_ids})
         bulk_update_ports(
@@ -1277,22 +1280,25 @@ def bulk_ports_route():
         )
     except (TypeError, ValueError) as exc:
         flash(str(exc))
-        return redirect(url_for("domains"))
+        return redirect(return_to or url_for("domains"))
     flash("Updated ports for the selected domains.")
-    return redirect(url_for("domains"))
+    return redirect(return_to or url_for("domains"))
 
 
 @app.route("/domains/bulk-delete", methods=["POST"])
 def bulk_delete_route():
     raw_ids = request.form.getlist("domain_ids")
+    return_to = request.form.get("return_to", "").strip()
+    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+        return_to = ""
     try:
         domain_ids = sorted({int(value) for value in raw_ids})
     except ValueError:
         flash("Invalid domain selection.")
-        return redirect(url_for("domains"))
+        return redirect(return_to or url_for("domains"))
     if not domain_ids:
         flash("Select at least one domain to delete.")
-        return redirect(url_for("domains"))
+        return redirect(return_to or url_for("domains"))
 
     deleted = 0
     for domain_id in domain_ids:
@@ -1300,7 +1306,7 @@ def bulk_delete_route():
             delete_domain(domain_id)
             deleted += 1
     flash(f"Deleted {deleted} selected domain{'s' if deleted != 1 else ''}.")
-    return redirect(url_for("domains"))
+    return redirect(return_to or url_for("domains"))
 
 
 @app.route("/domains/<int:domain_id>/edit", methods=["GET", "POST"])
@@ -1309,6 +1315,10 @@ def edit_domain(domain_id):
     if domain is None:
         flash("Domain not found.")
         return redirect(url_for("domains"))
+
+    return_to = request.args.get("return_to") or request.form.get("return_to") or ""
+    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+        return_to = ""
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -1321,20 +1331,23 @@ def edit_domain(domain_id):
             update_domain(domain_id, name, ports_input, match or None, url_path, paused, comment=comment)
         except ValueError as exc:
             flash(str(exc))
-            return redirect(url_for("edit_domain", domain_id=domain_id))
+            return redirect(url_for("edit_domain", domain_id=domain_id, return_to=return_to))
         flash(f"Updated domain {name}.")
-        return redirect(url_for("domains"))
+        return redirect(return_to or url_for("domains"))
 
-    return render_template("edit_domain.html", domain=domain)
+    return render_template("edit_domain.html", domain=domain, return_to=return_to)
 
 
 @app.route("/domains/<int:domain_id>/delete", methods=["POST"])
 def delete_domain_route(domain_id):
     domain = get_domain_by_id(domain_id)
+    return_to = request.form.get("return_to") or request.args.get("return_to") or ""
+    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+        return_to = ""
     if domain is not None:
         delete_domain(domain_id)
         flash(f"Deleted domain {domain['name']}.")
-    return redirect(url_for("domains"))
+    return redirect(return_to or url_for("domains"))
 
 
 @app.route("/domains/<int:domain_id>/rescan", methods=["POST"])
