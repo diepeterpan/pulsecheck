@@ -964,6 +964,86 @@ site3.com,site3,,0,80
         self.assertEqual(row[0], "online")
         self.assertEqual(row[1], 1)
 
+    def test_scan_domain_with_retries(self):
+        # 1. Success on first attempt: no sleep, exactly 1 call
+        sleep_calls = []
+        scan_calls = []
+
+        def mock_scan_success(*args, **kwargs):
+            scan_calls.append(args)
+            return {80: "online"}
+
+        with patch("app.scan_domain", side_effect=mock_scan_success), patch("time.sleep", side_effect=sleep_calls.append):
+            result = pulsecheck_app.scan_domain_with_retries(
+                {"id": 1, "name": "ok.local", "ports": [80], "match": ""},
+                max_retries=3,
+                retry_interval=10,
+            )
+        self.assertEqual(result, {80: "online"})
+        self.assertEqual(len(scan_calls), 1)
+        self.assertEqual(len(sleep_calls), 0)
+
+        # 2. Failure then success on 2nd retry: 2 sleeps of 10s, 3 scan calls
+        sleep_calls.clear()
+        scan_calls.clear()
+        attempts_responses = [{80: "offline"}, {80: "offline"}, {80: "online"}]
+
+        def mock_scan_flaky(*args, **kwargs):
+            scan_calls.append(args)
+            return attempts_responses.pop(0)
+
+        with patch("app.scan_domain", side_effect=mock_scan_flaky), patch("time.sleep", side_effect=sleep_calls.append):
+            result = pulsecheck_app.scan_domain_with_retries(
+                {"id": 2, "name": "flaky.local", "ports": [80], "match": ""},
+                max_retries=3,
+                retry_interval=10,
+            )
+        self.assertEqual(result, {80: "online"})
+        self.assertEqual(len(scan_calls), 3)
+        self.assertEqual(sleep_calls, [10, 10])
+
+        # 3. Persistent failure: 3 retries (4 calls total), 3 sleeps of 10s
+        sleep_calls.clear()
+        scan_calls.clear()
+
+        def mock_scan_fail(*args, **kwargs):
+            scan_calls.append(args)
+            return {80: "offline"}
+
+        with patch("app.scan_domain", side_effect=mock_scan_fail), patch("time.sleep", side_effect=sleep_calls.append):
+            result = pulsecheck_app.scan_domain_with_retries(
+                {"id": 3, "name": "down.local", "ports": [80], "match": ""},
+                max_retries=3,
+                retry_interval=10,
+            )
+        self.assertEqual(result, {80: "offline"})
+        self.assertEqual(len(scan_calls), 4)
+        self.assertEqual(sleep_calls, [10, 10, 10])
+
+    def test_check_all_domains_parallel_execution(self):
+        import threading
+        # Insert 6 domains into DB
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        for i in range(1, 7):
+            c.execute("INSERT INTO domains (name, ports) VALUES (?, '[80]')", (f"dom{i}.local",))
+        conn.commit()
+        conn.close()
+
+        scanned_domains = []
+        lock = threading.Lock()
+
+        def mock_scan_retries(domain, max_retries=3, retry_interval=10, explicit_debug=None):
+            with lock:
+                scanned_domains.append(domain["name"])
+            return {80: "online"}
+
+        with patch("app.scan_domain_with_retries", side_effect=mock_scan_retries):
+            pulsecheck_app.check_all_domains(workers=5, max_retries=3, retry_interval=0)
+
+        self.assertEqual(len(scanned_domains), 6)
+        self.assertEqual(set(scanned_domains), {f"dom{i}.local" for i in range(1, 7)})
+
 
 if __name__ == "__main__":
     unittest.main()

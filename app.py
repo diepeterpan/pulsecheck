@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
+from concurrent.futures import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, flash, redirect, render_template, request, url_for
 
@@ -34,6 +35,9 @@ DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
 DEFAULT_IP = os.getenv("PULSECHECK_IP", os.getenv("PULSECHECK_HOST", "0.0.0.0"))
 DEFAULT_HOSTNAME = os.getenv("PULSECHECK_HOSTNAME", "127.0.0.1")
 DEFAULT_SSL = os.getenv("PULSECHECK_SSL", "FALSE").strip().lower() in ("true", "1", "yes")
+DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
+DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "3"))
+DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "10"))
 EXPLICIT_DEBUG = False
 
 
@@ -66,7 +70,7 @@ class ImportCancelled(Exception):
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -514,10 +518,11 @@ def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", a
 def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None, url_path: str = ""):
     domain = get_domain_by_id(domain_id)
     if domain is not None and domain["paused"]:
-        return
+        return {}
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
         ports = parse_ports(ports)
+    port_statuses = {}
     for port in ports:
         start = time.monotonic()
         status = "offline"
@@ -622,6 +627,8 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
                                 f"ignoring SSL handshake failure (treated as online): {exc}"
                             )
         store_port_check(domain_id, port, status, response_ms)
+        port_statuses[port] = status
+    return port_statuses
 
 
 def sync_domain_ports(domain_id: int, domain_name: str, detected_ports: list[int] | None = None):
@@ -1781,12 +1788,73 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def check_all_domains() -> list[dict]:
-    before_snapshots = get_domain_snapshots()
+def scan_domain_with_retries(
+    domain: dict,
+    max_retries: int = DEFAULT_SCAN_RETRIES,
+    retry_interval: int = DEFAULT_SCAN_RETRY_INTERVAL,
+    explicit_debug: bool | None = None,
+) -> dict[int, str]:
+    debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
+    port_statuses: dict[int, str] = {}
+    for attempt in range(max_retries + 1):
+        try:
+            port_statuses = scan_domain(
+                domain["id"],
+                domain["name"],
+                domain["ports"],
+                domain["match"],
+                explicit_debug=debug_enabled,
+                url_path=domain.get("url_path", ""),
+            )
+            overall = compute_overall_status(port_statuses)
+            if overall == "online" or not port_statuses:
+                return port_statuses
+            if attempt < max_retries:
+                if debug_enabled:
+                    print(
+                        f"[DEBUG scan retry] Domain {domain['name']} overall status is {overall}. "
+                        f"Retrying ({attempt + 1}/{max_retries}) in {retry_interval}s..."
+                    )
+                time.sleep(retry_interval)
+        except Exception as exc:
+            if debug_enabled:
+                print(
+                    f"[DEBUG scan retry] Exception scanning {domain['name']} on attempt {attempt + 1}: {exc}"
+                )
+            if attempt < max_retries:
+                time.sleep(retry_interval)
+    return port_statuses
 
-    for domain in domain_list():
-        if not domain["paused"]:
-            scan_domain(domain["id"], domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"])
+
+def check_all_domains(
+    workers: int | None = None,
+    max_retries: int | None = None,
+    retry_interval: int | None = None,
+) -> list[dict]:
+    num_workers = DEFAULT_SCAN_WORKERS if workers is None else max(1, workers)
+    retries = DEFAULT_SCAN_RETRIES if max_retries is None else max_retries
+    interval = DEFAULT_SCAN_RETRY_INTERVAL if retry_interval is None else retry_interval
+
+    before_snapshots = get_domain_snapshots()
+    active_domains = [domain for domain in domain_list() if not domain.get("paused")]
+
+    if active_domains:
+        max_workers = min(num_workers, len(active_domains))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    scan_domain_with_retries,
+                    domain,
+                    max_retries=retries,
+                    retry_interval=interval,
+                )
+                for domain in active_domains
+            ]
+            for future in futures:
+                try:
+                    future.result()
+                except Exception as exc:
+                    print(f"[PulseCheck Scan Error] Domain scan thread error: {exc}")
 
     after_snapshots = get_domain_snapshots()
     changes = []

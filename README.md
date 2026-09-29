@@ -40,6 +40,9 @@ The application will be accessible at http://127.0.0.1:8182 (or the configured h
 | `PULSECHECK_HEADLESS` | `0` (or `1` in Docker) | Set to `1` to run without interactive console menu |
 | `PULSECHECK_DB_PATH` | `./pulsecheck.db` | Path to the SQLite database file |
 | `PULSECHECK_TIMEZONE` / `TZ` | System local time | Timezone for status page and alert timestamps (e.g. `Africa/Johannesburg`, `Europe/London`, `America/New_York`) |
+| `PULSECHECK_SCAN_WORKERS` | `5` | Number of domains scanned in parallel during periodic scans |
+| `PULSECHECK_SCAN_RETRIES` | `3` | Number of retries when a domain check fails during periodic scans |
+| `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between scan retries |
 
 
 
