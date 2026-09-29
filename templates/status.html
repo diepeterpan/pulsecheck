@@ -36,6 +36,13 @@
             {% for domain_name, entries in grouped.items() %}
               {% set first_entry = entries[0] %}
               {% set valid_ports = entries | selectattr('port') | list %}
+              {% set checked_entries = entries | selectattr('checked_at') | list %}
+              {% if checked_entries %}
+                {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
+                {% set domain_checked_at = latest_entry.checked_at_local %}
+              {% else %}
+                {% set domain_checked_at = first_entry.checked_at_local %}
+              {% endif %}
               {% if not valid_ports %}
                 {% set overall_status = 'none' %}
                 {% set status_label = 'No Ports' %}
@@ -91,7 +98,7 @@
                   {% endif %}
                 </td>
                 <td class="col-time">
-                  <span class="scan-time">{{ first_entry.checked_at_local or 'Never' }}</span>
+                  <span class="scan-time">{{ domain_checked_at or 'Never' }}</span>
                 </td>
                 <td class="col-actions">
                   <div class="row-actions">

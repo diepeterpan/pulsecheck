@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, flash, redirect, render_template, request, url_for
@@ -137,14 +138,56 @@ def normalize_url_path(value: str | None) -> str:
     return path
 
 
+def get_server_timezone():
+    tz_name = (os.getenv("PULSECHECK_TIMEZONE") or os.getenv("TZ") or "").strip()
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            pass
+    return datetime.now().astimezone().tzinfo
+
+
 def format_local_time(value: str | None) -> str | None:
     if not value:
         return None
+    val_str = str(value).strip()
+    target_tz = get_server_timezone()
+
+    parsed = None
     try:
-        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S %Z").replace(tzinfo=timezone.utc)
+        parsed = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
     except ValueError:
-        parsed = datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    return parsed.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+        pass
+
+    if parsed is None:
+        try:
+            if val_str.endswith(" UTC"):
+                parsed = datetime.strptime(val_str[:-4].strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            else:
+                parsed = datetime.strptime(val_str, "%Y-%m-%d %H:%M:%S %Z")
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    if parsed is None:
+        try:
+            parsed = datetime.strptime(val_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    if parsed is None:
+        return val_str
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+
+    local_dt = parsed.astimezone(target_tz)
+    tz_label = local_dt.strftime("%Z")
+    if tz_label:
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S") + f" {tz_label}"
+    return local_dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def parse_ports(value):
@@ -1686,7 +1729,7 @@ def cli_menu():
                 state = "ONLINE" if row["is_online"] else "OFFLINE"
                 last_success = "never"
                 if row["is_online"]:
-                    last_success = row["checked_at"]
+                    last_success = row["checked_at_local"] or row["checked_at"]
                 print(f"{row['name']} port {port_label}: {state}; last success: {last_success}")
 
         elif choice == "4":

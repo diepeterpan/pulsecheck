@@ -741,9 +741,41 @@ site3.com,site3,,0,80
             self.assertEqual(host, "192.168.1.100")
             self.assertEqual(port, 8888)
 
+    def test_status_page_local_server_time(self):
+        utc_ts = "2026-09-29 07:00:00 UTC"
+        # Test custom server timezone (e.g. Africa/Johannesburg UTC+2)
+        with patch.dict(os.environ, {"PULSECHECK_TIMEZONE": "Africa/Johannesburg"}):
+            formatted = pulsecheck_app.format_local_time(utc_ts)
+            self.assertEqual(formatted, "2026-09-29 09:00:00 SAST")
+
+        # Test another timezone (e.g. America/New_York UTC-4 in daylight savings)
+        with patch.dict(os.environ, {"PULSECHECK_TIMEZONE": "America/New_York"}):
+            formatted_ny = pulsecheck_app.format_local_time(utc_ts)
+            self.assertEqual(formatted_ny, "2026-09-29 03:00:00 EDT")
+
+        # Verify on /status page with multiple ports, the latest check is picked
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, 0)",
+                  ("multiport.org", "multi", "[80, 443]"))
+        d_id = c.lastrowid
+        # Port 80 checked earlier, Port 443 checked later
+        c.execute("INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-29 06:00:00 UTC')", (d_id,))
+        c.execute("INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, 443, 1, 'online', '2026-09-29 07:00:00 UTC')", (d_id,))
+        conn.commit()
+        conn.close()
+
+        with patch.dict(os.environ, {"PULSECHECK_TIMEZONE": "Africa/Johannesburg"}):
+            resp = self.client.get("/status")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.data.decode("utf-8")
+            # Should display the latest check 07:00 UTC converted to 09:00 SAST
+            self.assertIn("2026-09-29 09:00:00 SAST", html)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 
