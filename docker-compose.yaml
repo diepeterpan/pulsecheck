@@ -10,6 +10,7 @@ services:
         # Prevent interactive prompts during package installation
         ENV DEBIAN_FRONTEND=noninteractive \
             PYTHONUNBUFFERED=1 \
+            PULSECHECK_HOST=127.0.0.1 \
             PULSECHECK_PORT=8182 \
             PULSECHECK_HEADLESS=1 \
             PULSECHECK_DB_PATH=/app/data/pulsecheck.db
@@ -46,6 +47,7 @@ services:
     ports:
       - "8182:8182"
     environment:
+      - PULSECHECK_HOST=${PULSECHECK_HOST:-127.0.0.1}
       - PULSECHECK_PORT=8182
       - PULSECHECK_HEADLESS=1
       - PULSECHECK_DB_PATH=/app/data/pulsecheck.db

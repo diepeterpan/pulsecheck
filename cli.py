@@ -862,8 +862,18 @@ class SeparatedPathType(click.Path):
 
 
 @click.command("run", short_help="Run a development server.")
-@click.option("--host", "-h", default="127.0.0.1", help="The interface to bind to.")
-@click.option("--port", "-p", default=8182, help="The port to bind to.")
+@click.option(
+    "--host",
+    "-h",
+    default=lambda: os.getenv("PULSECHECK_HOST", "127.0.0.1"),
+    help="The interface to bind to.",
+)
+@click.option(
+    "--port",
+    "-p",
+    default=lambda: int(os.getenv("PULSECHECK_PORT", "8182")),
+    help="The port to bind to.",
+)
 @click.option(
     "--cert",
     type=CertParamType(),

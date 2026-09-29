@@ -293,12 +293,12 @@ class SettingsTests(unittest.TestCase):
     def test_export_domains_csv(self):
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
-            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
-            ("domain-a.com", "domain", "/test", 0, "[80, 443]"),
+            "INSERT INTO domains (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
+            ("domain-a.com", "domain", "/test", "Internal gateway", 0, "[80, 443]"),
         )
         conn.execute(
-            "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
-            ("domain-b.com", "other", "", 1, "[8080]"),
+            "INSERT INTO domains (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
+            ("domain-b.com", "other", "", "", 1, "[8080]"),
         )
         conn.commit()
         conn.close()
@@ -306,9 +306,9 @@ class SettingsTests(unittest.TestCase):
         csv_text, count = pulsecheck_app.export_domains_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Domain,Match,URL path,Paused,Ports")
-        self.assertIn('domain-a.com,domain,/test,0,"80, 443"', lines)
-        self.assertIn("domain-b.com,other,,1,8080", lines)
+        self.assertEqual(lines[0], "Domain,Match,URL path,Comment,Paused,Ports")
+        self.assertIn('domain-a.com,domain,/test,Internal gateway,0,"80, 443"', lines)
+        self.assertIn("domain-b.com,other,,,1,8080", lines)
 
     @patch("app.scan_domain")
     def test_import_domains_from_csv_success_and_skip_duplicates(self, mock_scan):
@@ -361,8 +361,8 @@ bad site!!,bad,,0,80
         self.assertEqual(response.content_type, "text/csv; charset=utf-8")
         self.assertIn("attachment; filename=pulsecheck_domains.csv", response.headers["Content-Disposition"])
         self.assertEqual(response.headers["X-Exported-Count"], "1")
-        self.assertIn(b"Domain,Match,URL path,Paused,Ports", response.data)
-        self.assertIn(b"test.org,test,,0,443", response.data)
+        self.assertIn(b"Domain,Match,URL path,Comment,Paused,Ports", response.data)
+        self.assertIn(b"test.org,test,,,0,443", response.data)
 
     @patch("app.scan_domain")
     def test_import_route_csv_upload(self, mock_scan):
@@ -637,6 +637,28 @@ site3.com,site3,,0,80
             domain2 = next(d for d in pulsecheck_app.domain_list() if d["name"] == "legacy-no-comment.io")
             self.assertEqual(domain2["comment"], "")
 
+            # Import headerless 6-column CSV
+            headerless_csv = "headerless-comment.io,headerless,,Direct node,0,80\n"
+            summary3 = pulsecheck_app.import_domains_from_csv(headerless_csv)
+            self.assertEqual(summary3["imported"], 1)
+            domain3 = next(d for d in pulsecheck_app.domain_list() if d["name"] == "headerless-comment.io")
+            self.assertEqual(domain3["comment"], "Direct node")
+
+            # Round-trip export then import into clean db
+            exported_csv, count = pulsecheck_app.export_domains_csv()
+            self.assertEqual(count, 3)
+            # Clear domains and import the exported CSV
+            conn = pulsecheck_app.get_db_connection()
+            conn.execute("DELETE FROM domains")
+            conn.commit()
+            conn.close()
+            summary_rt = pulsecheck_app.import_domains_from_csv(exported_csv)
+            self.assertEqual(summary_rt["imported"], 3)
+            reimported = {d["name"]: d for d in pulsecheck_app.domain_list()}
+            self.assertEqual(reimported["imported-comment.io"]["comment"], "Cloud load balancer")
+            self.assertEqual(reimported["headerless-comment.io"]["comment"], "Direct node")
+            self.assertEqual(reimported["legacy-no-comment.io"]["comment"], "")
+
     def test_domains_filter_query_params_prefill(self):
         with patch("app.scan_domain"):
             pulsecheck_app.add_domain("alpha.com")
@@ -693,9 +715,37 @@ site3.com,site3,,0,80
             self.assertEqual(unsafe_resp.status_code, 302)
             self.assertEqual(unsafe_resp.location, "/domains")
 
+    def test_pulsecheck_host_and_port_env(self):
+        # Test notification URL uses DEFAULT_HOST
+        with patch.object(pulsecheck_app, "DEFAULT_HOST", "monitor.internal.org"):
+            with patch.object(pulsecheck_app, "DEFAULT_PORT", 9090):
+                with patch("app.send_email") as mock_email, patch("app.get_settings") as mock_settings:
+                    mock_settings.return_value = {
+                        "smtp_host": "smtp.example.com",
+                        "recipient_email": "admin@test.com",
+                    }
+                    mock_email.return_value = (True, "OK")
+                    pulsecheck_app.send_state_change_notification(
+                        [{"domain": "test.com", "old_status": "online", "new_status": "offline", "port_changes": []}]
+                    )
+                    mock_email.assert_called_once()
+                    body = mock_email.call_args[0][2]
+                    html_body = mock_email.call_args[1].get("html_body", "")
+                    self.assertIn("http://monitor.internal.org:9090/status", body)
+                    self.assertIn("http://monitor.internal.org:9090/status", html_body)
+
+        # Test environment variable fallback in app
+        with patch.dict(os.environ, {"PULSECHECK_HOST": "192.168.1.100", "PULSECHECK_PORT": "8888"}):
+            host = os.getenv("PULSECHECK_HOST", "127.0.0.1")
+            port = int(os.getenv("PULSECHECK_PORT", "8182"))
+            self.assertEqual(host, "192.168.1.100")
+            self.assertEqual(port, 8888)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
 
 
 

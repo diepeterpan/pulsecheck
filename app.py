@@ -27,6 +27,7 @@ DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
 COMMON_PORTS = [80, 443, 22, 21, 25, 53, 110, 143, 587, 993, 995, 8080, 8443, 8444, 3306, 5432, 27017, 3000, 9000]
 HTTPS_PORTS = {443, 8443, 8444}
 DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
+DEFAULT_HOST = os.getenv("PULSECHECK_HOST", "127.0.0.1")
 EXPLICIT_DEBUG = False
 
 app = Flask(__name__)
@@ -552,13 +553,14 @@ def export_domains_csv() -> tuple[str, int]:
     domains = domain_list()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Domain", "Match", "URL path", "Paused", "Ports"])
+    writer.writerow(["Domain", "Match", "URL path", "Comment", "Paused", "Ports"])
     for d in domains:
         ports_str = ", ".join(str(p) for p in d["ports"])
         writer.writerow([
             d["name"],
             d["match"],
             d["url_path"],
+            d.get("comment", "") or "",
             "1" if d["paused"] else "0",
             ports_str,
         ])
@@ -606,7 +608,11 @@ def import_domains_from_csv(
                 col_map["ports"] = idx
         data_rows = raw_rows[1:]
     else:
-        col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
+        first_len = len(raw_rows[0])
+        if first_len >= 6:
+            col_map = {"domain": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "ports": 5}
+        else:
+            col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
         data_rows = raw_rows
 
     total_records = len(data_rows)
@@ -1493,7 +1499,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         lines.append("")
 
     lines.append("---")
-    lines.append(f"View live status at: http://127.0.0.1:{DEFAULT_PORT}/status")
+    lines.append(f"View live status at: http://{DEFAULT_HOST}:{DEFAULT_PORT}/status")
 
     body = "\n".join(lines)
 
@@ -1544,7 +1550,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
       <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> domain{'s have' if count > 1 else ' has'} changed state since the previous scan:</p>
       {domain_cards_str}
       <div style="margin-top: 20px; text-align: center;">
-        <a href="http://127.0.0.1:{DEFAULT_PORT}/status" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
+        <a href="http://{DEFAULT_HOST}:{DEFAULT_PORT}/status" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
       </div>
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
@@ -1733,14 +1739,14 @@ def cli_menu():
                     print("No destination email provided.")
 
         elif choice == "5":
-            print(f"Starting web application on http://127.0.0.1:{DEFAULT_PORT}")
+            print(f"Starting web application on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
             app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
             break
 
         elif choice == "6":
             global EXPLICIT_DEBUG
             EXPLICIT_DEBUG = True
-            print(f"Starting web application with explicit debugging on http://127.0.0.1:{DEFAULT_PORT}")
+            print(f"Starting web application with explicit debugging on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
             app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
             break
 
@@ -1756,7 +1762,7 @@ if __name__ == "__main__":
     scheduler = run_background_tasks()
     try:
         if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
-            print(f"Starting web application on http://0.0.0.0:{DEFAULT_PORT}")
+            print(f"Starting web application on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
             app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
         else:
             cli_menu()
