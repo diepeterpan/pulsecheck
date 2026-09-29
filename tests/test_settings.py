@@ -461,6 +461,7 @@ site3.com,site3,,0,80
     def test_logo_and_favicon_assets(self):
         static_dir = pulsecheck_app.BASE_DIR / "static"
         self.assertTrue((static_dir / "logo.png").exists(), "logo.png must exist in static/")
+        self.assertTrue((static_dir / "logo.gif").exists(), "logo.gif must exist in static/")
         self.assertTrue((static_dir / "favicon.ico").exists(), "favicon.ico must exist in static/")
         self.assertTrue((static_dir / "favicon-32x32.png").exists(), "favicon-32x32.png must exist in static/")
         self.assertTrue((static_dir / "favicon-16x16.png").exists(), "favicon-16x16.png must exist in static/")
@@ -473,7 +474,7 @@ site3.com,site3,,0,80
         self.assertIn('rel="icon" type="image/x-icon" href="/static/favicon.ico"', data)
         self.assertIn('rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png"', data)
         self.assertIn('class="brand-logo"', data)
-        self.assertIn('src="/static/logo.png"', data)
+        self.assertIn('src="/static/logo.gif"', data)
         self.assertIn('alt="PulseCheck Logo"', data)
         self.assertIn('PulseCheck</h1>', data)
 
