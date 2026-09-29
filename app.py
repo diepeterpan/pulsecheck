@@ -2068,173 +2068,24 @@ def check_all_domains(
 def cli_menu():
     while True:
         print("\nPulseCheck menu")
-        print("1. Import domain list")
-        print("2. Maintain domains")
-        print("3. View status")
-        print("4. Email & SMTP settings")
-        print("5. Start web app")
-        print("6. Start web with Explicit debugging")
-        print("7. Exit")
+        print("1. Start web app")
+        print("2. Start web with Explicit debugging")
+        print("3. Exit")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
-            print("Enter one domain per line. Leave the line blank to finish.")
-            values = []
-            while True:
-                item = input("domain> ")
-                if not item.strip():
-                    break
-                values.append(item)
-            for value in values:
-                try:
-                    normalized = normalize_domain(value)
-                    if add_domain(normalized) is None:
-                        print(f"Skipped duplicate: {normalized}")
-                    else:
-                        print(f"Imported {normalized}")
-                except ValueError:
-                    print(f"Skipped invalid domain: {value}")
-
-        elif choice == "2":
-            entries = domain_list()
-            if not entries:
-                print("No domains saved yet.")
-                continue
-            print("Saved domains:")
-            for entry in entries:
-                ports = ", ".join(str(port) for port in entry["ports"]) or "none"
-                comment_suffix = f" ({entry['comment']})" if entry.get("comment") else ""
-                proxy_suffix = " [PROXY]" if entry.get("use_proxy") else ""
-                print(f"- {entry['id']}: {entry['name']}{proxy_suffix} [{ports}]{comment_suffix}")
-
-            selection = input("Enter domain id to edit, or 'd' to delete, or blank to return: ").strip()
-            if not selection:
-                continue
-            if selection.lower() == "d":
-                domain_id = input("Delete which id? ").strip()
-                try:
-                    delete_domain(int(domain_id))
-                    print("Domain deleted.")
-                except ValueError:
-                    print("Invalid id")
-                continue
-            try:
-                domain_id = int(selection)
-            except ValueError:
-                print("Invalid selection")
-                continue
-            domain = get_domain_by_id(domain_id)
-            if domain is None:
-                print("Domain not found.")
-                continue
-            new_name = input(f"New domain name [{domain['name']}]: ").strip() or domain["name"]
-            ports_value = input(f"Ports [{', '.join(str(port) for port in domain['ports'])}] : ").strip()
-            comment_input = input(f"Comment [{domain.get('comment', '')}]: ").strip()
-            comment_val = comment_input if comment_input else domain.get("comment", "")
-            use_proxy_input = input(f"Use Proxy (y/n) [{'y' if domain.get('use_proxy') else 'n'}]: ").strip().lower()
-            use_proxy_val = domain.get("use_proxy", False) if not use_proxy_input else use_proxy_input in ("y", "yes", "true", "1")
-            try:
-                update_domain(domain_id, new_name, ports_value, comment=comment_val, use_proxy=use_proxy_val)
-                print("Domain updated.")
-            except ValueError as exc:
-                print(f"Update failed: {exc}")
-
-        elif choice == "3":
-            rows = get_status_rows()
-            if not rows:
-                print("No domain status data yet.")
-                continue
-            for row in rows:
-                port_label = "-" if row["port"] is None else str(row["port"])
-                state = "ONLINE" if row["is_online"] else "OFFLINE"
-                last_success = "never"
-                if row["is_online"]:
-                    last_success = row["checked_at_local"] or row["checked_at"]
-                proxy_label = " (via proxy)" if row.get("use_proxy") else ""
-                print(f"{row['name']}{proxy_label} port {port_label}: {state}; last success: {last_success}")
-
-        elif choice == "4":
-            settings = get_settings()
-            print("\nCurrent Settings:")
-            print("--- Outgoing Mail (SMTP) ---")
-            print(f"- SMTP Host: {settings['smtp_host'] or '(not set)'}")
-            print(f"- SMTP Port: {settings['smtp_port']}")
-            print(f"- Security: {settings['smtp_security']}")
-            print(f"- Username: {settings['smtp_username'] or '(not set)'}")
-            print(f"- Password: {'********' if settings['smtp_password'] else '(not set)'}")
-            print(f"- Sender (From): {settings['from_email'] or '(not set)'}")
-            print(f"- Destination Email: {settings['recipient_email'] or '(not set)'}")
-            print("--- HTTP Proxy Server ---")
-            print(f"- Proxy Host: {settings['proxy_host'] or '(not set)'}")
-            print(f"- Proxy Port: {settings['proxy_port']}")
-            print(f"- Proxy Username: {settings['proxy_username'] or '(not set)'}")
-            print(f"- Proxy Password: {'********' if settings['proxy_password'] else '(not set)'}")
-            print("\nOptions: [e]dit email settings, [p]roxy settings, [t]est email, or press Enter to return.")
-            sub_choice = input("Select: ").strip().lower()
-            if sub_choice == "e":
-                host = input(f"SMTP Host [{settings['smtp_host']}]: ").strip()
-                port = input(f"SMTP Port [{settings['smtp_port']}]: ").strip()
-                security = input(f"Security (tls/ssl/none) [{settings['smtp_security']}]: ").strip().lower()
-                username = input(f"Username [{settings['smtp_username']}]: ").strip()
-                pwd = input("Password (leave blank to keep current): ").strip()
-                from_addr = input(f"From Email [{settings['from_email']}]: ").strip()
-                dest_addr = input(f"Destination Email [{settings['recipient_email']}]: ").strip()
-
-                updated = {
-                    "smtp_host": host or settings["smtp_host"],
-                    "smtp_port": port or settings["smtp_port"],
-                    "smtp_security": security if security in ("tls", "ssl", "none") else settings["smtp_security"],
-                    "smtp_username": username or settings["smtp_username"],
-                    "smtp_password": pwd if pwd else settings["smtp_password"],
-                    "from_email": from_addr or settings["from_email"],
-                    "recipient_email": dest_addr or settings["recipient_email"],
-                }
-                save_settings(updated)
-                print("Email settings updated successfully.")
-            elif sub_choice == "p":
-                phost = input(f"Proxy Host [{settings['proxy_host']}]: ").strip()
-                pport = input(f"Proxy Port [{settings['proxy_port']}]: ").strip()
-                puser = input(f"Proxy Username [{settings['proxy_username']}]: ").strip()
-                ppwd = input("Proxy Password (leave blank to keep current): ").strip()
-
-                updated = {
-                    "proxy_host": phost or settings["proxy_host"],
-                    "proxy_port": pport or settings["proxy_port"],
-                    "proxy_username": puser or settings["proxy_username"],
-                    "proxy_password": ppwd if ppwd else settings["proxy_password"],
-                }
-                save_settings(updated)
-                print("Proxy settings updated successfully.")
-            elif sub_choice == "t":
-                dest = settings["recipient_email"]
-                if not dest:
-                    dest = input("Enter destination email for test: ").strip()
-                if dest:
-                    print(f"Sending test email to {dest}...")
-                    now_str = get_current_local_time_str()
-                    success, msg = send_email(
-                        dest,
-                        "[PulseCheck] SMTP Test Message",
-                        f"Hello from PulseCheck CLI!\n\nThis is a test message verifying SMTP configuration.\n\nTimestamp: {now_str}",
-                        settings=settings,
-                    )
-                    print(msg)
-                else:
-                    print("No destination email provided.")
-
-        elif choice == "5":
             print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
             app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
             break
 
-        elif choice == "6":
+        elif choice == "2":
             global EXPLICIT_DEBUG
             EXPLICIT_DEBUG = True
             print(f"Starting web application with explicit debugging on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
             app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
             break
 
-        elif choice == "7":
+        elif choice == "3":
             print("Exiting PulseCheck.")
             break
         else:
