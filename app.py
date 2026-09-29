@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import uuid
+import warnings
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -315,6 +316,60 @@ def store_port_check(domain_id: int, port: int, status: str, response_ms: int | 
     conn.close()
 
 
+def create_ssl_context(legacy: bool = False) -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    if legacy:
+        op_legacy = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        context.options |= op_legacy
+        try:
+            context.set_ciphers("ALL:@SECLEVEL=0")
+        except Exception:
+            pass
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            try:
+                if hasattr(ssl, "TLSVersion"):
+                    context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+                    max_v = getattr(ssl.TLSVersion, "TLSv1_1", getattr(ssl.TLSVersion, "TLSv1", None))
+                    if max_v is not None:
+                        context.maximum_version = max_v
+            except Exception:
+                pass
+    return context
+
+
+def is_ssl_handshake_failure(exc: Exception) -> bool:
+    if isinstance(exc, ssl.SSLError):
+        err_str = str(exc).upper()
+        return (
+            "SSLV3_ALERT_HANDSHAKE_FAILURE" in err_str
+            or "HANDSHAKE_FAILURE" in err_str
+            or "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in err_str
+            or "NO_PROTOCOLS_AVAILABLE" in err_str
+        )
+    cause = getattr(exc, "__cause__", None)
+    if isinstance(cause, ssl.SSLError):
+        err_str = str(cause).upper()
+        return (
+            "SSLV3_ALERT_HANDSHAKE_FAILURE" in err_str
+            or "HANDSHAKE_FAILURE" in err_str
+            or "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in err_str
+            or "NO_PROTOCOLS_AVAILABLE" in err_str
+        )
+    context = getattr(exc, "__context__", None)
+    if isinstance(context, ssl.SSLError):
+        err_str = str(context).upper()
+        return (
+            "SSLV3_ALERT_HANDSHAKE_FAILURE" in err_str
+            or "HANDSHAKE_FAILURE" in err_str
+            or "UNSAFE_LEGACY_RENEGOTIATION_DISABLED" in err_str
+            or "NO_PROTOCOLS_AVAILABLE" in err_str
+        )
+    return False
+
+
 def fetch_response(
     domain_name: str,
     port: int,
@@ -322,11 +377,10 @@ def fetch_response(
     url_path: str = "",
     max_redirects: int = 5,
     explicit_debug: bool = False,
+    allow_legacy_ssl: bool = False,
 ):
     current_url = f"{scheme}://{domain_name}:{port}{url_path or '/'}"
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
+    ssl_context = create_ssl_context(legacy=allow_legacy_ssl)
 
     for redirect_count in range(max_redirects + 1):
         parsed = urlsplit(current_url)
@@ -337,6 +391,7 @@ def fetch_response(
             connection_kwargs["context"] = ssl_context
         connection = connection_class(parsed.hostname, target_port, **connection_kwargs)
         error = None
+        should_retry_legacy = False
         try:
             request_path = parsed.path or "/"
             if parsed.query:
@@ -352,20 +407,40 @@ def fetch_response(
             location = response.getheader("Location")
             if explicit_debug:
                 print(
-                    f"[DEBUG scan fetchresponse] protocol=http domain={domain_name} port={port} "
-                    f"status={status_code} current_url={current_url} "
+                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={domain_name} port={port} "
+                    f"status={status_code} current_url={current_url} legacy_ssl={allow_legacy_ssl} "
                     f"body={body[:16384]!r}"
                 )
         except Exception as exc:
             error = exc
-            raise
+            if parsed.scheme == "https" and not allow_legacy_ssl and is_ssl_handshake_failure(exc):
+                should_retry_legacy = True
+            else:
+                raise
         finally:
             if explicit_debug and error is not None:
-                print(
-                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={parsed.hostname} "
-                    f"port={target_port} error={error!r}"
-                )
+                if should_retry_legacy:
+                    print(
+                        f"[DEBUG scan fetchresponse] protocol=https domain={parsed.hostname} port={target_port} "
+                        f"handshake failed ({error}); retrying with older TLS versions..."
+                    )
+                else:
+                    print(
+                        f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={parsed.hostname} "
+                        f"port={target_port} error={error!r}"
+                    )
             connection.close()
+
+        if should_retry_legacy:
+            return fetch_response(
+                domain_name,
+                port,
+                scheme,
+                url_path,
+                max_redirects=max_redirects,
+                explicit_debug=explicit_debug,
+                allow_legacy_ssl=True,
+            )
 
         if status_code not in {301, 302, 303, 307, 308} or not location:
             return body, status_code, current_url
@@ -384,16 +459,19 @@ def fetch_socket_response(domain_name: str, port: int, url_path: str = ""):
         return connection.recv(16384)
 
 
-def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = ""):
-    context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    with socket.create_connection((domain_name, port), timeout=2) as raw_connection:
-        with context.wrap_socket(raw_connection, server_hostname=domain_name) as connection:
-            connection.sendall(
-                f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
-            )
-            return connection.recv(16384)
+def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", allow_legacy_ssl: bool = False):
+    context = create_ssl_context(legacy=allow_legacy_ssl)
+    try:
+        with socket.create_connection((domain_name, port), timeout=2) as raw_connection:
+            with context.wrap_socket(raw_connection, server_hostname=domain_name) as connection:
+                connection.sendall(
+                    f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+                )
+                return connection.recv(16384)
+    except Exception as exc:
+        if not allow_legacy_ssl and is_ssl_handshake_failure(exc):
+            return fetch_socket_ssl_response(domain_name, port, url_path=url_path, allow_legacy_ssl=True)
+        raise
 
 
 def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explicit_debug: bool | None = None, url_path: str = ""):
@@ -419,7 +497,15 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
                     f"status={status_code} url={final_url} match={match!r} "
                     f"response={response[:16384]!r}"
                 )
-        except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException):
+        except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
+            if is_ssl_handshake_failure(exc):
+                status = "online"
+                response_ms = int((time.monotonic() - start) * 1000)
+                if debug_enabled:
+                    print(
+                        f"[DEBUG scan] protocol=http domain={domain_name} port={port} "
+                        f"ignoring SSL handshake failure (treated as online): {exc}"
+                    )
             response = b""
 
         if debug_enabled and response:
@@ -431,6 +517,8 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
         match_bytes = match.lower().encode()
         if response and match_bytes in response.lower():
             status = "online"
+        elif status == "online":
+            pass
         elif port in HTTPS_PORTS:
             try:
                 https_response, status_code, final_url = fetch_response(
@@ -447,8 +535,15 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
                     status = "online"
                 elif https_response:
                     status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException):
-                pass
+            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
+                if is_ssl_handshake_failure(exc):
+                    status = "online"
+                    response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(
+                            f"[DEBUG scan] protocol=https domain={domain_name} port={port} "
+                            f"ignoring SSL handshake failure (treated as online): {exc}"
+                        )
             if status == "offline":
                 status = "degraded"
         elif response:
@@ -480,8 +575,15 @@ def scan_domain(domain_id: int, domain_name: str, ports, match: str = "", explic
                         status = "online"
                     elif ssl_socket_response and status == "offline":
                         status = "degraded"
-                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError):
-                    pass
+                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+                    if is_ssl_handshake_failure(exc):
+                        status = "online"
+                        response_ms = int((time.monotonic() - start) * 1000)
+                        if debug_enabled:
+                            print(
+                                f"[DEBUG scan] protocol=socket-ssl domain={domain_name} port={port} "
+                                f"ignoring SSL handshake failure (treated as online): {exc}"
+                            )
         store_port_check(domain_id, port, status, response_ms)
 
 

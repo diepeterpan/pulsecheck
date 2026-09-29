@@ -815,6 +815,86 @@ site3.com,site3,,0,80
                 self.assertIn("SAST", body)
                 self.assertNotIn("UTC", body)
 
+    def test_ssl_legacy_fallback_and_handshake_handling(self):
+        import ssl
+        # 1. Test helper detection
+        handshake_err = ssl.SSLError(1, "[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1006)")
+        self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(handshake_err))
+
+        reneg_err = ssl.SSLError(1, "[SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe legacy renegotiation disabled")
+        self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(reneg_err))
+
+        wrapped_err = Exception("wrapped")
+        wrapped_err.__cause__ = handshake_err
+        self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(wrapped_err))
+
+        other_err = ssl.SSLError(1, "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        self.assertFalse(pulsecheck_app.is_ssl_handshake_failure(other_err))
+        self.assertFalse(pulsecheck_app.is_ssl_handshake_failure(OSError("connection refused")))
+
+        # 2. Test create_ssl_context
+        std_ctx = pulsecheck_app.create_ssl_context(legacy=False)
+        self.assertFalse(std_ctx.check_hostname)
+        self.assertEqual(std_ctx.verify_mode, ssl.CERT_NONE)
+
+        legacy_ctx = pulsecheck_app.create_ssl_context(legacy=True)
+        op_legacy = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+        self.assertTrue(legacy_ctx.options & op_legacy)
+
+        # 3. Test fetch_response retries with legacy SSL upon handshake failure
+        class FakeResponse:
+            def __init__(self, status, body):
+                self.status = status
+                self._body = body
+            def read(self, size):
+                return self._body
+            def getheader(self, name):
+                return None
+
+        attempts = []
+        class FakeHTTPSConnection:
+            def __init__(self, host, port, **kwargs):
+                self.ctx = kwargs.get("context")
+
+            def request(self, method, path, headers):
+                attempts.append(self.ctx)
+                if len(attempts) == 1:
+                    raise handshake_err
+
+            def getresponse(self):
+                return FakeResponse(200, b"legacy device online")
+
+            def close(self):
+                pass
+
+        with patch("app.http.client.HTTPSConnection", FakeHTTPSConnection):
+            body, code, url = pulsecheck_app.fetch_response("legacy.local", 443, "https")
+            self.assertEqual(code, 200)
+            self.assertEqual(body, b"legacy device online")
+            self.assertEqual(len(attempts), 2)
+            # Second attempt used legacy SSL context
+            self.assertTrue(attempts[1].options & op_legacy)
+
+        # 4. Test scan_domain records online status
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO domains (name, match, ports) VALUES ('cam.local', 'legacy device', '[443]')")
+        d_id = c.lastrowid
+        conn.commit()
+        conn.close()
+
+        with patch("app.http.client.HTTPSConnection", FakeHTTPSConnection):
+            attempts.clear()
+            pulsecheck_app.scan_domain(d_id, "cam.local", [443], match="legacy device")
+
+        conn = pulsecheck_app.get_db_connection()
+        row = conn.execute("SELECT status, is_online FROM port_checks WHERE domain_id = ? AND port = 443 ORDER BY id DESC LIMIT 1", (d_id,)).fetchone()
+        conn.close()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "online")
+        self.assertEqual(row[1], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
