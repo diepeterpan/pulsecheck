@@ -865,7 +865,7 @@ class SeparatedPathType(click.Path):
 @click.option(
     "--host",
     "-h",
-    default=lambda: os.getenv("PULSECHECK_HOST", "127.0.0.1"),
+    default=lambda: os.getenv("PULSECHECK_IP", os.getenv("PULSECHECK_HOST", "0.0.0.0")),
     help="The interface to bind to.",
 )
 @click.option(

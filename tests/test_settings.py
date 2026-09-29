@@ -716,9 +716,9 @@ site3.com,site3,,0,80
             self.assertEqual(unsafe_resp.location, "/domains")
 
     def test_pulsecheck_host_and_port_env(self):
-        # Test notification URL uses DEFAULT_HOST
-        with patch.object(pulsecheck_app, "DEFAULT_HOST", "monitor.internal.org"):
-            with patch.object(pulsecheck_app, "DEFAULT_PORT", 9090):
+        # Test notification URL uses DEFAULT_HOSTNAME without port, with HTTP by default
+        with patch.object(pulsecheck_app, "DEFAULT_HOSTNAME", "monitor.internal.org"):
+            with patch.dict(os.environ, {"PULSECHECK_HOSTNAME": "monitor.internal.org", "PULSECHECK_SSL": "FALSE"}):
                 with patch("app.send_email") as mock_email, patch("app.get_settings") as mock_settings:
                     mock_settings.return_value = {
                         "smtp_host": "smtp.example.com",
@@ -731,15 +731,42 @@ site3.com,site3,,0,80
                     mock_email.assert_called_once()
                     body = mock_email.call_args[0][2]
                     html_body = mock_email.call_args[1].get("html_body", "")
-                    self.assertIn("http://monitor.internal.org:9090/status", body)
-                    self.assertIn("http://monitor.internal.org:9090/status", html_body)
+                    self.assertIn("http://monitor.internal.org/status", body)
+                    self.assertIn("http://monitor.internal.org/status", html_body)
 
-        # Test environment variable fallback in app
-        with patch.dict(os.environ, {"PULSECHECK_HOST": "192.168.1.100", "PULSECHECK_PORT": "8888"}):
-            host = os.getenv("PULSECHECK_HOST", "127.0.0.1")
-            port = int(os.getenv("PULSECHECK_PORT", "8182"))
-            self.assertEqual(host, "192.168.1.100")
-            self.assertEqual(port, 8888)
+        # Test notification URL with PULSECHECK_SSL=TRUE creates HTTPS without port
+        with patch.dict(os.environ, {"PULSECHECK_HOSTNAME": "secure.internal.org", "PULSECHECK_SSL": "TRUE"}):
+            with patch("app.send_email") as mock_email, patch("app.get_settings") as mock_settings:
+                mock_settings.return_value = {
+                    "smtp_host": "smtp.example.com",
+                    "recipient_email": "admin@test.com",
+                }
+                mock_email.return_value = (True, "OK")
+                pulsecheck_app.send_state_change_notification(
+                    [{"domain": "test.com", "old_status": "online", "new_status": "offline", "port_changes": []}]
+                )
+                body = mock_email.call_args[0][2]
+                html_body = mock_email.call_args[1].get("html_body", "")
+                self.assertIn("https://secure.internal.org/status", body)
+                self.assertIn("https://secure.internal.org/status", html_body)
+
+        # Test environment variable fallback in app for IP, HOSTNAME, and SSL
+        with patch.dict(os.environ, {
+            "PULSECHECK_IP": "10.0.0.50",
+            "PULSECHECK_HOSTNAME": "node1.cluster.local",
+            "PULSECHECK_SSL": "true",
+            "PULSECHECK_PORT": "8888",
+        }):
+            ip = os.getenv("PULSECHECK_IP", "0.0.0.0")
+            hostname = os.getenv("PULSECHECK_HOSTNAME", "127.0.0.1")
+            scheme = pulsecheck_app.get_url_scheme()
+            base_url = pulsecheck_app.get_base_url()
+            status_url = pulsecheck_app.get_status_url()
+            self.assertEqual(ip, "10.0.0.50")
+            self.assertEqual(hostname, "node1.cluster.local")
+            self.assertEqual(scheme, "https")
+            self.assertEqual(base_url, "https://node1.cluster.local")
+            self.assertEqual(status_url, "https://node1.cluster.local/status")
 
     def test_status_page_local_server_time(self):
         utc_ts = "2026-09-29 07:00:00 UTC"

@@ -28,8 +28,28 @@ DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
 COMMON_PORTS = [80, 443, 22, 21, 25, 53, 110, 143, 587, 993, 995, 8080, 8443, 8444, 3306, 5432, 27017, 3000, 9000]
 HTTPS_PORTS = {443, 8443, 8444}
 DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
-DEFAULT_HOST = os.getenv("PULSECHECK_HOST", "127.0.0.1")
+DEFAULT_IP = os.getenv("PULSECHECK_IP", os.getenv("PULSECHECK_HOST", "0.0.0.0"))
+DEFAULT_HOSTNAME = os.getenv("PULSECHECK_HOSTNAME", "127.0.0.1")
+DEFAULT_SSL = os.getenv("PULSECHECK_SSL", "FALSE").strip().lower() in ("true", "1", "yes")
 EXPLICIT_DEBUG = False
+
+
+def get_url_scheme() -> str:
+    ssl_env = os.getenv("PULSECHECK_SSL")
+    if ssl_env is not None:
+        return "https" if ssl_env.strip().lower() in ("true", "1", "yes") else "http"
+    return "https" if DEFAULT_SSL else "http"
+
+
+def get_base_url() -> str:
+    scheme = get_url_scheme()
+    hostname = os.getenv("PULSECHECK_HOSTNAME") or DEFAULT_HOSTNAME
+    return f"{scheme}://{hostname}"
+
+
+def get_status_url() -> str:
+    return f"{get_base_url()}/status"
+
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "pulsecheck-local-dev"
@@ -1542,7 +1562,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         lines.append("")
 
     lines.append("---")
-    lines.append(f"View live status at: http://{DEFAULT_HOST}:{DEFAULT_PORT}/status")
+    lines.append(f"View live status at: {get_status_url()}")
 
     body = "\n".join(lines)
 
@@ -1593,7 +1613,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
       <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> domain{'s have' if count > 1 else ' has'} changed state since the previous scan:</p>
       {domain_cards_str}
       <div style="margin-top: 20px; text-align: center;">
-        <a href="http://{DEFAULT_HOST}:{DEFAULT_PORT}/status" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
+        <a href="{get_status_url()}" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
       </div>
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
@@ -1782,15 +1802,15 @@ def cli_menu():
                     print("No destination email provided.")
 
         elif choice == "5":
-            print(f"Starting web application on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
-            app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
+            print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+            app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
             break
 
         elif choice == "6":
             global EXPLICIT_DEBUG
             EXPLICIT_DEBUG = True
-            print(f"Starting web application with explicit debugging on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
-            app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
+            print(f"Starting web application with explicit debugging on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+            app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
             break
 
         elif choice == "7":
@@ -1805,8 +1825,8 @@ if __name__ == "__main__":
     scheduler = run_background_tasks()
     try:
         if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
-            print(f"Starting web application on http://{DEFAULT_HOST}:{DEFAULT_PORT}")
-            app.run(host="0.0.0.0", port=DEFAULT_PORT, debug=False)
+            print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+            app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
         else:
             cli_menu()
     finally:

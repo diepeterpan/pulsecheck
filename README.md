@@ -27,13 +27,15 @@ Build and run the containerized application directly:
 ```bash
 docker compose up -d --build
 ```
-The application will be accessible at http://127.0.0.1:8182 (or the host specified in `PULSECHECK_HOST`).
+The application will be accessible at http://127.0.0.1:8182 (or the configured hostname).
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PULSECHECK_HOST` | `127.0.0.1` | Hostname / IP used for status links in email alerts, console output, and CLI default |
+| `PULSECHECK_IP` | `0.0.0.0` | IP address for the web server to listen/bind on (`DEFAULT_IP`) |
+| `PULSECHECK_HOSTNAME` | `127.0.0.1` | Hostname / domain used in HTTP/HTTPS URLs without port (e.g. `pulsecheck.example.com` or `127.0.0.1`) |
+| `PULSECHECK_SSL` | `FALSE` | Set to `TRUE` (or `1`) to use `https://` instead of `http://` in generated URLs and email links |
 | `PULSECHECK_PORT` | `8182` | Web server listening port |
 | `PULSECHECK_HEADLESS` | `0` (or `1` in Docker) | Set to `1` to run without interactive console menu |
 | `PULSECHECK_DB_PATH` | `./pulsecheck.db` | Path to the SQLite database file |
