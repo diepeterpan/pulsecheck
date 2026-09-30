@@ -128,57 +128,6 @@ def init_db():
     if "use_proxy" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
 
-    port_check_columns = {row["name"] for row in conn.execute("PRAGMA table_info(port_checks)").fetchall()}
-    if "domain_id" in port_check_columns and "service_id" in port_check_columns:
-        conn.execute("ALTER TABLE port_checks DROP COLUMN service_id")
-        port_check_columns.remove("service_id")
-
-    if "domain_id" in port_check_columns and "service_id" not in port_check_columns:
-        conn.execute("ALTER TABLE port_checks RENAME COLUMN domain_id TO service_id")
-        port_check_columns.remove("domain_id")
-        port_check_columns.add("service_id")
-
-    if "status" not in port_check_columns:
-        conn.execute("ALTER TABLE port_checks ADD COLUMN status TEXT NOT NULL DEFAULT 'offline'")
-        port_check_columns.add("status")
-    if "last_response_ms" not in port_check_columns:
-        conn.execute("ALTER TABLE port_checks ADD COLUMN last_response_ms INTEGER")
-        port_check_columns.add("last_response_ms")
-
-    fks = conn.execute("PRAGMA foreign_key_list(port_checks)").fetchall()
-    has_services_fk = any(
-        (row["table"] or "").strip('"[]`').lower() == "services"
-        and (row["from"] or "").strip('"[]`').lower() == "service_id"
-        and (row["to"] or "").strip('"[]`').lower() == "id"
-        for row in fks
-    )
-    if not has_services_fk:
-        conn.execute("PRAGMA foreign_keys = OFF")
-        conn.execute(
-            """
-            CREATE TABLE port_checks_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                service_id INTEGER NOT NULL,
-                port INTEGER NOT NULL,
-                is_online INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'offline',
-                last_response_ms INTEGER,
-                checked_at TEXT NOT NULL,
-                FOREIGN KEY(service_id) REFERENCES services(id)
-            )
-            """
-        )
-        conn.execute(
-            """
-            INSERT INTO port_checks_new (id, service_id, port, is_online, status, last_response_ms, checked_at)
-            SELECT id, service_id, port, is_online, status, last_response_ms, checked_at
-            FROM port_checks
-            """
-        )
-        conn.execute("DROP TABLE port_checks")
-        conn.execute("ALTER TABLE port_checks_new RENAME TO port_checks")
-        conn.execute("PRAGMA foreign_keys = ON")
-
     conn.commit()
     conn.close()
 
