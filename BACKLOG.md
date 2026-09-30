@@ -51,7 +51,7 @@ Use this format for new entries:
 - Required future change: Improve the notification email body:
   - Resize the logo/header image (currently too large).
   - Color-code the status next to the service name (RED = OFFLINE, ORANGE = DEGRADED, GREEN = ONLINE).
-- Status: pending
+- Status: completed
 
 - Menu function: Web UI & Email notifications
 - Required future change: Introduce and display an application version number:

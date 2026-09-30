@@ -83,9 +83,9 @@ def generate_static_logo(size=512):
     # 1. Monitor grid
     draw_monitor_grid(draw, canvas_size, canvas_size, grid_spacing=32 * scale, major_every=4)
 
-    # Margins and waveform area
-    pad_x = 24 * scale
-    pad_y = 30 * scale
+    # Margins and waveform area (proportional to canvas size)
+    pad_x = max(4, int(canvas_size * 0.05))
+    pad_y = max(4, int(canvas_size * 0.06))
     draw_w = canvas_size - (pad_x * 2)
     draw_h = canvas_size - (pad_y * 2)
 
@@ -369,6 +369,10 @@ def main():
     print("3. Generating apple-touch-icon.png (180x180)...")
     apple_touch = generate_static_logo(size=180)
     apple_touch.save(STATIC_DIR / "apple-touch-icon.png", format="PNG", optimize=True)
+
+    print("4. Generating logo-email.png (64x64, downsampled from logo.png for email headers)...")
+    logo_email = logo_512.resize((64, 64), Image.Resampling.LANCZOS)
+    logo_email.save(STATIC_DIR / "logo-email.png", format="PNG", optimize=True)
 
     # 2. Favicons
     print("4. Generating favicon-32x32.png and 16x16.png...")

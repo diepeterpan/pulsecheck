@@ -1530,6 +1530,69 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn("Save Settings", html)
         self.assertIn("Send Test Email", html)
 
+    def test_notification_email_body_logo_and_status_colors(self):
+        with patch("app.send_email") as mock_email, patch("app.get_settings") as mock_settings:
+            mock_settings.return_value = {
+                "smtp_host": "smtp.example.com",
+                "recipient_email": "alerts@test.com",
+            }
+            mock_email.return_value = (True, "OK")
+
+            changes = [
+                {
+                    "service": "srv-down.com",
+                    "old_status": "online",
+                    "new_status": "offline",
+                    "port_changes": ["Port 80: ONLINE -> OFFLINE"],
+                },
+                {
+                    "service": "srv-degraded.com",
+                    "old_status": "online",
+                    "new_status": "degraded",
+                    "port_changes": ["Port 443: ONLINE -> OFFLINE"],
+                },
+                {
+                    "service": "srv-up.com",
+                    "old_status": "offline",
+                    "new_status": "online",
+                    "port_changes": ["Port 80: OFFLINE -> ONLINE"],
+                },
+            ]
+
+            success, msg = pulsecheck_app.send_state_change_notification(changes)
+            self.assertTrue(success)
+            mock_email.assert_called_once()
+
+            call_args = mock_email.call_args
+            to_addr = call_args[0][0]
+            subject = call_args[0][1]
+            body = call_args[0][2]
+            html_body = call_args[1].get("html_body", "")
+
+            self.assertEqual(to_addr, "alerts@test.com")
+            self.assertIn("3 services updated", subject)
+
+            # Check plain-text body format
+            self.assertIn("• Service: srv-down.com [OFFLINE]", body)
+            self.assertIn("• Service: srv-degraded.com [DEGRADED]", body)
+            self.assertIn("• Service: srv-up.com [ONLINE]", body)
+
+            # Check HTML logo size (constrained to 28x28)
+            self.assertIn('width="28" height="28"', html_body)
+            self.assertIn('max-width: 28px', html_body)
+            self.assertIn('max-height: 28px', html_body)
+
+            # Check status badge colors: RED=OFFLINE, ORANGE=DEGRADED, GREEN=ONLINE
+            # OFFLINE should use red (#dc2626)
+            self.assertIn('background-color: #dc2626; color: #ffffff; vertical-align: middle;">OFFLINE</span>', html_body)
+            # DEGRADED should use orange (#ea580c)
+            self.assertIn('background-color: #ea580c; color: #ffffff; vertical-align: middle;">DEGRADED</span>', html_body)
+            # ONLINE should use green (#16a34a)
+            self.assertIn('background-color: #16a34a; color: #ffffff; vertical-align: middle;">ONLINE</span>', html_body)
+
+            # Service name and status badge should be grouped together in the card header
+            self.assertIn('srv-down.com</strong>\n    <span style="display: inline-block;', html_body)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1309,7 +1309,8 @@ def send_email(
     msg["To"] = to_email
     msg.set_content(body)
 
-    actual_logo_path = Path(logo_path) if logo_path else (BASE_DIR / "static" / "logo.png")
+    email_logo_path = BASE_DIR / "static" / "logo-email.png"
+    actual_logo_path = Path(logo_path) if logo_path else (email_logo_path if email_logo_path.exists() else (BASE_DIR / "static" / "logo.png"))
 
     if not html_body:
         escaped_lines = [
@@ -1325,14 +1326,14 @@ def send_email(
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
   <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
-    <div style="background: #0f172a; padding: 18px 24px;">
+    <div style="background: #0f172a; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>
-          <td style="vertical-align: middle; padding-right: 12px;">
-            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="36" height="36" style="display: block; border-radius: 8px;" />
+          <td width="28" style="width: 28px; vertical-align: middle; padding-right: 10px;">
+            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
           </td>
           <td style="vertical-align: middle;">
-            <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: -0.5px;">PulseCheck</span>
+            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px;">PulseCheck</span>
           </td>
         </tr>
       </table>
@@ -1351,8 +1352,23 @@ def send_email(
 
     if actual_logo_path and actual_logo_path.exists():
         try:
-            with open(actual_logo_path, "rb") as f:
-                logo_bytes = f.read()
+            # Constrain image byte dimensions to max 64x64 so email clients (e.g. Outlook) never render it huge
+            try:
+                from PIL import Image
+                import io
+                with Image.open(actual_logo_path) as pil_img:
+                    if pil_img.width > 64 or pil_img.height > 64:
+                        pil_img.thumbnail((64, 64), Image.Resampling.LANCZOS)
+                        buf = io.BytesIO()
+                        pil_img.save(buf, format="PNG", optimize=True)
+                        logo_bytes = buf.getvalue()
+                    else:
+                        with open(actual_logo_path, "rb") as f:
+                            logo_bytes = f.read()
+            except Exception:
+                with open(actual_logo_path, "rb") as f:
+                    logo_bytes = f.read()
+
             msg.get_payload()[-1].add_related(
                 logo_bytes,
                 maintype="image",
@@ -1902,8 +1918,10 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
     for item in changes:
         target_name = item.get("service") or item.get("name")
-        lines.append(f"• Service: {target_name}")
-        lines.append(f"  Overall Status: {item['old_status'].upper()} -> {item['new_status'].upper()}")
+        old_st = (item.get("old_status") or "").upper()
+        new_st = (item.get("new_status") or "").upper()
+        lines.append(f"• Service: {target_name} [{new_st}]")
+        lines.append(f"  Overall Status: {old_st} -> {new_st}")
         if item.get("port_changes"):
             lines.append("  Port Details:")
             for p_change in item["port_changes"]:
@@ -1915,23 +1933,34 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
     body = "\n".join(lines)
 
+    def get_status_badge_color(status_str: str) -> str:
+        st = (status_str or "").strip().upper()
+        if st in ("ONLINE", "UP"):
+            return "#16a34a"  # Green
+        elif st in ("OFFLINE", "DOWN"):
+            return "#dc2626"  # Red
+        elif st in ("DEGRADED", "PARTIAL"):
+            return "#ea580c"  # Orange
+        return "#64748b"      # Neutral slate
+
     cards_html = []
     for item in changes:
         target_name = item.get("service") or item.get("name")
-        old_st = item["old_status"].upper()
-        new_st = item["new_status"].upper()
-        badge_color = "#059669" if new_st == "UP" else ("#dc2626" if new_st == "DOWN" else "#d97706")
+        old_st = (item.get("old_status") or "").upper()
+        new_st = (item.get("new_status") or "").upper()
+        badge_color = get_status_badge_color(new_st)
+        old_color = get_status_badge_color(old_st)
         ports_html = ""
         if item.get("port_changes"):
-            p_items = "".join(f"<li style='margin: 2px 0;'>{p}</li>" for p in item["port_changes"])
-            ports_html = f"<div style='margin-top: 8px; font-size: 13px; color: #475569;'><strong>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
+            p_items = "".join(f"<li style='margin: 3px 0;'>{p}</li>" for p in item["port_changes"])
+            ports_html = f"<div style='margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; color: #475569;'><strong style='color: #334155;'>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
         cards_html.append(
             f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-    <strong style="font-size: 16px; color: #0f172a;">{target_name}</strong>
-    <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: {badge_color}; color: #ffffff;">{new_st}</span>
+  <div style="margin-bottom: 6px;">
+    <strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>
+    <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background-color: {badge_color}; color: #ffffff; vertical-align: middle;">{new_st}</span>
   </div>
-  <div style="font-size: 14px; color: #334155;">Status changed from <strong>{old_st}</strong> to <strong>{new_st}</strong></div>
+  <div style="font-size: 13px; color: #475569;">Status changed from <strong style="color: {old_color};">{old_st}</strong> to <strong style="color: {badge_color};">{new_st}</strong></div>
   {ports_html}
 </div>"""
         )
@@ -1945,14 +1974,14 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
   <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
-    <div style="background: #0f172a; padding: 18px 24px;">
+    <div style="background: #0f172a; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>
-          <td style="vertical-align: middle; padding-right: 12px;">
-            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="36" height="36" style="display: block; border-radius: 8px;" />
+          <td width="28" style="width: 28px; vertical-align: middle; padding-right: 10px;">
+            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
           </td>
           <td style="vertical-align: middle;">
-            <span style="color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: -0.5px;">PulseCheck</span>
+            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px;">PulseCheck</span>
           </td>
         </tr>
       </table>
