@@ -22,6 +22,8 @@ header {
     padding: 16px 0;
     border-bottom: 1px solid #d6dbeb;
     margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
 }
 
 .brand {
@@ -84,21 +86,89 @@ header {
     color: #1e293b;
 }
 
-nav {
-    display: flex;
-    gap: 12px;
+nav, .main-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #f1f5f9;
+    padding: 4px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
-nav a, .button-link {
+nav a, .main-nav a, .button-link {
     text-decoration: none;
-    color: #1145d6;
+    color: #475569;
     font-weight: 600;
+    font-size: 0.85rem;
+    padding: 7px 14px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    line-height: 1.2;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
 }
 
-nav a.active {
-    color: #1d2433;
-    text-decoration: underline;
-    text-underline-offset: 4px;
+nav a .nav-icon, .main-nav a .nav-icon {
+    color: #64748b;
+    transition: color 0.15s ease, transform 0.15s ease;
+    flex-shrink: 0;
+}
+
+nav a:hover, .main-nav a:hover {
+    color: #0f172a;
+    background: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+}
+
+nav a:hover .nav-icon, .main-nav a:hover .nav-icon {
+    color: #1e293b;
+    transform: translateY(-0.5px);
+}
+
+nav a.active, .main-nav a.active {
+    color: #1d4ed8;
+    background: #ffffff;
+    border-color: #cbd5e1;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+    text-decoration: none;
+}
+
+nav a.active .nav-icon, .main-nav a.active .nav-icon {
+    color: #2563eb;
+}
+
+nav a:focus-visible, .main-nav a:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 1px;
+}
+
+@media (max-width: 640px) {
+    header {
+        padding: 12px 0;
+        gap: 12px;
+    }
+
+    nav, .main-nav {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        gap: 2px;
+        padding: 3px;
+        overflow-x: auto;
+    }
+
+    nav a, .main-nav a {
+        padding: 6px 9px;
+        font-size: 0.78rem;
+        gap: 5px;
+        flex: 1;
+        justify-content: center;
+        text-align: center;
+    }
 }
 
 .status-service-link,

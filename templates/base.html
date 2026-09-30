@@ -20,11 +20,23 @@
             <span class="brand-version">v{{ app_version }}</span>
           </a>
         </div>
-        <nav>
-          <a href="{{ url_for('status') }}" class="{% if request.endpoint == 'status' %}active{% endif %}" {% if request.endpoint == 'status' %}aria-current="page"{% endif %}>Status</a>
-          <a href="{{ url_for('services') }}" class="{% if request.endpoint in ('services', 'add_service_route', 'edit_service') %}active{% endif %}" {% if request.endpoint in ('services', 'add_service_route', 'edit_service') %}aria-current="page"{% endif %}>Services</a>
-          <a href="{{ url_for('handle_import') }}" class="{% if request.endpoint in ('handle_import', 'start_import') %}active{% endif %}" {% if request.endpoint in ('handle_import', 'start_import') %}aria-current="page"{% endif %}>Import &amp; Export</a>
-          <a href="{{ url_for('settings_route') }}" class="{% if request.endpoint == 'settings_route' %}active{% endif %}" {% if request.endpoint == 'settings_route' %}aria-current="page"{% endif %}>Settings</a>
+        <nav class="main-nav" aria-label="Main Navigation">
+          <a href="{{ url_for('status') }}" class="nav-item {% if request.endpoint == 'status' %}active{% endif %}" {% if request.endpoint == 'status' %}aria-current="page"{% endif %}>
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span>Status</span>
+          </a>
+          <a href="{{ url_for('services') }}" class="nav-item {% if request.endpoint in ('services', 'add_service_route', 'edit_service') %}active{% endif %}" {% if request.endpoint in ('services', 'add_service_route', 'edit_service') %}aria-current="page"{% endif %}>
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <span>Services</span>
+          </a>
+          <a href="{{ url_for('handle_import') }}" class="nav-item {% if request.endpoint in ('handle_import', 'start_import') %}active{% endif %}" {% if request.endpoint in ('handle_import', 'start_import') %}aria-current="page"{% endif %}>
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4"/></svg>
+            <span>Import &amp; Export</span>
+          </a>
+          <a href="{{ url_for('settings_route') }}" class="nav-item {% if request.endpoint == 'settings_route' %}active{% endif %}" {% if request.endpoint == 'settings_route' %}aria-current="page"{% endif %}>
+            <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Settings</span>
+          </a>
         </nav>
       </header>
       {% with messages = get_flashed_messages(with_categories=true) %}
