@@ -467,7 +467,7 @@ def format_response_headers(response) -> bytes:
 
 
 def fetch_response(
-    domain_name: str,
+    service_name: str,
     port: int,
     scheme: str,
     url_path: str = "",
@@ -477,7 +477,7 @@ def fetch_response(
     use_proxy: bool = False,
     proxy_settings: dict[str, str] | None = None,
 ):
-    current_url = f"{scheme}://{domain_name}:{port}{url_path or '/'}"
+    current_url = f"{scheme}://{service_name}:{port}{url_path or '/'}"
     ssl_context = create_ssl_context(legacy=allow_legacy_ssl)
 
     proxy_host = ""
@@ -502,7 +502,7 @@ def fetch_response(
             else:
                 proxy_host = raw_host
         if not proxy_host:
-            raise OSError(f"Domain '{domain_name}' requires proxy access, but no HTTP proxy host is configured in settings.")
+            raise OSError(f"Service '{service_name}' requires proxy access, but no HTTP proxy host is configured in settings.")
         if cfg.get("proxy_port") and proxy_port == 8080:
             try:
                 proxy_port = int(str(cfg.get("proxy_port")).strip())
@@ -567,7 +567,7 @@ def fetch_response(
             if explicit_debug:
                 proxy_info = f" proxy={proxy_host}:{proxy_port}" if use_proxy else ""
                 print(
-                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={domain_name} port={port}{proxy_info} "
+                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} service={service_name} port={port}{proxy_info} "
                     f"status={status_code} current_url={current_url} legacy_ssl={allow_legacy_ssl} "
                     f"body={body[:16384]!r}"
                 )
@@ -594,7 +594,7 @@ def fetch_response(
 
         if should_retry_legacy:
             return fetch_response(
-                domain_name,
+                service_name,
                 port,
                 scheme,
                 url_path,
@@ -614,26 +614,26 @@ def fetch_response(
     return b"", 0, current_url
 
 
-def fetch_socket_response(domain_name: str, port: int, url_path: str = ""):
-    with socket.create_connection((domain_name, port), timeout=2) as connection:
+def fetch_socket_response(service_name: str, port: int, url_path: str = ""):
+    with socket.create_connection((service_name, port), timeout=2) as connection:
         connection.sendall(
-            f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+            f"GET {url_path or '/'} HTTP/1.0\r\nHost: {service_name}\r\nConnection: close\r\n\r\n".encode()
         )
         return decompress_socket_response_if_gzip(connection.recv(16384))
 
 
-def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", allow_legacy_ssl: bool = False):
+def fetch_socket_ssl_response(service_name: str, port: int, url_path: str = "", allow_legacy_ssl: bool = False):
     context = create_ssl_context(legacy=allow_legacy_ssl)
     try:
-        with socket.create_connection((domain_name, port), timeout=2) as raw_connection:
-            with context.wrap_socket(raw_connection, server_hostname=domain_name) as connection:
+        with socket.create_connection((service_name, port), timeout=2) as raw_connection:
+            with context.wrap_socket(raw_connection, server_hostname=service_name) as connection:
                 connection.sendall(
-                    f"GET {url_path or '/'} HTTP/1.0\r\nHost: {domain_name}\r\nConnection: close\r\n\r\n".encode()
+                    f"GET {url_path or '/'} HTTP/1.0\r\nHost: {service_name}\r\nConnection: close\r\n\r\n".encode()
                 )
                 return decompress_socket_response_if_gzip(connection.recv(16384))
     except Exception as exc:
         if not allow_legacy_ssl and is_ssl_handshake_failure(exc):
-            return fetch_socket_ssl_response(domain_name, port, url_path=url_path, allow_legacy_ssl=True)
+            return fetch_socket_ssl_response(service_name, port, url_path=url_path, allow_legacy_ssl=True)
         raise
 
 
@@ -1581,7 +1581,7 @@ def handle_import():
         return redirect(url_for("services"))
 
     items = service_list()
-    return render_template("import.html", service_count=len(items), domain_count=len(items), services=items, domains=items)
+    return render_template("import.html", service_count=len(items), services=items)
 
 
 @app.route("/import/export", methods=["GET"])
