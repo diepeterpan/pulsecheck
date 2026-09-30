@@ -2,6 +2,70 @@
 
 PulseCheck is a lightweight, Linux-friendly web application and monitoring daemon that stores services in SQLite, discovers open ports, and monitors the health and availability of those services on an automated schedule.
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="PulseCheck Live Status Dashboard" width="100%">
+</p>
+
+---
+
+## Interface & Key Functions
+
+### 1. Live Status Dashboard
+Real-time monitoring overview displaying service availability, countdown timer to the next background scan, two-tone filter pills, and per-port latency metrics.
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Live Status Dashboard" width="100%">
+</p>
+
+- **Overall Health Indicator**: Header status badge (**GREEN = ALL ONLINE**, **ORANGE = SOME DEGRADED**, **RED = SOME OFFLINE**).
+- **Next Check Countdown**: Digital countdown timer updated every second showing time remaining until the next scan run.
+- **Status Filter Pills**: Quick one-click state filtering (**All**, **Online**, **Degraded**, **Offline**) with live count badges.
+- **Service & Port Badges**: Per-port status badges with response latency in milliseconds and server-local check timestamps.
+
+### 2. Service Inventory & Management
+Centralized directory for viewing and maintaining all monitored services with instant column-based search and bulk controls.
+
+<p align="center">
+  <img src="docs/screenshots/services.png" alt="Service Inventory and Management" width="100%">
+</p>
+
+- **Interactive Column Filters**: Real-time filtering by service name, match token, URL path, paused state, and port numbers.
+- **Bulk Port Operations**: Batch add or remove ports across multiple selected services simultaneously.
+- **Pause & Resume**: Temporarily bypass monitoring for specific services without deleting records or historical data.
+
+### 3. Service Workflows & Live Diagnostics ("Test Probes")
+Dedicated 2-column full-screen workflow for adding and editing services with instant pre-flight diagnostic probing before saving.
+
+<p align="center">
+  <img src="docs/screenshots/live_diagnostics.png" alt="Live Port Diagnostics and Probe Inspector" width="100%">
+</p>
+
+- **Pre-Flight Probe Testing**: Test connectivity, HTTP response codes, latency, and match string tokens directly against unsaved form inputs.
+- **Tabbed Port Inspector**: Switch between individual port tabs or the "All Ports" summary table with status indicators, result codes, and local timestamps.
+- **Response Token Highlighting**: Scrollable dark console viewer displaying HTTP headers and response body with matching tokens highlighted in real time.
+
+### 4. System Settings & SMTP Email Alerts
+Centralized settings for automated notification dispatch, test emails, and HTTP proxy configuration.
+
+<p align="center">
+  <img src="docs/screenshots/settings.png" alt="System Settings and Alerts" width="100%">
+</p>
+
+- **Outgoing SMTP Server**: Support for STARTTLS (port 587), SSL/TLS (port 465), or plain authentication with password protection.
+- **Automatic State Change Alerts**: Dispatches notifications when services transition between states (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
+- **Send Test Email**: Built-in verification tool to validate SMTP credentials and delivery path immediately.
+- **HTTP Proxy Server**: Centralized proxy configuration with per-service routing toggles.
+
+### 5. Data Import & Export
+Rapid onboarding and data portability through raw text blocks and standard CSV files.
+
+<p align="center">
+  <img src="docs/screenshots/import_export.png" alt="Data Import and Export" width="100%">
+</p>
+
+- **Quick Text Block Import**: Paste raw lists of service hostnames for rapid onboarding with automatic multi-port discovery.
+- **CSV Import & Export**: Import service inventories with duplicate detection and progress tracking, or export complete service configurations.
+
 ---
 
 ## Key Features
@@ -151,7 +215,7 @@ backup-portal.example,backup,/login,DR Site,1,0,"80"
 
 ## Testing
 
-PulseCheck includes a comprehensive automated test suite (71 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
+PulseCheck includes a comprehensive automated test suite (75 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 
