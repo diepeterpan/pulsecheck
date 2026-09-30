@@ -113,7 +113,7 @@ PulseCheck menu
 
 ## CSV File Specification
 
-PulseCheck supports importing and exporting services via CSV (with backward-compatible support for legacy domain headers).
+PulseCheck supports importing and exporting services via CSV.
 
 ### Columns
 `Service, Match, URL path, Comment, Paused, Proxy, Ports`

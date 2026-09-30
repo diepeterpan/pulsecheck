@@ -327,7 +327,7 @@ class SettingsTests(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        csv_data = """Domain,Match,URL path,Paused,Ports
+        csv_data = """Service,Match,URL path,Paused,Ports
 newsite.com,newsite,/api,0,"80, 443"
 existing.com,existing,,0,80
 pausedsite.com,pausedsite,,1,8080
@@ -372,9 +372,9 @@ bad site!!,bad,,0,80
 
     @patch("app.scan_service")
     def test_import_route_csv_upload(self, mock_scan):
-        csv_file_bytes = b"Domain,Match,URL path,Paused,Ports\nuploaded.com,uploaded,,0,80\n"
+        csv_file_bytes = b"Service,Match,URL path,Paused,Ports\nuploaded.com,uploaded,,0,80\n"
         data = {
-            "csv_file": (io.BytesIO(csv_file_bytes), "domains.csv"),
+            "csv_file": (io.BytesIO(csv_file_bytes), "services.csv"),
         }
         response = self.client.post(
             "/import",
@@ -412,7 +412,7 @@ bad site!!,bad,,0,80
     @patch("app.discover_ports")
     @patch("app.scan_service")
     def test_import_services_from_csv_no_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
-        csv_data = """Domain,Match,URL path,Paused,Ports
+        csv_data = """Service,Match,URL path,Paused,Ports
 noports.com,noports,,0,
 """
         summary = pulsecheck_app.import_services_from_csv(csv_data)
@@ -425,7 +425,7 @@ noports.com,noports,,0,
 
     def test_csv_import_progress_and_cancel(self):
         progress_events = []
-        csv_data = """Domain,Match,URL path,Paused,Ports
+        csv_data = """Service,Match,URL path,Paused,Ports
 site1.com,site1,,0,80
 site2.com,site2,,0,80
 site3.com,site3,,0,80
@@ -449,7 +449,7 @@ site3.com,site3,,0,80
         self.assertEqual(progress_events[0]["total"], 3)
 
     def test_start_csv_import_route(self):
-        csv_bytes = b"Domain,Match,URL path,Paused,Ports\nasync.com,async,,0,80\n"
+        csv_bytes = b"Service,Match,URL path,Paused,Ports\nasync.com,async,,0,80\n"
         response = self.client.post(
             "/import/csv/start",
             data={"csv_file": (io.BytesIO(csv_bytes), "test.csv")},
@@ -630,7 +630,7 @@ site3.com,site3,,0,80
     def test_csv_import_with_comment_column(self):
         with patch("app.scan_service"):
             # Import CSV containing a Comment column
-            csv_with_comment = "Domain,Match,URL path,Comment,Paused,Ports\nimported-comment.io,imported,,Cloud load balancer,0,80\n"
+            csv_with_comment = "Service,Match,URL path,Comment,Paused,Ports\nimported-comment.io,imported,,Cloud load balancer,0,80\n"
             summary = pulsecheck_app.import_services_from_csv(csv_with_comment)
             self.assertEqual(summary["imported"], 1)
 
@@ -638,7 +638,7 @@ site3.com,site3,,0,80
             self.assertEqual(domain["comment"], "Cloud load balancer")
 
             # Import CSV without a Comment column (legacy format)
-            legacy_csv = "Domain,Match,URL path,Paused,Ports\nlegacy-no-comment.io,legacy,,0,80\n"
+            legacy_csv = "Service,Match,URL path,Paused,Ports\nlegacy-no-comment.io,legacy,,0,80\n"
             summary2 = pulsecheck_app.import_services_from_csv(legacy_csv)
             self.assertEqual(summary2["imported"], 1)
             domain2 = next(d for d in pulsecheck_app.service_list() if d["name"] == "legacy-no-comment.io")
@@ -733,7 +733,7 @@ site3.com,site3,,0,80
                     }
                     mock_email.return_value = (True, "OK")
                     pulsecheck_app.send_state_change_notification(
-                        [{"domain": "test.com", "old_status": "online", "new_status": "offline", "port_changes": []}]
+                        [{"service": "test.com", "old_status": "online", "new_status": "offline", "port_changes": []}]
                     )
                     mock_email.assert_called_once()
                     body = mock_email.call_args[0][2]
@@ -750,7 +750,7 @@ site3.com,site3,,0,80
                 }
                 mock_email.return_value = (True, "OK")
                 pulsecheck_app.send_state_change_notification(
-                    [{"domain": "test.com", "old_status": "online", "new_status": "offline", "port_changes": []}]
+                    [{"service": "test.com", "old_status": "online", "new_status": "offline", "port_changes": []}]
                 )
                 body = mock_email.call_args[0][2]
                 html_body = mock_email.call_args[1].get("html_body", "")
@@ -815,7 +815,7 @@ site3.com,site3,,0,80
                 mock_settings.return_value = {"smtp_host": "smtp.example.com", "recipient_email": "admin@test.com"}
                 mock_email.return_value = (True, "OK")
                 pulsecheck_app.send_state_change_notification(
-                    [{"domain": "multiport.org", "old_status": "online", "new_status": "offline", "port_changes": []}]
+                    [{"service": "multiport.org", "old_status": "online", "new_status": "offline", "port_changes": []}]
                 )
                 body = mock_email.call_args[0][2]
                 self.assertIn("Scan Completed:", body)
@@ -1118,7 +1118,7 @@ site3.com,site3,,0,80
     @patch("app.scan_service")
     def test_csv_import_and_export_with_proxy_indicator(self, mock_scan):
         # Import CSV containing Proxy column
-        csv_data = """Domain,Match,URL path,Comment,Paused,Proxy,Ports
+        csv_data = """Service,Match,URL path,Comment,Paused,Proxy,Ports
 proxied.example,proxied,/health,Gateway,0,1,"80, 443"
 direct.example,direct,,Direct site,0,0,8080
 """
@@ -1417,7 +1417,7 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn("cell-hover-box", html)
         self.assertIn(long_service, html)
         self.assertIn(long_match, html)
-        self.assertTrue('<span class="hover-box-label">Service</span>' in html or '<span class="hover-box-label">Domain</span>' in html)
+        self.assertIn('<span class="hover-box-label">Service</span>', html)
         self.assertIn('<span class="hover-box-label">Match</span>', html)
         self.assertIn("cell-ports-wrapper", html)
         self.assertIn("status-ports-inline", html)

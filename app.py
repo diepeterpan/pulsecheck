@@ -292,7 +292,6 @@ def discover_ports(service_name: str, progress_callback=None, cancelled_check=No
         if progress_callback is not None:
             progress_callback({
                 "service": service_name,
-                "domain": service_name,
                 "port": port,
                 "message": f"Testing port {port} for {service_name}",
             })
@@ -578,12 +577,12 @@ def fetch_response(
                 proxy_info = f" proxy={proxy_host}:{proxy_port}" if use_proxy else ""
                 if should_retry_legacy:
                     print(
-                        f"[DEBUG scan fetchresponse] protocol=https domain={parsed.hostname} port={target_port}{proxy_info} "
+                        f"[DEBUG scan fetchresponse] protocol=https service={parsed.hostname} port={target_port}{proxy_info} "
                         f"handshake failed ({error}); retrying with older TLS versions..."
                     )
                 else:
                     print(
-                        f"[DEBUG scan fetchresponse] protocol={parsed.scheme} domain={parsed.hostname} "
+                        f"[DEBUG scan fetchresponse] protocol={parsed.scheme} service={parsed.hostname} "
                         f"port={target_port}{proxy_info} error={error!r}"
                     )
             connection.close()
@@ -957,12 +956,12 @@ def import_services_from_csv(
     data_rows = []
 
     first_cells = [c.strip().lower() for c in raw_rows[0]]
-    if any(h in first_cells for h in ("service", "service name", "domain", "domain name", "name")):
+    if any(h in first_cells for h in ("service", "service name", "name")):
         header = first_cells
         for idx, col in enumerate(header):
-            if col in ("service", "service name", "domain", "domain name", "name"):
+            if col in ("service", "service name", "name"):
                 col_map["service"] = idx
-            elif col in ("match", "service match", "domain match"):
+            elif col in ("match", "service match"):
                 col_map["match"] = idx
             elif col in ("url path", "url_path", "path", "url"):
                 col_map["url_path"] = idx
@@ -1397,7 +1396,6 @@ def create_import_session(service_names):
             "index": 0,
             "total": len([line for line in service_names if str(line).strip()]),
             "service": None,
-            "domain": None,
             "port": None,
             "message": "Preparing import",
             "cancelled": False,
@@ -1432,9 +1430,8 @@ def run_import_worker(token, service_names):
         st["status"] = info.get("status", st["status"])
         st["index"] = info.get("index", st.get("index", 0))
         st["total"] = info.get("total", st.get("total", 0))
-        srv_name = info.get("service") or info.get("domain")
+        srv_name = info.get("service")
         st["service"] = srv_name
-        st["domain"] = srv_name
         st["port"] = info.get("port")
         st["message"] = info.get("message", st.get("message", "Working"))
 
@@ -1467,7 +1464,7 @@ def create_csv_import_session(csv_content: str):
     token = uuid.uuid4().hex
     raw_rows = [r for r in csv.reader(io.StringIO(csv_content)) if r and any(cell.strip() for cell in r)]
     first_cells = [c.strip().lower() for c in raw_rows[0]] if raw_rows else []
-    has_header = any(h in first_cells for h in ("service", "service name", "domain", "domain name", "name"))
+    has_header = any(h in first_cells for h in ("service", "service name", "name"))
     total_records = max(len(raw_rows) - 1, 0) if has_header else len(raw_rows)
 
     with IMPORT_LOCK:
@@ -1477,7 +1474,6 @@ def create_csv_import_session(csv_content: str):
             "index": 0,
             "total": total_records,
             "service": None,
-            "domain": None,
             "port": None,
             "message": "Preparing CSV import",
             "cancelled": False,
@@ -1506,9 +1502,8 @@ def run_csv_import_worker(token, csv_content):
         st["status"] = info.get("status", st["status"])
         st["index"] = info.get("index", st.get("index", 0))
         st["total"] = info.get("total", st.get("total", 0))
-        srv_name = info.get("service") or info.get("domain")
+        srv_name = info.get("service")
         st["service"] = srv_name
-        st["domain"] = srv_name
         st["port"] = info.get("port")
         st["message"] = info.get("message", st.get("message", "Working"))
 
@@ -1554,7 +1549,7 @@ def handle_import():
                 flash(f"Error processing CSV file: {exc}", "error")
             return redirect(url_for("handle_import"))
 
-        raw_text = request.form.get("services") or request.form.get("domains") or ""
+        raw_text = request.form.get("services") or ""
         items = [line.strip() for line in raw_text.splitlines() if line.strip()]
         if not items:
             flash("No service names or CSV file were supplied.", "error")
@@ -1583,7 +1578,7 @@ def export_services_route():
 
 @app.route("/import/start", methods=["POST"])
 def start_import():
-    raw_text = request.form.get("services") or request.form.get("domains") or ""
+    raw_text = request.form.get("services") or ""
     items = [line.strip() for line in raw_text.splitlines() if line.strip()]
     if not items:
         return {"error": "No service names were supplied."}, 400
@@ -1610,13 +1605,12 @@ def import_status(token):
     state = IMPORT_STATE.get(token)
     if not state:
         return {"status": "not_found"}, 404
-    srv_name = state.get("service") or state.get("domain")
+    srv_name = state.get("service")
     response = {
         "status": state.get("status"),
         "index": state.get("index", 0),
         "total": state.get("total", 0),
         "service": srv_name,
-        "domain": srv_name,
         "port": state.get("port"),
         "message": state.get("message", "Working"),
         "cancelled": state.get("cancelled", False),
@@ -1641,7 +1635,7 @@ def cancel_import(token):
 @app.route("/services")
 def services():
     items = service_list()
-    return render_template("services.html", services=items, domains=items)
+    return render_template("services.html", services=items)
 
 
 @app.route("/services/add", methods=["GET", "POST"])
@@ -1665,7 +1659,7 @@ def add_service_route():
         flash(f"Added service {name}.")
         return redirect(url_for("services"))
     items = service_list()
-    return render_template("services.html", services=items, domains=items, add_mode=True)
+    return render_template("services.html", services=items, add_mode=True)
 
 
 @app.route("/services/bulk-ports", methods=["POST"])
@@ -1748,7 +1742,7 @@ def edit_service(service_id):
         flash(f"Updated service {name}.")
         return redirect(return_to or url_for("services"))
 
-    return render_template("edit_service.html", service=service, domain=service, return_to=return_to)
+    return render_template("edit_service.html", service=service, return_to=return_to)
 
 
 @app.route("/services/<int:service_id>/delete", methods=["POST"])
@@ -1869,7 +1863,6 @@ def get_service_snapshots() -> dict[int, dict]:
                 "id": s_id,
                 "name": row["name"],
                 "service": row["name"],
-                "domain": row["name"],
                 "has_checks": False,
                 "port_statuses": {},
             }
@@ -1908,7 +1901,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
     ]
 
     for item in changes:
-        target_name = item.get("service") or item.get("domain") or item.get("name")
+        target_name = item.get("service") or item.get("name")
         lines.append(f"• Service: {target_name}")
         lines.append(f"  Overall Status: {item['old_status'].upper()} -> {item['new_status'].upper()}")
         if item.get("port_changes"):
@@ -1924,7 +1917,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
     cards_html = []
     for item in changes:
-        target_name = item.get("service") or item.get("domain") or item.get("name")
+        target_name = item.get("service") or item.get("name")
         old_st = item["old_status"].upper()
         new_st = item["new_status"].upper()
         badge_color = "#059669" if new_st == "UP" else ("#dc2626" if new_st == "DOWN" else "#d97706")

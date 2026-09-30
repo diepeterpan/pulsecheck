@@ -67,7 +67,7 @@
               <span class="guide-icon">1</span>
               <div>
                 <strong>One Hostname Per Line</strong>
-                <div>Use bare domain names, hostnames, or IP addresses. Protocol prefixes (<code>http://</code>, <code>https://</code>) are automatically stripped.</div>
+                <div>Use bare service names, hostnames, or IP addresses. Protocol prefixes (<code>http://</code>, <code>https://</code>) are automatically stripped.</div>
               </div>
             </li>
             <li class="guide-item">
@@ -159,7 +159,7 @@
               <tr>
                 <td><code>Service</code></td>
                 <td><span class="tag-required">Required</span></td>
-                <td>Service domain name or host IP</td>
+                <td>Service name, hostname, or IP</td>
               </tr>
               <tr>
                 <td><code>Match</code></td>
@@ -335,8 +335,8 @@ backup-portal.example,backup,/login,DR Site,1,0,"80"</div>
     });
 
     // Quick Text Block helpers (line count & samples)
-    const textarea = document.getElementById('services') || document.getElementById('domains');
-    const serviceCountBadge = document.getElementById('text-service-count') || document.getElementById('text-service-count');
+    const textarea = document.getElementById('services');
+    const serviceCountBadge = document.getElementById('text-service-count');
     const clearTextBtn = document.getElementById('clear-text-btn');
     const loadSampleTextBtn = document.getElementById('load-sample-text-btn');
 
@@ -546,7 +546,7 @@ backup-portal.example,backup,/login,DR Site,1,0,"80"</div>
     if (textForm) {
       textForm.addEventListener('submit', async (event) => {
         event.preventDefault();
-        const inputElem = document.getElementById('services') || document.getElementById('domains');
+        const inputElem = document.getElementById('services');
         const services = inputElem ? inputElem.value : '';
         if (!services.trim()) {
           return;
@@ -558,7 +558,7 @@ backup-portal.example,backup,/login,DR Site,1,0,"80"</div>
         const response = await fetch('/import/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-          body: new URLSearchParams({ services, domains: services })
+          body: new URLSearchParams({ services })
         });
 
         if (!response.ok) {
