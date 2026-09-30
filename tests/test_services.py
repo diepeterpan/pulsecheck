@@ -167,6 +167,121 @@ invalid service host,,,,,
         self.assertEqual(services["cache.service.local"]["ports"], [6379])
         self.assertTrue(services["cache.service.local"]["paused"])
 
+    @patch("app.scan_service")
+    @patch("app.discover_ports", return_value=[80, 443])
+    def test_edit_service_layout_and_elements(self, mock_discover, mock_scan):
+        service_id = pulsecheck_app.add_service(
+            name="test-ui.service.local",
+            match="welcome",
+        )
+        response = self.client.get(f"/services/{service_id}/edit")
+        self.assertEqual(response.status_code, 200)
+        html = response.data.decode("utf-8")
+
+        # 2-column layout and cards
+        self.assertIn("edit-service-layout", html)
+        self.assertIn("tab-main-card", html)
+        self.assertIn("edit-test-card", html)
+
+        # Form fields present and not excessively wide
+        self.assertIn('id="name"', html)
+        self.assertIn('id="match"', html)
+        self.assertIn('id="ports"', html)
+        self.assertIn('id="paused"', html)
+        self.assertIn('id="use_proxy"', html)
+
+        # Live Test button and diagnostics panel
+        self.assertIn('id="btn-live-test"', html)
+        self.assertIn("Test Probes", html)
+        self.assertIn('id="diag-placeholder"', html)
+        self.assertIn('id="btn-placeholder-test"', html)
+        self.assertIn('id="diag-tabs-nav"', html)
+        self.assertIn('id="diag-tabs-content"', html)
+
+    @patch("app.fetch_response")
+    def test_diagnose_service_ports(self, mock_fetch):
+        # Port 80 returns match (ONLINE), Port 8080 returns no match (DEGRADED)
+        def side_effect(service_name, port, scheme, url_path="", **kwargs):
+            if port == 80:
+                return b"HTTP/1.1 200 OK\r\n\r\nHello Welcome to PulseCheck", 200, f"http://{service_name}:{port}/"
+            elif port == 8080:
+                return b"HTTP/1.1 200 OK\r\n\r\nApache Server at other.host", 200, f"http://{service_name}:{port}/"
+            raise ConnectionRefusedError("Connection refused")
+
+        mock_fetch.side_effect = side_effect
+
+        results = pulsecheck_app.diagnose_service_ports(
+            service_name="web.service.local",
+            ports=[80, 8080, 9999],
+            match="Welcome",
+        )
+
+        self.assertTrue(results["success"])
+        self.assertEqual(results["service_name"], "web.service.local")
+        self.assertEqual(results["overall_status"], "degraded")
+        self.assertEqual(len(results["ports"]), 3)
+
+        # Port 80 checks
+        p80 = next(p for p in results["ports"] if p["port"] == 80)
+        self.assertEqual(p80["status"], "online")
+        self.assertEqual(p80["status_code"], 200)
+        self.assertTrue(p80["match_found"])
+        self.assertEqual(p80["match_count"], 1)
+        self.assertIn("Welcome to PulseCheck", p80["response_snippet"])
+        self.assertGreater(p80["duration_ms"], 0)
+        self.assertEqual(p80["retries"], 0)
+        self.assertTrue(p80["timestamp"])
+
+        # Port 8080 checks
+        p8080 = next(p for p in results["ports"] if p["port"] == 8080)
+        self.assertEqual(p8080["status"], "degraded")
+        self.assertEqual(p8080["status_code"], 200)
+        self.assertFalse(p8080["match_found"])
+
+        # Port 9999 checks
+        p9999 = next(p for p in results["ports"] if p["port"] == 9999)
+        self.assertEqual(p9999["status"], "offline")
+        self.assertFalse(p9999["match_found"])
+        self.assertIn("Connection refused", p9999["error"])
+
+    @patch("app.fetch_response")
+    @patch("app.discover_ports", return_value=[80])
+    @patch("app.scan_service")
+    def test_service_test_endpoint_live_values(self, mock_scan, mock_discover, mock_fetch):
+        service_id = pulsecheck_app.add_service(
+            name="srv.internal",
+            match="original",
+        )
+        mock_fetch.return_value = (b"HTTP/1.1 200 OK\r\n\r\nCustom Match Found Here", 200, "http://srv.internal:8080/")
+
+        # Test with modified live values in JSON payload (not saved yet in DB)
+        post_data = {
+            "name": "srv.internal",
+            "match": "Custom Match",
+            "ports": "8080",
+            "url_path": "/api/v1/health",
+            "use_proxy": False,
+        }
+        resp = self.client.post(f"/services/{service_id}/test", json=post_data)
+        self.assertEqual(resp.status_code, 200)
+        json_data = resp.get_json()
+
+        self.assertTrue(json_data["success"])
+        self.assertEqual(json_data["overall_status"], "online")
+        self.assertEqual(len(json_data["ports"]), 1)
+        self.assertEqual(json_data["ports"][0]["port"], 8080)
+        self.assertTrue(json_data["ports"][0]["match_found"])
+        self.assertEqual(json_data["ports"][0]["match_count"], 1)
+
+        # Test 404 on non-existent service ID
+        resp_404 = self.client.post("/services/999999/test", json=post_data)
+        self.assertEqual(resp_404.status_code, 404)
+
+        # Test 400 on empty ports
+        bad_data = {"name": "srv.internal", "ports": ""}
+        resp_400 = self.client.post(f"/services/{service_id}/test", json=bad_data)
+        self.assertEqual(resp_400.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

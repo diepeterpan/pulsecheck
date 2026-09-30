@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 from concurrent.futures import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, Response, flash, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
@@ -780,6 +780,263 @@ def scan_service(
         store_port_check(service_id, port, status, response_ms)
         port_statuses[port] = status
     return port_statuses
+
+
+def probe_single_port_diagnostics(
+    service_name: str,
+    port: int,
+    match_str: str,
+    url_path: str = "",
+    use_proxy: bool = False,
+    proxy_settings: dict[str, str] | None = None,
+    debug_enabled: bool = False,
+) -> dict:
+    t0 = time.monotonic()
+    status = "offline"
+    status_code = None
+    status_text = ""
+    protocol_used = "http"
+    response_bytes = b""
+    error_message = None
+    retries = 0
+    final_url = f"http://{service_name}:{port}{url_path or '/'}"
+    now_str = get_current_local_time_str()
+    match_bytes = match_str.lower().encode() if match_str else b""
+
+    # Attempt 1: Standard HTTP probe
+    try:
+        response_bytes, status_code, final_url = fetch_response(
+            service_name,
+            port,
+            "http",
+            url_path,
+            explicit_debug=debug_enabled,
+            use_proxy=use_proxy,
+            proxy_settings=proxy_settings,
+        )
+        protocol_used = "http"
+        status_text = f"HTTP {status_code}"
+    except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
+        if is_ssl_handshake_failure(exc):
+            status = "online"
+            status_text = "SSL Handshake detected (treated as online)"
+            protocol_used = "ssl-handshake"
+        elif isinstance(exc, socket.gaierror):
+            error_message = f"DNS resolution failed: {exc}"
+        elif isinstance(exc, socket.timeout):
+            error_message = "Connection timed out (2.0s limit reached)"
+        elif isinstance(exc, ConnectionRefusedError):
+            error_message = f"Connection refused on port {port}"
+        else:
+            error_message = str(exc) or exc.__class__.__name__
+
+    # Match evaluation on HTTP response
+    if response_bytes and match_bytes and match_bytes in response_bytes.lower():
+        status = "online"
+    elif status == "online":
+        pass
+    elif port in HTTPS_PORTS:
+        retries += 1
+        try:
+            https_response, https_code, https_url = fetch_response(
+                service_name,
+                port,
+                "https",
+                url_path,
+                explicit_debug=debug_enabled,
+                use_proxy=use_proxy,
+                proxy_settings=proxy_settings,
+            )
+            protocol_used = "https"
+            status_code = https_code
+            status_text = f"HTTPS {https_code}"
+            final_url = https_url
+            response_bytes = https_response
+            if https_response and match_bytes and match_bytes in https_response.lower():
+                status = "online"
+            elif https_response:
+                status = "degraded"
+        except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            if is_ssl_handshake_failure(exc):
+                status = "online"
+                status_text = "SSL Handshake (treated as online)"
+            elif isinstance(exc, socket.timeout):
+                error_message = "HTTPS connection timed out (2.0s limit reached)"
+            elif isinstance(exc, ConnectionRefusedError):
+                error_message = f"HTTPS connection refused on port {port}"
+            else:
+                error_message = str(exc) or exc.__class__.__name__
+        if status == "offline":
+            status = "degraded"
+    elif response_bytes:
+        status = "degraded"
+
+    # Socket fallbacks if not online and not using proxy
+    if status != "online" and not use_proxy:
+        try:
+            retries += 1
+            sock_resp = fetch_socket_response(service_name, port, url_path)
+            protocol_used = "socket"
+            response_bytes = sock_resp
+            status_text = "Socket HTTP/1.0 response"
+            if sock_resp and match_bytes and match_bytes in sock_resp.lower():
+                status = "online"
+            elif sock_resp and status == "offline":
+                status = "degraded"
+        except (socket.timeout, socket.gaierror, OSError):
+            try:
+                retries += 1
+                ssl_sock_resp = fetch_socket_ssl_response(service_name, port, url_path)
+                protocol_used = "socket-ssl"
+                response_bytes = ssl_sock_resp
+                status_text = "Socket SSL HTTP/1.0 response"
+                if ssl_sock_resp and match_bytes and match_bytes in ssl_sock_resp.lower():
+                    status = "online"
+                elif ssl_sock_resp and status == "offline":
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+                if is_ssl_handshake_failure(exc):
+                    status = "online"
+                    status_text = "SSL Handshake (treated as online)"
+                else:
+                    if not error_message:
+                        error_message = str(exc) or exc.__class__.__name__
+
+    duration_ms = max(1, int((time.monotonic() - t0) * 1000))
+
+    snippet_text = ""
+    if response_bytes:
+        snippet_text = response_bytes[:4096].decode("utf-8", errors="replace")
+
+    match_found = False
+    match_count = 0
+    if match_str and snippet_text:
+        lower_snip = snippet_text.lower()
+        lower_match = match_str.lower()
+        if lower_match in lower_snip:
+            match_found = True
+            match_count = lower_snip.count(lower_match)
+
+    return {
+        "port": port,
+        "status": status,
+        "status_code": status_code,
+        "status_text": status_text or (error_message if error_message else "No response"),
+        "protocol": protocol_used,
+        "final_url": final_url,
+        "duration_ms": duration_ms,
+        "retries": retries,
+        "match_token": match_str,
+        "match_found": match_found,
+        "match_count": match_count,
+        "response_snippet": snippet_text,
+        "error": error_message if (status == "offline" or not snippet_text) else None,
+        "timestamp": now_str,
+    }
+
+
+def parse_diagnostic_ports(ports_input) -> list[int]:
+    if isinstance(ports_input, (list, tuple, set)):
+        ports = []
+        for p in ports_input:
+            try:
+                val = int(p)
+                if 1 <= val <= 65535:
+                    ports.append(val)
+            except (ValueError, TypeError):
+                pass
+        return sorted(set(ports))
+
+    if not ports_input:
+        return []
+
+    str_val = str(ports_input).strip()
+    if str_val.startswith("[") and str_val.endswith("]"):
+        try:
+            loaded = json.loads(str_val)
+            if isinstance(loaded, list):
+                return parse_diagnostic_ports(loaded)
+        except json.JSONDecodeError:
+            pass
+
+    parts = re.split(r"[,\s]+", str_val)
+    ports = []
+    for part in parts:
+        cleaned = part.strip()
+        if not cleaned:
+            continue
+        try:
+            val = int(cleaned)
+            if 1 <= val <= 65535:
+                ports.append(val)
+        except ValueError:
+            pass
+    return sorted(set(ports))
+
+
+def diagnose_service_ports(
+    service_name: str,
+    ports: list[int] | str,
+    match: str = "",
+    url_path: str = "",
+    use_proxy: bool = False,
+    explicit_debug: bool | None = None,
+) -> dict:
+    parsed_ports = parse_diagnostic_ports(ports)
+
+    debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
+    proxy_settings = get_settings() if use_proxy else None
+    now_str = get_current_local_time_str()
+    match_str = (match or "").strip()
+
+    if not parsed_ports:
+        return {
+            "success": False,
+            "error": "No valid ports specified to test.",
+            "ports": [],
+            "overall_status": "offline",
+            "timestamp": now_str,
+        }
+
+    max_workers = min(len(parsed_ports), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                probe_single_port_diagnostics,
+                service_name,
+                port,
+                match_str,
+                url_path,
+                use_proxy,
+                proxy_settings,
+                debug_enabled,
+            ): port
+            for port in parsed_ports
+        }
+        results_by_port = {}
+        for future in futures:
+            res = future.result()
+            results_by_port[res["port"]] = res
+
+    port_diagnostics = [results_by_port[p] for p in parsed_ports if p in results_by_port]
+
+    statuses = [p["status"] for p in port_diagnostics]
+    if not statuses:
+        overall_status = "offline"
+    elif all(s == "online" for s in statuses):
+        overall_status = "online"
+    elif all(s == "offline" for s in statuses):
+        overall_status = "offline"
+    else:
+        overall_status = "degraded"
+
+    return {
+        "success": True,
+        "service_name": service_name,
+        "overall_status": overall_status,
+        "timestamp": now_str,
+        "ports": port_diagnostics,
+    }
 
 
 def sync_service_ports(service_id: int, service_name: str, detected_ports: list[int] | None = None):
@@ -1770,6 +2027,71 @@ def edit_service(service_id):
         return redirect(return_to or url_for("services"))
 
     return render_template("edit_service.html", service=service, return_to=return_to)
+
+
+@app.route("/services/<int:service_id>/test", methods=["POST"])
+def test_service_edit_route(service_id):
+    service = get_service_by_id(service_id)
+    if service is None:
+        return jsonify({"success": False, "error": "Service not found."}), 404
+
+    data = request.get_json(silent=True) or request.form
+
+    service_name = (data.get("name") or data.get("service_name") or service["name"]).strip()
+    match = data.get("match") if "match" in data else service["match"]
+    url_path = data.get("url_path") if "url_path" in data else service.get("url_path", "")
+
+    raw_proxy = data.get("use_proxy")
+    if raw_proxy is not None:
+        use_proxy = raw_proxy is True or str(raw_proxy).lower() in ("true", "1", "on")
+    else:
+        use_proxy = bool(service.get("use_proxy"))
+
+    ports_input = data.get("ports")
+    if ports_input is None:
+        ports = service["ports"]
+    else:
+        ports = parse_diagnostic_ports(ports_input)
+
+    if not service_name:
+        return jsonify({"success": False, "error": "Service name cannot be empty."}), 400
+    if not ports:
+        return jsonify({"success": False, "error": "No valid ports specified to test."}), 400
+
+    results = diagnose_service_ports(
+        service_name=service_name,
+        ports=ports,
+        match=match or "",
+        url_path=url_path or "",
+        use_proxy=use_proxy,
+    )
+    return jsonify(results)
+
+
+@app.route("/services/test", methods=["POST"])
+def test_service_generic_route():
+    data = request.get_json(silent=True) or request.form
+    service_name = (data.get("name") or data.get("service_name") or "").strip()
+    match = data.get("match") or ""
+    url_path = data.get("url_path") or ""
+    raw_proxy = data.get("use_proxy")
+    use_proxy = raw_proxy is True or str(raw_proxy).lower() in ("true", "1", "on")
+    ports_input = data.get("ports") or ""
+    ports = parse_diagnostic_ports(ports_input)
+
+    if not service_name:
+        return jsonify({"success": False, "error": "Service name cannot be empty."}), 400
+    if not ports:
+        return jsonify({"success": False, "error": "No valid ports specified to test."}), 400
+
+    results = diagnose_service_ports(
+        service_name=service_name,
+        ports=ports,
+        match=match,
+        url_path=url_path,
+        use_proxy=use_proxy,
+    )
+    return jsonify(results)
 
 
 @app.route("/services/<int:service_id>/delete", methods=["POST"])
