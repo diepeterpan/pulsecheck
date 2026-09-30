@@ -69,4 +69,12 @@ Use this format for new entries:
   - Redesign layout into two columns, utilizing the right-hand side of the edit card with tabs per port to avoid excessively wide input fields.
 - Status: completed
 
+- Menu function: Add Service page
+- Required future change: Upgrade Add New Service to work like the Edit Service function:
+  - Dedicated full-screen capture page utilizing the responsive 2-column layout.
+  - Pre-fill ports with sensible defaults (`80, 443`) and allow testing probe connections live before saving.
+  - Maximize code reuse by sharing form and diagnostic tab components with Edit Service.
+  - Return to Services list with a confirmation flash message upon successful addition.
+- Status: completed
+
 

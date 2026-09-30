@@ -28,9 +28,10 @@ PulseCheck is a lightweight, Linux-friendly web application and monitoring daemo
 
 - **Service Management & Live Diagnostics**:
   - Maintain services with Add, Edit, Delete, and manual Rescan actions.
-  - **Live Port Diagnostics ("Test Probes")**:
-    - Interactive 2-column Edit Service layout preventing excessively wide input fields.
-    - Test probe connections live against unsaved form values before saving changes.
+  - **Full-Screen Service Workflows & Live Port Diagnostics ("Test Probes")**:
+    - Dedicated 2-column full-screen layouts for both **Add New Service** and **Edit Service** with responsive proportions.
+    - Test probe connections live against unsaved form values before saving changes (instant verification during creation or editing).
+    - Pre-filled sensible port defaults (`80, 443`) on Add Service with optional port overrides or automatic discovery.
     - Tabbed per-port diagnostic inspector with status dots, HTTP/error result codes, call duration (ms), retry counts, and local timestamps.
     - Scrollable response snippet viewer (headers + body) with automatic **highlighting of matching tokens**.
     - "All Ports" summary comparison table.

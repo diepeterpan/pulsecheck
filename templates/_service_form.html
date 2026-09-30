@@ -1,0 +1,475 @@
+<section class="panel edit-service-panel">
+  <div class="panel-header">
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      <h2 style="margin: 0;">{% if is_add %}Add New Service{% else %}Edit Service{% endif %}</h2>
+      {% if not is_add and item.name %}
+        <span class="hub-tag" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.82rem; padding: 3px 10px; border-radius: 9999px;">{{ item.name }}</span>
+      {% endif %}
+    </div>
+    <a class="button secondary" href="{{ return_to or url_for('services') }}">Back to list</a>
+  </div>
+
+  <div class="tab-2col-layout edit-service-layout">
+    <!-- Left Column: Service Details Form -->
+    <div class="tab-main-card">
+      <div class="tab-card-header">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Service Configuration
+        </h3>
+      </div>
+      <p class="tab-card-subtitle">
+        {% if is_add %}
+          Enter target address, ports to monitor, and optional matching or proxy settings.
+        {% else %}
+          Adjust service address, ports, match string, or routing parameters.
+        {% endif %}
+      </p>
+
+      <form method="post" action="{{ form_action }}" id="service-form">
+        {% if return_to %}
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+        {% endif %}
+
+        <div style="margin-bottom: 16px;">
+          <label for="name" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Service name</label>
+          <input type="text" id="name" name="name" value="{{ item.name }}" placeholder="example.com" required style="width: 100%; box-sizing: border-box;">
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Domain name or IP address of the target service.</span>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label for="match" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Match</label>
+          <input type="text" id="match" name="match" value="{{ item.match }}" placeholder="Defaults to first word of service name" style="width: 100%; box-sizing: border-box;">
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Expected token in response body or headers for ONLINE status (case-insensitive).</span>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label for="url_path" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">URL path (optional)</label>
+          <input type="text" id="url_path" name="url_path" value="{{ item.url_path }}" placeholder="/test/test.asp" style="width: 100%; box-sizing: border-box;">
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Custom HTTP probe path (defaults to root <code>/</code>).</span>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label for="comment" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Comment (optional)</label>
+          <input type="text" id="comment" name="comment" value="{{ item.comment or '' }}" placeholder="Notes, purpose, or owner" style="width: 100%; box-sizing: border-box;">
+        </div>
+
+        <div style="display: flex; gap: 24px; align-items: center; margin: 16px 0;">
+          <label for="paused" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
+            <input type="checkbox" id="paused" name="paused" {% if item.paused %}checked{% endif %}>
+            Paused
+          </label>
+          <label for="use_proxy" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
+            <input type="checkbox" id="use_proxy" name="use_proxy" {% if item.use_proxy %}checked{% endif %}>
+            Use Proxy Server
+          </label>
+        </div>
+
+        <div style="margin-bottom: 22px;">
+          <label for="ports" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports</label>
+          <input type="text" id="ports" name="ports" value="{% if item.ports is string %}{{ item.ports }}{% elif item.ports %}{{ item.ports | join(', ') }}{% else %}80, 443{% endif %}" placeholder="80, 443, 8443" style="width: 100%; box-sizing: border-box;">
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Comma-separated TCP ports to probe.</span>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 24px; align-items: center; flex-wrap: wrap;">
+          <button type="submit" class="button primary" id="btn-save-service">{{ submit_btn_text }}</button>
+          <button type="button" id="btn-live-test" class="button secondary btn-test-action">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-test-pulse"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <span id="btn-live-test-text">Test Probes</span>
+          </button>
+          <a href="{{ return_to or url_for('services') }}" class="button secondary" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; padding: 10px 18px; border-radius: 8px;">Cancel</a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Right Column: Live Port Diagnostics -->
+    <div class="tab-side-card edit-test-card" id="edit-test-panel">
+      <div class="tab-card-header">
+        <h3>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+          Port Diagnostics
+        </h3>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="diag-overall-pill" class="diag-status-pill" style="display: none;"></span>
+          <button type="button" id="btn-diag-retest" class="button secondary btn-test-action" style="display: none; padding: 4px 10px; font-size: 0.78rem;">
+            Retest
+          </button>
+        </div>
+      </div>
+
+      <!-- State 1: Placeholder before test is run -->
+      <div id="diag-placeholder" class="diag-empty-state">
+        <div class="diag-empty-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        </div>
+        <div class="diag-empty-title">Test Port Probes Live</div>
+        <div class="diag-empty-desc">
+          Verify connectivity, HTTP response codes, latency, and match string highlighting across all ports before saving.
+        </div>
+        <button type="button" id="btn-placeholder-test" class="button primary" style="display: inline-flex; align-items: center; gap: 8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run Test Now
+        </button>
+      </div>
+
+      <!-- State 2: Loading State -->
+      <div id="diag-loading" class="diag-loading-state" style="display: none;">
+        <div class="diag-spinner"></div>
+        <div class="diag-loading-title">Probing configured ports...</div>
+        <div class="diag-loading-hint">Testing HTTP/HTTPS connections and evaluating match string.</div>
+      </div>
+
+      <!-- State 3: Error State -->
+      <div id="diag-error" class="diag-error-state" style="display: none;">
+        <strong>Error running test:</strong>
+        <div id="diag-error-message" style="margin-top: 4px; font-size: 0.88rem;"></div>
+      </div>
+
+      <!-- State 4: Diagnostics Results with Port Tabs -->
+      <div id="diag-results" style="display: none;">
+        <!-- Tabs Navigation -->
+        <div class="diag-tabs-nav" id="diag-tabs-nav" role="tablist">
+          <!-- Populated via JavaScript -->
+        </div>
+
+        <!-- Tab Content Container -->
+        <div id="diag-tabs-content">
+          <!-- Populated via JavaScript -->
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  (function() {
+    const testUrl = "{{ test_url }}";
+    const btnLiveTest = document.getElementById("btn-live-test");
+    const btnLiveTestText = document.getElementById("btn-live-test-text");
+    const btnPlaceholderTest = document.getElementById("btn-placeholder-test");
+    const btnDiagRetest = document.getElementById("btn-diag-retest");
+
+    const diagPlaceholder = document.getElementById("diag-placeholder");
+    const diagLoading = document.getElementById("diag-loading");
+    const diagError = document.getElementById("diag-error");
+    const diagErrorMessage = document.getElementById("diag-error-message");
+    const diagResults = document.getElementById("diag-results");
+    const diagOverallPill = document.getElementById("diag-overall-pill");
+    const diagTabsNav = document.getElementById("diag-tabs-nav");
+    const diagTabsContent = document.getElementById("diag-tabs-content");
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function escapeRegex(str) {
+      return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+
+    function highlightMatchInSnippet(snippet, matchToken) {
+      if (!snippet) {
+        return '<span style="color: #64748b; font-style: italic;">(No response payload or headers received)</span>';
+      }
+      const safeSnippet = escapeHtml(snippet);
+      const trimmedToken = (matchToken || "").trim();
+      if (!trimmedToken) {
+        return safeSnippet;
+      }
+
+      const safeToken = escapeHtml(trimmedToken);
+      const tokenRegexStr = escapeRegex(safeToken);
+      try {
+        const regex = new RegExp(`(${tokenRegexStr})`, "gi");
+        return safeSnippet.replace(regex, '<mark class="diag-match-highlight">$1</mark>');
+      } catch (e) {
+        return safeSnippet;
+      }
+    }
+
+    function setTestLoading(loading) {
+      btnLiveTest.disabled = loading;
+      btnDiagRetest.disabled = loading;
+      if (btnPlaceholderTest) btnPlaceholderTest.disabled = loading;
+
+      if (loading) {
+        btnLiveTestText.textContent = "Testing...";
+        diagPlaceholder.style.display = "none";
+        diagError.style.display = "none";
+        diagResults.style.display = "none";
+        diagLoading.style.display = "block";
+        diagOverallPill.style.display = "none";
+        btnDiagRetest.style.display = "none";
+      } else {
+        btnLiveTestText.textContent = "Test Probes";
+        diagLoading.style.display = "none";
+      }
+    }
+
+    async function runDiagnostics() {
+      const nameVal = document.getElementById("name").value.trim();
+      const matchVal = document.getElementById("match").value.trim();
+      const urlPathVal = document.getElementById("url_path").value.trim();
+      const useProxyVal = document.getElementById("use_proxy").checked;
+      const portsVal = document.getElementById("ports").value.trim();
+
+      if (!nameVal) {
+        alert("Please enter a service name before testing.");
+        document.getElementById("name").focus();
+        return;
+      }
+      if (!portsVal) {
+        alert("Please enter at least one port number before testing.");
+        document.getElementById("ports").focus();
+        return;
+      }
+
+      setTestLoading(true);
+
+      const payload = {
+        name: nameVal,
+        match: matchVal,
+        url_path: urlPathVal,
+        use_proxy: useProxyVal,
+        ports: portsVal,
+      };
+
+      try {
+        const response = await fetch(testUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || ("Server returned status " + response.status));
+        }
+
+        renderResults(data);
+      } catch (err) {
+        diagError.style.display = "block";
+        diagErrorMessage.textContent = err.message || "An unexpected error occurred during probe testing.";
+        diagResults.style.display = "none";
+      } finally {
+        setTestLoading(false);
+      }
+    }
+
+    function renderResults(data) {
+      diagPlaceholder.style.display = "none";
+      diagError.style.display = "none";
+      diagResults.style.display = "block";
+
+      const overall = (data.overall_status || "offline").toLowerCase();
+      diagOverallPill.textContent = overall.toUpperCase();
+      diagOverallPill.className = "diag-status-pill " + overall;
+      diagOverallPill.style.display = "inline-flex";
+      btnDiagRetest.style.display = "inline-flex";
+
+      diagTabsNav.innerHTML = "";
+      diagTabsContent.innerHTML = "";
+
+      // Tab 1: All Ports Overview
+      const summaryTabBtn = document.createElement("button");
+      summaryTabBtn.type = "button";
+      summaryTabBtn.className = "diag-tab-btn active";
+      summaryTabBtn.setAttribute("data-target", "tab-panel-all");
+      summaryTabBtn.innerHTML = `
+        <span>All Ports</span>
+        <span style="font-size: 0.72rem; opacity: 0.85;">(${data.ports.length})</span>
+      `;
+      diagTabsNav.appendChild(summaryTabBtn);
+
+      // Panel 1: All Ports Summary Panel
+      const summaryPanel = document.createElement("div");
+      summaryPanel.id = "tab-panel-all";
+      summaryPanel.className = "diag-tab-panel";
+
+      let summaryRowsHtml = "";
+      data.ports.forEach((p) => {
+        const pStatus = (p.status || "offline").toLowerCase();
+        const matchLabel = p.match_found
+          ? `<span style="color: #16a34a; font-weight: 600;">✓ Found (${p.match_count}x)</span>`
+          : `<span style="color: #94a3b8;">${escapeHtml(p.match_token ? "✗ Not found" : "No token")}</span>`;
+
+        summaryRowsHtml += `
+          <tr>
+            <td><strong style="color: #0f172a;">Port ${p.port}</strong></td>
+            <td><span style="text-transform: uppercase; font-size: 0.76rem; font-weight: 600; color: #475569;">${escapeHtml(p.protocol)}</span></td>
+            <td><span class="diag-status-pill ${pStatus}">${pStatus.toUpperCase()}</span></td>
+            <td style="font-family: ui-monospace, monospace; font-size: 0.8rem;">${escapeHtml(p.status_text)}</td>
+            <td><strong>${p.duration_ms}</strong> <span style="font-size: 0.75rem; color: #64748b;">ms</span></td>
+            <td>${p.retries}</td>
+            <td>${matchLabel}</td>
+          </tr>
+        `;
+      });
+
+      summaryPanel.innerHTML = `
+        <div style="margin-bottom: 14px; font-size: 0.84rem; color: #64748b; display: flex; justify-content: space-between; align-items: center;">
+          <span>Completed scan across <strong>${data.ports.length}</strong> configured ports at <strong>${escapeHtml(data.timestamp)}</strong></span>
+        </div>
+        <div style="overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <table class="diag-summary-table">
+            <thead>
+              <tr>
+                <th>Port</th>
+                <th>Protocol</th>
+                <th>Status</th>
+                <th>Result Code</th>
+                <th>Latency</th>
+                <th>Retries</th>
+                <th>Match Token</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${summaryRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
+      diagTabsContent.appendChild(summaryPanel);
+
+      // Per-Port Tabs & Panels
+      data.ports.forEach((p) => {
+        const pStatus = (p.status || "offline").toLowerCase();
+        const panelId = `tab-panel-port-${p.port}`;
+
+        const tabBtn = document.createElement("button");
+        tabBtn.type = "button";
+        tabBtn.className = "diag-tab-btn";
+        tabBtn.setAttribute("data-target", panelId);
+        tabBtn.innerHTML = `
+          <span class="diag-tab-dot ${pStatus}"></span>
+          <span>Port ${p.port}</span>
+        `;
+        diagTabsNav.appendChild(tabBtn);
+
+        const portPanel = document.createElement("div");
+        portPanel.id = panelId;
+        portPanel.className = "diag-tab-panel";
+        portPanel.style.display = "none";
+
+        let bannerHtml = "";
+        if (p.match_found) {
+          bannerHtml = `
+            <div class="diag-match-banner found">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <div>
+                <strong>Matching token found:</strong> Expected token <code>"${escapeHtml(p.match_token)}"</code> was detected <strong>${p.match_count}</strong> time${p.match_count > 1 ? "s" : ""} in response.
+              </div>
+            </div>
+          `;
+        } else if (p.response_snippet) {
+          bannerHtml = `
+            <div class="diag-match-banner not-found">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <div>
+                <strong>Matching token not found:</strong> Target responded, but token <code>"${escapeHtml(p.match_token)}"</code> was not present in the headers or body.
+              </div>
+            </div>
+          `;
+        } else {
+          bannerHtml = `
+            <div class="diag-match-banner error">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <div>
+                <strong>Port unreachable:</strong> ${escapeHtml(p.error || p.status_text || "Connection failed")}.
+              </div>
+            </div>
+          `;
+        }
+
+        const highlightedSnippet = highlightMatchInSnippet(p.response_snippet, p.match_token);
+        const snippetLength = p.response_snippet ? p.response_snippet.length : 0;
+
+        portPanel.innerHTML = `
+          <div class="diag-metrics-grid">
+            <div class="diag-metric-card">
+              <div class="diag-metric-label">Status</div>
+              <div class="diag-metric-val"><span class="diag-status-pill ${pStatus}">${pStatus.toUpperCase()}</span></div>
+            </div>
+            <div class="diag-metric-card">
+              <div class="diag-metric-label">Result Code</div>
+              <div class="diag-metric-val" style="font-size: 0.85rem; font-family: ui-monospace, monospace;">${escapeHtml(p.status_text)}</div>
+            </div>
+            <div class="diag-metric-card">
+              <div class="diag-metric-label">Duration</div>
+              <div class="diag-metric-val">${p.duration_ms} <span style="font-size: 0.75rem; color: #64748b;">ms</span></div>
+            </div>
+            <div class="diag-metric-card">
+              <div class="diag-metric-label">Retries</div>
+              <div class="diag-metric-val">${p.retries}</div>
+            </div>
+            <div class="diag-metric-card">
+              <div class="diag-metric-label">Timestamp</div>
+              <div class="diag-metric-val" style="font-size: 0.75rem; color: #475569;">${escapeHtml(p.timestamp)}</div>
+            </div>
+          </div>
+
+          ${bannerHtml}
+
+          <div class="diag-snippet-wrapper">
+            <div class="diag-snippet-header">
+              <span>
+                <strong style="color: #e2e8f0;">Response Snippet</strong>
+                <span style="margin-left: 8px; font-size: 0.72rem; color: #94a3b8;">(${snippetLength} chars via ${escapeHtml(p.protocol)})</span>
+              </span>
+              <button type="button" class="diag-btn-copy" data-snippet="${encodeURIComponent(p.response_snippet || "")}">
+                Copy Snippet
+              </button>
+            </div>
+            <pre class="diag-code-box"><code>${highlightedSnippet}</code></pre>
+          </div>
+        `;
+
+        diagTabsContent.appendChild(portPanel);
+      });
+
+      const tabBtns = diagTabsNav.querySelectorAll(".diag-tab-btn");
+      tabBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const targetId = btn.getAttribute("data-target");
+          tabBtns.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+
+          const allPanels = diagTabsContent.querySelectorAll(".diag-tab-panel");
+          allPanels.forEach((panel) => {
+            panel.style.display = panel.id === targetId ? "block" : "none";
+          });
+        });
+      });
+
+      const copyBtns = diagTabsContent.querySelectorAll(".diag-btn-copy");
+      copyBtns.forEach((copyBtn) => {
+        copyBtn.addEventListener("click", async () => {
+          const raw = decodeURIComponent(copyBtn.getAttribute("data-snippet") || "");
+          if (!raw) return;
+          try {
+            await navigator.clipboard.writeText(raw);
+            const origText = copyBtn.textContent;
+            copyBtn.textContent = "Copied!";
+            setTimeout(() => {
+              copyBtn.textContent = origText;
+            }, 1800);
+          } catch (e) {
+            console.error("Clipboard error", e);
+          }
+        });
+      });
+    }
+
+    btnLiveTest.addEventListener("click", runDiagnostics);
+    btnPlaceholderTest.addEventListener("click", runDiagnostics);
+    btnDiagRetest.addEventListener("click", runDiagnostics);
+  })();
+</script>

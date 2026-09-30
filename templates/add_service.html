@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% set is_add = true %}
+{% set form_action = url_for('add_service_route') %}
+{% set test_url = url_for('test_service_generic_route') %}
+{% set submit_btn_text = 'Add Service' %}
+{% set item = {
+  'name': '',
+  'match': '',
+  'url_path': '',
+  'comment': '',
+  'paused': false,
+  'use_proxy': false,
+  'ports': ['80', '443']
+} %}
+{% block content %}
+  {% include '_service_form.html' %}
+{% endblock %}

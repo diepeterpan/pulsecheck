@@ -282,6 +282,64 @@ invalid service host,,,,,
         resp_400 = self.client.post(f"/services/{service_id}/test", json=bad_data)
         self.assertEqual(resp_400.status_code, 400)
 
+    @patch("app.fetch_response")
+    @patch("app.scan_service")
+    def test_add_service_page_layout_and_probing(self, mock_scan, mock_fetch):
+        # 1. GET /services/add renders dedicated 2-column layout with diagnostics
+        resp = self.client.get("/services/add")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        self.assertIn("Add New Service", html)
+        self.assertIn("edit-service-layout", html)
+        self.assertIn("tab-main-card", html)
+        self.assertIn("edit-test-card", html)
+        self.assertIn('value="80, 443"', html)  # Pre-filled default ports
+        self.assertIn('id="btn-live-test"', html)
+        self.assertIn("Test Probes", html)
+        self.assertIn('id="diag-placeholder"', html)
+        self.assertIn('id="btn-placeholder-test"', html)
+
+        # 2. POST /services/test probes live values for new unsaved service
+        mock_fetch.return_value = (b"HTTP/1.1 200 OK\r\n\r\nFresh Service Response", 200, "http://new-srv.local:80/")
+        test_payload = {
+            "name": "new-srv.local",
+            "ports": "80, 443",
+            "match": "",  # Empty match should trigger derive_match
+            "url_path": "",
+            "use_proxy": False,
+        }
+        test_resp = self.client.post("/services/test", json=test_payload)
+        self.assertEqual(test_resp.status_code, 200)
+        test_data = test_resp.get_json()
+        self.assertTrue(test_data["success"])
+        self.assertEqual(len(test_data["ports"]), 2)
+        # Verify derived match token ('new') was used
+        self.assertEqual(test_data["ports"][0]["match_token"], "new")
+
+        # 3. POST /services/add creates service with custom ports and redirects to /services
+        add_post = self.client.post(
+            "/services/add",
+            data={
+                "name": "new-srv.local",
+                "match": "Fresh",
+                "ports": "80, 443, 8080",
+                "url_path": "/status",
+                "comment": "New microservice entry",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(add_post.status_code, 200)
+        self.assertIn(b"Added service new-srv.local.", add_post.data)
+
+        # Verify created in DB with explicit ports
+        services = pulsecheck_app.service_list()
+        created = next((s for s in services if s["name"] == "new-srv.local"), None)
+        self.assertIsNotNone(created)
+        self.assertEqual(created["ports"], [80, 443, 8080])
+        self.assertEqual(created["match"], "fresh")
+        self.assertEqual(created["comment"], "New microservice entry")
+
 
 if __name__ == "__main__":
     unittest.main()

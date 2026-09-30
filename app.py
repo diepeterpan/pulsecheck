@@ -1066,6 +1066,7 @@ def add_service(
     comment: str = "",
     use_proxy: bool = False,
     name: str | None = None,
+    ports: list[int] | str | None = None,
 ):
     target_name = service_name if service_name is not None else name
     if not target_name:
@@ -1076,7 +1077,9 @@ def add_service(
     service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     detected = []
-    if not paused:
+    if ports is not None and str(ports).strip():
+        detected = parse_diagnostic_ports(ports)
+    elif not paused:
         detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
@@ -1928,12 +1931,23 @@ def add_service_route():
         name = request.form.get("name", "").strip()
         match = request.form.get("match", "").strip()
         comment = request.form.get("comment", "").strip()
+        url_path = request.form.get("url_path", "").strip()
+        ports_input = request.form.get("ports", "").strip()
+        paused = request.form.get("paused") == "on" or request.form.get("paused") == "1"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         if not name:
             flash("A service name is required.")
             return redirect(url_for("add_service_route"))
         try:
-            result = add_service(name, match or None, request.form.get("url_path", ""), comment=comment, use_proxy=use_proxy)
+            result = add_service(
+                name=name,
+                match=match or None,
+                url_path=url_path,
+                comment=comment,
+                paused=paused,
+                use_proxy=use_proxy,
+                ports=ports_input if ports_input else None,
+            )
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("add_service_route"))
@@ -1942,8 +1956,8 @@ def add_service_route():
             return redirect(url_for("services"))
         flash(f"Added service {name}.")
         return redirect(url_for("services"))
-    items = service_list()
-    return render_template("services.html", services=items, add_mode=True)
+
+    return render_template("add_service.html")
 
 
 @app.route("/services/bulk-ports", methods=["POST"])
@@ -2072,7 +2086,7 @@ def test_service_edit_route(service_id):
 def test_service_generic_route():
     data = request.get_json(silent=True) or request.form
     service_name = (data.get("name") or data.get("service_name") or "").strip()
-    match = data.get("match") or ""
+    match = (data.get("match") or "").strip()
     url_path = data.get("url_path") or ""
     raw_proxy = data.get("use_proxy")
     use_proxy = raw_proxy is True or str(raw_proxy).lower() in ("true", "1", "on")
@@ -2084,10 +2098,11 @@ def test_service_generic_route():
     if not ports:
         return jsonify({"success": False, "error": "No valid ports specified to test."}), 400
 
+    match_to_use = match or derive_match(service_name)
     results = diagnose_service_ports(
         service_name=service_name,
         ports=ports,
-        match=match,
+        match=match_to_use,
         url_path=url_path,
         use_proxy=use_proxy,
     )

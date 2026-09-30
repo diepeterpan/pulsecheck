@@ -3,48 +3,10 @@
   <section class="panel">
     <div class="panel-header">
       <h2>Service Maintenance</h2>
-      {% if add_mode %}
-        <a class="button secondary" href="{{ url_for('services') }}">Back to list</a>
-      {% else %}
-        <a class="button primary" href="{{ url_for('add_service_route') }}">+ Add New Service</a>
-      {% endif %}
+      <a class="button primary" href="{{ url_for('add_service_route') }}">+ Add New Service</a>
     </div>
 
-    {% if add_mode %}
-      <div class="add-service-box add-service-box">
-        <form method="post" action="{{ url_for('add_service_route') }}" class="add-service-form add-service-form">
-          <div class="form-row">
-            <div class="form-field">
-              <label for="name">Service</label>
-              <input type="text" id="name" name="name" placeholder="example.com" required>
-            </div>
-            <div class="form-field">
-              <label for="match">Match</label>
-              <input type="text" id="match" name="match" placeholder="Defaults to first word">
-            </div>
-            <div class="form-field">
-              <label for="url_path">URL path (optional)</label>
-              <input type="text" id="url_path" name="url_path" placeholder="/test/test.asp">
-            </div>
-            <div class="form-field">
-              <label for="comment">Comment (optional)</label>
-              <input type="text" id="comment" name="comment" placeholder="e.g. Production API, Staging, etc.">
-            </div>
-            <div class="form-field" style="display: flex; align-items: flex-end; padding-bottom: 10px;">
-              <label for="use_proxy" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin: 0; font-size: 0.88rem; font-weight: 500;">
-                <input type="checkbox" id="use_proxy" name="use_proxy">
-                Use Proxy
-              </label>
-            </div>
-            <div class="form-field form-field-btn">
-              <button type="submit" class="button primary">Add Service</button>
-            </div>
-          </div>
-        </form>
-      </div>
-    {% endif %}
-
-    {% if services and not add_mode %}
+    {% if services %}
       <div class="service-toolbar service-toolbar">
         <div class="service-stats-group service-stats-group">
           <span class="service-count-badge service-count-badge">
