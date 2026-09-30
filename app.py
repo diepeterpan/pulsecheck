@@ -18,7 +18,7 @@ import time
 import uuid
 import warnings
 import zlib
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
@@ -74,6 +74,9 @@ def inject_version():
     }
 IMPORT_STATE = {}
 IMPORT_LOCK = threading.Lock()
+GLOBAL_SCHEDULER = None
+IS_SCANNING = False
+IS_SCANNING_LOCK = threading.Lock()
 
 
 class ImportCancelled(Exception):
@@ -2135,13 +2138,227 @@ def rescan_service_route(service_id):
     return redirect(url_for("status"))
 
 
+def record_scan_completed(completed_at: datetime | None = None) -> None:
+    if completed_at is None:
+        completed_at = datetime.now(timezone.utc)
+    iso_val = completed_at.isoformat()
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('last_scan_completed_at', ?)",
+            (iso_val,),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def parse_iso_or_utc_datetime(val_str: str | None) -> datetime | None:
+    if not val_str:
+        return None
+    val_clean = str(val_str).strip()
+    try:
+        return datetime.fromisoformat(val_clean.replace("Z", "+00:00"))
+    except ValueError:
+        pass
+
+    for fmt in ("%Y-%m-%d %H:%M:%S %Z", "%Y-%m-%d %H:%M:%S UTC", "%Y-%m-%d %H:%M:%S"):
+        try:
+            dt = datetime.strptime(val_clean, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            pass
+    return None
+
+
+def get_last_scheduled_check() -> dict:
+    last_iso = None
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'last_scan_completed_at'").fetchone()
+        if row and row["value"]:
+            last_iso = row["value"]
+        if not last_iso:
+            max_row = conn.execute("SELECT MAX(checked_at) AS max_checked FROM port_checks").fetchone()
+            if max_row and max_row["max_checked"]:
+                last_iso = max_row["max_checked"]
+        conn.close()
+    except Exception:
+        pass
+
+    if not last_iso:
+        return {"raw": None, "formatted": "Never", "timestamp": None}
+
+    local_str = format_local_time(last_iso) or last_iso
+    dt = parse_iso_or_utc_datetime(last_iso)
+    ts = dt.timestamp() if dt else None
+
+    return {
+        "raw": last_iso,
+        "formatted": local_str,
+        "timestamp": ts,
+    }
+
+
+def compute_system_overall_status(status_rows: list[dict] | None = None) -> dict:
+    if status_rows is None:
+        status_rows = get_status_rows()
+
+    grouped: dict[str, list[dict]] = {}
+    for row in status_rows:
+        grouped.setdefault(row["name"], []).append(row)
+
+    services_with_ports = 0
+    online_services = 0
+    degraded_services = 0
+    offline_services = 0
+
+    for name, entries in grouped.items():
+        first_entry = entries[0]
+        # "Ignore services without any ports listed."
+        ports_list = first_entry.get("ports") or []
+        if not ports_list:
+            continue
+
+        valid_ports = [entry for entry in entries if entry.get("port") is not None]
+        if not valid_ports:
+            # Ports listed, but no scan records exist yet
+            offline_services += 1
+            services_with_ports += 1
+            continue
+
+        services_with_ports += 1
+        online_count = sum(1 for e in valid_ports if e.get("status") == "online")
+        degraded_count = sum(1 for e in valid_ports if e.get("status") == "degraded")
+        offline_count = sum(1 for e in valid_ports if e.get("status") == "offline")
+
+        if online_count == len(valid_ports):
+            online_services += 1
+        elif offline_count == len(valid_ports):
+            offline_services += 1
+        else:
+            degraded_services += 1
+
+    if services_with_ports == 0:
+        return {
+            "status": "none",
+            "label": "NO SERVICES",
+            "badge_class": "none",
+            "color": "#64748b",
+            "counts": {"online": 0, "degraded": 0, "offline": 0, "total": 0},
+            "tooltip": "No monitored services with ports configured.",
+        }
+
+    # Precedence:
+    # 1. Any service offline -> SOME OFFLINE (red)
+    # 2. Any service degraded -> SOME DEGRADED (orange)
+    # 3. All services online -> ALL ONLINE (green)
+    if offline_services > 0:
+        return {
+            "status": "offline",
+            "label": "SOME OFFLINE",
+            "badge_class": "offline",
+            "color": "#dc2626",
+            "counts": {"online": online_services, "degraded": degraded_services, "offline": offline_services, "total": services_with_ports},
+            "tooltip": f"{offline_services} offline, {degraded_services} degraded, {online_services} online ({services_with_ports} total)",
+        }
+    elif degraded_services > 0:
+        return {
+            "status": "degraded",
+            "label": "SOME DEGRADED",
+            "badge_class": "degraded",
+            "color": "#ea580c",
+            "counts": {"online": online_services, "degraded": degraded_services, "offline": offline_services, "total": services_with_ports},
+            "tooltip": f"{degraded_services} degraded, {online_services} online ({services_with_ports} total)",
+        }
+    else:
+        return {
+            "status": "online",
+            "label": "ALL ONLINE",
+            "badge_class": "online",
+            "color": "#16a34a",
+            "counts": {"online": online_services, "degraded": 0, "offline": 0, "total": services_with_ports},
+            "tooltip": f"All {online_services} monitored services are online",
+        }
+
+
+def get_scan_schedule_info() -> dict:
+    global GLOBAL_SCHEDULER, IS_SCANNING
+    now_utc = datetime.now(timezone.utc)
+    interval_seconds = 600
+
+    next_dt = None
+    if GLOBAL_SCHEDULER:
+        try:
+            job = GLOBAL_SCHEDULER.get_job("pulsecheck_scan")
+            if job and job.next_run_time:
+                next_dt = job.next_run_time
+        except Exception:
+            pass
+
+    if next_dt is None:
+        last_check = get_last_scheduled_check()
+        if last_check["timestamp"]:
+            candidate = datetime.fromtimestamp(last_check["timestamp"], tz=timezone.utc) + timedelta(seconds=interval_seconds)
+            if candidate > now_utc:
+                next_dt = candidate
+        if next_dt is None:
+            next_dt = now_utc + timedelta(seconds=interval_seconds)
+
+    if next_dt.tzinfo is None:
+        next_dt = next_dt.replace(tzinfo=timezone.utc)
+
+    seconds_remaining = max(0, int((next_dt - now_utc).total_seconds()))
+
+    is_scanning = False
+    with IS_SCANNING_LOCK:
+        is_scanning = IS_SCANNING
+
+    return {
+        "next_check_iso": next_dt.isoformat(),
+        "next_check_timestamp": next_dt.timestamp(),
+        "seconds_remaining": seconds_remaining,
+        "interval_seconds": interval_seconds,
+        "is_scanning": is_scanning,
+    }
+
+
+@app.route("/status/check-state")
+def status_check_state():
+    last_check = get_last_scheduled_check()
+    schedule_info = get_scan_schedule_info()
+    rows = get_status_rows()
+    overall = compute_system_overall_status(rows)
+    return jsonify({
+        "last_check_formatted": last_check["formatted"],
+        "last_check_timestamp": last_check["timestamp"],
+        "next_check_seconds": schedule_info["seconds_remaining"],
+        "next_check_timestamp": schedule_info["next_check_timestamp"],
+        "is_scanning": schedule_info["is_scanning"],
+        "overall_status": overall["status"],
+        "overall_label": overall["label"],
+    })
+
+
 @app.route("/status")
 def status():
     rows = get_status_rows()
     grouped = {}
     for row in rows:
         grouped.setdefault(row["name"], []).append(row)
-    return render_template("status.html", grouped=grouped)
+    last_check = get_last_scheduled_check()
+    schedule_info = get_scan_schedule_info()
+    overall_status = compute_system_overall_status(rows)
+    return render_template(
+        "status.html",
+        grouped=grouped,
+        last_check=last_check,
+        schedule_info=schedule_info,
+        overall_status=overall_status,
+    )
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -2200,9 +2417,11 @@ def settings_route():
 
 
 def run_background_tasks():
+    global GLOBAL_SCHEDULER
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(check_all_services, "interval", minutes=10, id="pulsecheck_scan")
     scheduler.start()
+    GLOBAL_SCHEDULER = scheduler
     return scheduler
 
 
@@ -2408,59 +2627,68 @@ def check_all_services(
     max_retries: int | None = None,
     retry_interval: int | None = None,
 ) -> list[dict]:
-    num_workers = DEFAULT_SCAN_WORKERS if workers is None else max(1, workers)
-    retries = DEFAULT_SCAN_RETRIES if max_retries is None else max_retries
-    interval = DEFAULT_SCAN_RETRY_INTERVAL if retry_interval is None else retry_interval
+    global IS_SCANNING
+    with IS_SCANNING_LOCK:
+        IS_SCANNING = True
 
-    before_snapshots = get_service_snapshots()
-    active_services = [service for service in service_list() if not service.get("paused")]
+    try:
+        num_workers = DEFAULT_SCAN_WORKERS if workers is None else max(1, workers)
+        retries = DEFAULT_SCAN_RETRIES if max_retries is None else max_retries
+        interval = DEFAULT_SCAN_RETRY_INTERVAL if retry_interval is None else retry_interval
 
-    if active_services:
-        max_workers = min(num_workers, len(active_services))
-        scan_worker = getattr(sys.modules[__name__], "scan_service_with_retries", scan_service_with_retries)
+        before_snapshots = get_service_snapshots()
+        active_services = [service for service in service_list() if not service.get("paused")]
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(
-                    scan_worker,
-                    service,
-                    max_retries=retries,
-                    retry_interval=interval,
-                )
-                for service in active_services
-            ]
-            for future in futures:
-                try:
-                    future.result()
-                except Exception as exc:
-                    print(f"[PulseCheck Scan Error] Service scan thread error: {exc}")
+        if active_services:
+            max_workers = min(num_workers, len(active_services))
+            scan_worker = getattr(sys.modules[__name__], "scan_service_with_retries", scan_service_with_retries)
 
-    after_snapshots = get_service_snapshots()
-    changes = []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(
+                        scan_worker,
+                        service,
+                        max_retries=retries,
+                        retry_interval=interval,
+                    )
+                    for service in active_services
+                ]
+                for future in futures:
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        print(f"[PulseCheck Scan Error] Service scan thread error: {exc}")
 
-    for service_id, after_info in after_snapshots.items():
-        before_info = before_snapshots.get(service_id)
-        if not before_info or not before_info["has_checks"]:
-            continue
+        after_snapshots = get_service_snapshots()
+        changes = []
 
-        port_changes = []
-        for port, new_status in after_info["port_statuses"].items():
-            old_status = before_info["port_statuses"].get(port)
-            if old_status and old_status != new_status:
-                port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
+        for service_id, after_info in after_snapshots.items():
+            before_info = before_snapshots.get(service_id)
+            if not before_info or not before_info["has_checks"]:
+                continue
 
-        if before_info["overall_status"] != after_info["overall_status"] or port_changes:
-            changes.append({
-                "service": after_info["name"],
-                "old_status": before_info["overall_status"],
-                "new_status": after_info["overall_status"],
-                "port_changes": port_changes,
-            })
+            port_changes = []
+            for port, new_status in after_info["port_statuses"].items():
+                old_status = before_info["port_statuses"].get(port)
+                if old_status and old_status != new_status:
+                    port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
 
-    if changes:
-        send_state_change_notification(changes)
+            if before_info["overall_status"] != after_info["overall_status"] or port_changes:
+                changes.append({
+                    "service": after_info["name"],
+                    "old_status": before_info["overall_status"],
+                    "new_status": after_info["overall_status"],
+                    "port_changes": port_changes,
+                })
 
-    return changes
+        if changes:
+            send_state_change_notification(changes)
+
+        return changes
+    finally:
+        with IS_SCANNING_LOCK:
+            IS_SCANNING = False
+        record_scan_completed()
 
 
 def cli_menu():

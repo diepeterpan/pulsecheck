@@ -1,8 +1,40 @@
 {% extends 'base.html' %}
 {% block content %}
   <section class="panel status-panel">
-    <div class="panel-header">
-      <h2>Service Status</h2>
+    <div class="panel-header status-header-panel">
+      <div class="status-header-title-wrap">
+        <h2>Service Status</h2>
+      </div>
+
+      <div class="status-header-meta" id="status-header-meta" aria-label="System status overview">
+        <!-- 1. Overall Status Indicator -->
+        <div class="status-meta-group" title="{{ overall_status.tooltip }}">
+          <span class="status-meta-label">Overall:</span>
+          <span class="badge status-badge {{ overall_status.badge_class }}" id="overall-status-badge">
+            <span class="status-indicator-dot {{ overall_status.status }}"></span>
+            <span id="overall-status-text">{{ overall_status.label }}</span>
+          </span>
+        </div>
+
+        <span class="status-meta-sep" aria-hidden="true">•</span>
+
+        <!-- 2. Last Scheduled Check -->
+        <div class="status-meta-group">
+          <span class="status-meta-label">Last Check:</span>
+          <span class="status-meta-value" id="last-check-val" title="{{ last_check.formatted }}">{{ last_check.formatted }}</span>
+        </div>
+
+        <span class="status-meta-sep" aria-hidden="true">•</span>
+
+        <!-- 3. Next Check Countdown -->
+        <div class="status-meta-group">
+          <span class="status-meta-label">Next Check:</span>
+          <span class="status-countdown-wrap" id="status-countdown-wrap" title="Countdown to next scheduled service check">
+            <span class="status-countdown-icon" id="countdown-icon" aria-hidden="true">⏱</span>
+            <span class="status-countdown-digits" id="countdown-display">--:--</span>
+          </span>
+        </div>
+      </div>
     </div>
 
     {% if grouped %}
@@ -12,7 +44,7 @@
         </div>
 
         <div class="status-filter-pills" id="status-filter-pills">
-          <button type="button" class="btn-filter-pill active" data-filter="all">All <span class="pill-count" id="count-all">0</span></button>
+          <button type="button" class="btn-filter-pill pill-all active" data-filter="all">All <span class="pill-count" id="count-all">0</span></button>
           <button type="button" class="btn-filter-pill pill-online" data-filter="online">Online <span class="pill-count" id="count-online">0</span></button>
           <button type="button" class="btn-filter-pill pill-degraded" data-filter="degraded">Degraded <span class="pill-count" id="count-degraded">0</span></button>
           <button type="button" class="btn-filter-pill pill-offline" data-filter="offline">Offline <span class="pill-count" id="count-offline">0</span></button>
@@ -163,16 +195,20 @@
             const s = row.dataset.status;
             if (counts[s] !== undefined) counts[s]++;
           });
-          document.getElementById('count-all').textContent = counts.all;
-          document.getElementById('count-online').textContent = counts.online;
-          document.getElementById('count-degraded').textContent = counts.degraded;
-          document.getElementById('count-offline').textContent = counts.offline;
+          const cAll = document.getElementById('count-all');
+          if (cAll) cAll.textContent = counts.all;
+          const cOnline = document.getElementById('count-online');
+          if (cOnline) cOnline.textContent = counts.online;
+          const cDegraded = document.getElementById('count-degraded');
+          if (cDegraded) cDegraded.textContent = counts.degraded;
+          const cOffline = document.getElementById('count-offline');
+          if (cOffline) cOffline.textContent = counts.offline;
         }
 
         function applyFilters() {
           const query = (statusFilter ? statusFilter.value : '').trim().toLowerCase();
           statusRows.forEach(row => {
-            const serviceName = row.dataset.service || row.dataset.service || '';
+            const serviceName = row.dataset.service || '';
             const status = row.dataset.status || '';
             const matchesQuery = !query || serviceName.includes(query);
             const matchesStatus = (currentStatusFilter === 'all') || (status === currentStatusFilter);
@@ -195,9 +231,97 @@
 
         updateCounts();
         applyFilters();
+
       </script>
     {% else %}
       <p>No status data yet.</p>
     {% endif %}
+
+    <script>
+      // --- Countdown & Automatic Scan Refresh ---
+      (function initStatusScheduler() {
+        const countdownDisplay = document.getElementById('countdown-display');
+        const countdownWrap = document.getElementById('status-countdown-wrap');
+        const countdownIcon = document.getElementById('countdown-icon');
+
+        if (!countdownDisplay) return;
+
+        const initialLastCheckTs = {{ (last_check.timestamp or 0) | tojson }};
+        let nextCheckTs = {{ (schedule_info.next_check_timestamp or 0) | tojson }};
+        let isCurrentlyScanning = {{ (schedule_info.is_scanning or false) | tojson }};
+        let pollIntervalId = null;
+
+        function formatTime(totalSeconds) {
+          if (totalSeconds < 0) totalSeconds = 0;
+          const hours = Math.floor(totalSeconds / 3600);
+          const minutes = Math.floor((totalSeconds % 3600) / 60);
+          const seconds = totalSeconds % 60;
+          if (hours > 0) {
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+          }
+          return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        }
+
+        function updateCountdown() {
+          if (isCurrentlyScanning) {
+            countdownDisplay.textContent = 'Scanning...';
+            if (countdownWrap) countdownWrap.classList.add('scanning');
+            if (countdownIcon) countdownIcon.textContent = '🔄';
+            startPollingForCompletion();
+            return;
+          }
+
+          const nowSec = Date.now() / 1000;
+          const remainingSec = Math.max(0, Math.floor(nextCheckTs - nowSec));
+
+          if (remainingSec > 0) {
+            countdownDisplay.textContent = formatTime(remainingSec);
+            if (countdownWrap) countdownWrap.classList.remove('scanning');
+            if (countdownIcon) countdownIcon.textContent = '⏱';
+          } else {
+            countdownDisplay.textContent = 'Scanning...';
+            if (countdownWrap) countdownWrap.classList.add('scanning');
+            if (countdownIcon) countdownIcon.textContent = '🔄';
+            isCurrentlyScanning = true;
+            startPollingForCompletion();
+          }
+        }
+
+        function startPollingForCompletion() {
+          if (pollIntervalId) return;
+
+          function pollCheck() {
+            fetch('/status/check-state')
+              .then(res => {
+                if (!res.ok) throw new Error('Network error');
+                return res.json();
+              })
+              .then(data => {
+                const scanDone = !data.is_scanning && data.last_check_timestamp && (data.last_check_timestamp > initialLastCheckTs);
+                const cycleReset = !data.is_scanning && data.next_check_seconds && (data.next_check_seconds > 540);
+
+                if (scanDone || cycleReset) {
+                  countdownDisplay.textContent = 'Refreshing...';
+                  window.location.reload();
+                  return;
+                }
+
+                if (data.is_scanning) {
+                  countdownDisplay.textContent = 'Scanning...';
+                }
+              })
+              .catch(err => {
+                console.warn('Status check poll error:', err);
+              });
+          }
+
+          pollCheck();
+          pollIntervalId = setInterval(pollCheck, 2500);
+        }
+
+        updateCountdown();
+        setInterval(updateCountdown, 1000);
+      })();
+    </script>
   </section>
 {% endblock %}

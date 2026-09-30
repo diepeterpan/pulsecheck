@@ -77,4 +77,21 @@ Use this format for new entries:
   - Return to Services list with a confirmation flash message upon successful addition.
 - Status: completed
 
+- Menu function: Status page
+- Required future change: Add header metadata on the Status screen right-aligned on the same line as the title [Service Status]:
+  - Time of last scheduled check in local timezone format.
+  - Overall status indicator in respective color (GREEN = ALL ONLINE, ORANGE = SOME DEGRADED, OFFLINE = SOME OFFLINE services), ignoring services without ports listed.
+  - Countdown to the next scheduled service check, updating the countdown every second.
+  - Automatically refresh the status screen when the next scheduled run completes and the database is updated.
+- Status: completed
+
+- Menu function: Status page
+- Required future change: Colorize the filter pills and counters for All, Online, Degraded, and Offline:
+  - Respective dark outline color and two distinct shades of the color filling the name and count badge:
+    - BLUE = ALL
+    - GREEN = ONLINE
+    - ORANGE = DEGRADED
+    - RED = OFFLINE
+- Status: completed
+
 

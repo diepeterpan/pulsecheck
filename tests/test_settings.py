@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import io
 import os
 from pathlib import Path
@@ -1627,6 +1628,109 @@ direct.example,direct,,Direct site,0,0,8080
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 200)
             self.assertIn(f'<span class="brand-version">v{pulsecheck_app.APP_VERSION}</span>', resp.data.decode("utf-8"))
+
+    def test_status_header_meta_and_overall_status_indicators(self):
+        # 1. Fresh database with no services
+        resp = self.client.get("/status")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+        self.assertIn("status-header-panel", html)
+        self.assertIn("status-header-meta", html)
+        self.assertIn("countdown-display", html)
+        self.assertIn("NO SERVICES", html)
+
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        # Service 1: No ports listed -> MUST BE IGNORED
+        c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('noports.internal', 'no', '[]', 0)")
+
+        # Service 2: Port 80 online
+        c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('alpha.online.net', 'alpha', '[80]', 0)")
+        s2_id = c.lastrowid
+        c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-30 12:00:00 UTC')", (s2_id,))
+
+        # Service 3: Port 443 online
+        c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('beta.online.net', 'beta', '[443]', 0)")
+        s3_id = c.lastrowid
+        c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 443, 1, 'online', '2026-09-30 12:05:00 UTC')", (s3_id,))
+        conn.commit()
+        conn.close()
+
+        # Record a scan completed timestamp in settings
+        pulsecheck_app.record_scan_completed(datetime(2026, 9, 30, 12, 10, 0, tzinfo=timezone.utc))
+
+        with patch.dict(os.environ, {"PULSECHECK_TIMEZONE": "Africa/Johannesburg"}):
+            # All monitored services are online -> GREEN "ALL ONLINE"
+            resp = self.client.get("/status")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.data.decode("utf-8")
+            self.assertIn("ALL ONLINE", html)
+            self.assertIn("status-indicator-dot online", html)
+            # Local timezone timestamp (12:10 UTC -> 14:10 SAST)
+            self.assertIn("2026-09-30 14:10:00 SAST", html)
+
+            # Verify colorized filter pills and counters
+            self.assertIn("pill-all", html)
+            self.assertIn("pill-online", html)
+            self.assertIn("pill-degraded", html)
+            self.assertIn("pill-offline", html)
+
+            # Add Service 4: Degraded (port 80 online, port 8080 offline)
+            conn = pulsecheck_app.get_db_connection()
+            c = conn.cursor()
+            c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('gamma.mixed.net', 'gamma', '[80, 8080]', 0)")
+            s4_id = c.lastrowid
+            c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-30 12:15:00 UTC')", (s4_id,))
+            c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 8080, 0, 'offline', '2026-09-30 12:15:00 UTC')", (s4_id,))
+            conn.commit()
+            conn.close()
+
+            # Some degraded, none fully offline -> ORANGE "SOME DEGRADED"
+            resp_deg = self.client.get("/status")
+            html_deg = resp_deg.data.decode("utf-8")
+            self.assertIn("SOME DEGRADED", html_deg)
+            self.assertIn("status-indicator-dot degraded", html_deg)
+
+            # Add Service 5: Offline (port 9000 offline)
+            conn = pulsecheck_app.get_db_connection()
+            c = conn.cursor()
+            c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('delta.down.net', 'delta', '[9000]', 0)")
+            s5_id = c.lastrowid
+            c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 9000, 0, 'offline', '2026-09-30 12:20:00 UTC')", (s5_id,))
+            conn.commit()
+            conn.close()
+
+            # Now an offline service exists -> RED "SOME OFFLINE"
+            resp_off = self.client.get("/status")
+            html_off = resp_off.data.decode("utf-8")
+            self.assertIn("SOME OFFLINE", html_off)
+            self.assertIn("status-indicator-dot offline", html_off)
+
+    def test_status_check_state_api(self):
+        # Set up a known scan completion time
+        pulsecheck_app.record_scan_completed(datetime(2026, 9, 30, 10, 0, 0, tzinfo=timezone.utc))
+
+        with patch.dict(os.environ, {"PULSECHECK_TIMEZONE": "UTC"}):
+            resp = self.client.get("/status/check-state")
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertIn("2026-09-30 10:00:00 UTC", data["last_check_formatted"])
+            self.assertIsNotNone(data["last_check_timestamp"])
+            self.assertIsInstance(data["next_check_seconds"], int)
+            self.assertIn("is_scanning", data)
+            self.assertIn("overall_status", data)
+            self.assertIn("overall_label", data)
+
+    def test_check_all_services_records_scan_completed(self):
+        # Verify check_all_services invokes record_scan_completed and resets IS_SCANNING
+        with patch("app.scan_service_with_retries") as mock_scan:
+            mock_scan.return_value = {}
+            pulsecheck_app.check_all_services()
+
+        self.assertFalse(pulsecheck_app.IS_SCANNING)
+        last_check = pulsecheck_app.get_last_scheduled_check()
+        self.assertIsNotNone(last_check["timestamp"])
+        self.assertNotEqual(last_check["formatted"], "Never")
 
 
 if __name__ == "__main__":

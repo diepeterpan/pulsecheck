@@ -40,8 +40,14 @@ PulseCheck is a lightweight, Linux-friendly web application and monitoring daemo
   - Interactive column filters (Service, Match, URL path, Paused/Active status, and Ports) with URL query parameter preservation.
   - Pause individual services to temporarily bypass monitoring without deleting records.
 
-- **Live Status Dashboard & Versioning**:
-  - Responsive grid layout displaying all active services and their monitored ports.
+- **Live Status Dashboard & Real-Time Schedule**:
+  - Responsive layout displaying all active services and their monitored ports.
+  - **Header Status Bar** (aligned on the same line as the Service Status title):
+    - **Overall Health Indicator**: Color-coded system badge (**GREEN = ALL ONLINE**, **ORANGE = SOME DEGRADED**, **RED = SOME OFFLINE**), ignoring services without ports listed.
+    - **Last Scheduled Check**: Server local timezone formatted timestamp of the most recent background run.
+    - **Next Check Countdown**: Digital countdown timer updated every second showing time remaining until the next scan.
+    - **Automatic Screen Refresh**: Seamlessly polls and reloads the screen as soon as the scheduled background run finishes and database records are updated.
+  - **Color-Coded Status Filter Pills**: Two-tone shaded pills with dark outlines for quick filtering and live counts: **BLUE = ALL**, **GREEN = ONLINE**, **ORANGE = DEGRADED**, and **RED = OFFLINE**.
   - Visual status badges: **Online** (green), **Degraded** (amber), and **Offline** (red).
   - Interactive tooltips showing the last successful check timestamp (converted to server local time) and round-trip response latency (in ms).
   - Application version display (`v1.0.0`) in the web UI header and alert notification emails, configurable via environment variable.
