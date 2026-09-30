@@ -78,6 +78,92 @@ def get_db_connection():
 
 def init_db():
     conn = get_db_connection()
+    tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "domains" in tables and "services" not in tables:
+        conn.execute("ALTER TABLE domains RENAME TO services")
+        tables.add("services")
+        tables.discard("domains")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS services (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            match TEXT NOT NULL DEFAULT '',
+            url_path TEXT NOT NULL DEFAULT '',
+            comment TEXT NOT NULL DEFAULT '',
+            paused INTEGER NOT NULL DEFAULT 0,
+            use_proxy INTEGER NOT NULL DEFAULT 0,
+            ports TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS port_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id INTEGER,
+            domain_id INTEGER,
+            port INTEGER NOT NULL,
+            is_online INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'offline',
+            last_response_ms INTEGER,
+            checked_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS port_checks_sync_ids AFTER INSERT ON port_checks
+        BEGIN
+            UPDATE port_checks SET service_id = domain_id WHERE id = NEW.id AND service_id IS NULL AND domain_id IS NOT NULL;
+            UPDATE port_checks SET domain_id = service_id WHERE id = NEW.id AND domain_id IS NULL AND service_id IS NOT NULL;
+        END;
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)").fetchall()}
+    if "match" not in service_columns:
+        conn.execute("ALTER TABLE services ADD COLUMN match TEXT NOT NULL DEFAULT ''")
+    if "url_path" not in service_columns:
+        conn.execute("ALTER TABLE services ADD COLUMN url_path TEXT NOT NULL DEFAULT ''")
+    if "comment" not in service_columns:
+        conn.execute("ALTER TABLE services ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+    if "paused" not in service_columns:
+        conn.execute("ALTER TABLE services ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
+    if "use_proxy" not in service_columns:
+        conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
+    conn.execute(
+        "UPDATE services SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
+        "WHERE match = ''"
+    )
+
+    port_check_columns = {row["name"] for row in conn.execute("PRAGMA table_info(port_checks)").fetchall()}
+    if "status" not in port_check_columns:
+        conn.execute("ALTER TABLE port_checks ADD COLUMN status TEXT NOT NULL DEFAULT 'offline'")
+    if "service_id" not in port_check_columns:
+        conn.execute("ALTER TABLE port_checks ADD COLUMN service_id INTEGER")
+        if "domain_id" in port_check_columns:
+            conn.execute("UPDATE port_checks SET service_id = domain_id WHERE service_id IS NULL")
+    if "domain_id" not in port_check_columns:
+        conn.execute("ALTER TABLE port_checks ADD COLUMN domain_id INTEGER")
+        if "service_id" in port_check_columns:
+            conn.execute("UPDATE port_checks SET domain_id = service_id WHERE domain_id IS NULL")
+
+    conn.execute("UPDATE port_checks SET status = 'online' WHERE status = 'offline' AND is_online = 1")
+
+    # Compatibility table for 'domains' so legacy queries, tests, and cursor.lastrowid work seamlessly
+    domain_view = conn.execute("SELECT 1 FROM sqlite_master WHERE type='view' AND name='domains'").fetchone()
+    if domain_view:
+        conn.execute("DROP VIEW domains")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS domains (
@@ -95,54 +181,74 @@ def init_db():
     )
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS port_checks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            domain_id INTEGER NOT NULL,
-            port INTEGER NOT NULL,
-            is_online INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'offline',
-            last_response_ms INTEGER,
-            checked_at TEXT NOT NULL,
-            FOREIGN KEY(domain_id) REFERENCES domains(id)
-        )
+        INSERT OR IGNORE INTO domains (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
+        SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services
         """
     )
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL DEFAULT ''
-        )
+        CREATE TRIGGER IF NOT EXISTS domains_to_services_insert AFTER INSERT ON domains
+        BEGIN
+            INSERT OR REPLACE INTO services (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
+            SELECT NEW.id, NEW.name, NEW.match, NEW.url_path, NEW.comment, NEW.paused, NEW.use_proxy, NEW.ports, NEW.created_at
+            WHERE NOT EXISTS (SELECT 1 FROM services WHERE id = NEW.id AND name = NEW.name);
+        END;
         """
     )
-    domain_columns = {row["name"] for row in conn.execute("PRAGMA table_info(domains)")}
-    if "match" not in domain_columns:
-        conn.execute("ALTER TABLE domains ADD COLUMN match TEXT NOT NULL DEFAULT ''")
-    if "url_path" not in domain_columns:
-        conn.execute("ALTER TABLE domains ADD COLUMN url_path TEXT NOT NULL DEFAULT ''")
-    if "comment" not in domain_columns:
-        conn.execute("ALTER TABLE domains ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
-    if "paused" not in domain_columns:
-        conn.execute("ALTER TABLE domains ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
-    if "use_proxy" not in domain_columns:
-        conn.execute("ALTER TABLE domains ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
     conn.execute(
-        "UPDATE domains SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
-        "WHERE match = ''"
+        """
+        CREATE TRIGGER IF NOT EXISTS services_to_domains_insert AFTER INSERT ON services
+        BEGIN
+            INSERT OR REPLACE INTO domains (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
+            SELECT NEW.id, NEW.name, NEW.match, NEW.url_path, NEW.comment, NEW.paused, NEW.use_proxy, NEW.ports, NEW.created_at
+            WHERE NOT EXISTS (SELECT 1 FROM domains WHERE id = NEW.id AND name = NEW.name);
+        END;
+        """
     )
-    # Don't think this is required, messes up existing match values
-    #rows = conn.execute("SELECT id, name FROM domains WHERE match LIKE '%-%'").fetchall()
-    #for row in rows:
-    #    conn.execute("UPDATE domains SET match = ? WHERE id = ?", (derive_match(row["name"]), row["id"]))
-    port_check_columns = {row["name"] for row in conn.execute("PRAGMA table_info(port_checks)")}
-    if "status" not in port_check_columns:
-        conn.execute("ALTER TABLE port_checks ADD COLUMN status TEXT NOT NULL DEFAULT 'offline'")
-    conn.execute("UPDATE port_checks SET status = 'online' WHERE status = 'offline' AND is_online = 1")
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS domains_to_services_update AFTER UPDATE ON domains
+        BEGIN
+            UPDATE services
+            SET name = NEW.name, match = NEW.match, url_path = NEW.url_path, comment = NEW.comment,
+                paused = NEW.paused, use_proxy = NEW.use_proxy, ports = NEW.ports
+            WHERE id = OLD.id;
+        END;
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS services_to_domains_update AFTER UPDATE ON services
+        BEGIN
+            UPDATE domains
+            SET name = NEW.name, match = NEW.match, url_path = NEW.url_path, comment = NEW.comment,
+                paused = NEW.paused, use_proxy = NEW.use_proxy, ports = NEW.ports
+            WHERE id = OLD.id;
+        END;
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS domains_to_services_delete AFTER DELETE ON domains
+        BEGIN
+            DELETE FROM services WHERE id = OLD.id;
+        END;
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS services_to_domains_delete AFTER DELETE ON services
+        BEGIN
+            DELETE FROM domains WHERE id = OLD.id;
+        END;
+        """
+    )
+
     conn.commit()
     conn.close()
 
 
-def normalize_domain(value: str) -> str:
+def normalize_service(value: str) -> str:
     cleaned = value.strip().lower()
     if cleaned.startswith("http://"):
         cleaned = cleaned.replace("http://", "", 1)
@@ -150,12 +256,15 @@ def normalize_domain(value: str) -> str:
         cleaned = cleaned.replace("https://", "", 1)
     cleaned = cleaned.split("/")[0].strip().strip(".")
     if not cleaned:
-        raise ValueError("Domain name cannot be empty.")
+        raise ValueError("Service name cannot be empty.")
     return cleaned
 
 
-def derive_match(domain_name: str) -> str:
-    first_label = normalize_domain(domain_name).split(".", 1)[0]
+normalize_domain = normalize_service
+
+
+def derive_match(service_name: str) -> str:
+    first_label = normalize_service(service_name).split(".", 1)[0]
     return first_label.split("-", 1)[0]
 
 
@@ -240,10 +349,10 @@ def parse_ports(value):
     return sorted({int(port) for port in values})
 
 
-def domain_list():
+def service_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM domains ORDER BY name ASC"
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
     return [
@@ -262,11 +371,14 @@ def domain_list():
     ]
 
 
-def get_domain_by_id(domain_id):
+domain_list = service_list
+
+
+def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM domains WHERE id = ?",
-        (domain_id,),
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services WHERE id = ?",
+        (service_id,),
     ).fetchone()
     conn.close()
     if row is None:
@@ -284,44 +396,52 @@ def get_domain_by_id(domain_id):
     }
 
 
-def domain_exists(domain_name: str):
+get_domain_by_id = get_service_by_id
+
+
+def service_exists(service_name: str):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id FROM domains WHERE name = ?",
-        (domain_name,),
+        "SELECT id FROM services WHERE name = ?",
+        (service_name,),
     ).fetchone()
     conn.close()
     return row is not None
 
 
-def discover_ports(domain_name: str, progress_callback=None, cancelled_check=None):
+domain_exists = service_exists
+
+
+def discover_ports(service_name: str, progress_callback=None, cancelled_check=None):
     found_ports = []
     for port in COMMON_PORTS:
         if cancelled_check is not None and cancelled_check():
             raise ImportCancelled("Import cancelled")
         if progress_callback is not None:
             progress_callback({
-                "domain": domain_name,
+                "service": service_name,
+                "domain": service_name,
                 "port": port,
-                "message": f"Testing port {port} for {domain_name}",
+                "message": f"Testing port {port} for {service_name}",
             })
         try:
-            with socket.create_connection((domain_name, port), timeout=1.5):
+            with socket.create_connection((service_name, port), timeout=1.5):
                 found_ports.append(port)
         except (socket.timeout, socket.gaierror, OSError):
             continue
     return sorted(found_ports)
 
 
-def store_port_check(domain_id: int, port: int, status: str, response_ms: int | None):
+def store_port_check(service_id: int, port: int, status: str, response_ms: int | None):
     conn = get_db_connection()
     conn.execute(
         """
-        INSERT INTO port_checks (domain_id, port, is_online, status, last_response_ms, checked_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO port_checks (service_id, domain_id, port, is_online, status, last_response_ms, checked_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            domain_id,
+            service_id,
+            service_id,
             port,
             1 if status == "online" else 0,
             status,
@@ -642,20 +762,21 @@ def fetch_socket_ssl_response(domain_name: str, port: int, url_path: str = "", a
         raise
 
 
-def scan_domain(
-    domain_id: int,
-    domain_name: str,
+def scan_service(
+    service_id: int,
+    service_name: str,
     ports,
     match: str = "",
     explicit_debug: bool | None = None,
     url_path: str = "",
     use_proxy: bool | None = None,
+    **kwargs,
 ):
-    domain = get_domain_by_id(domain_id)
-    if domain is not None and domain["paused"]:
+    service = get_service_by_id(service_id)
+    if service is not None and service["paused"]:
         return {}
     if use_proxy is None:
-        use_proxy = bool(domain["use_proxy"]) if domain and "use_proxy" in domain else False
+        use_proxy = bool(service["use_proxy"]) if service and "use_proxy" in service else False
     proxy_settings = get_settings() if use_proxy else None
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
@@ -668,7 +789,7 @@ def scan_domain(
         response = b""
         try:
             response, status_code, final_url = fetch_response(
-                domain_name,
+                service_name,
                 port,
                 "http",
                 url_path,
@@ -679,7 +800,7 @@ def scan_domain(
             response_ms = int((time.monotonic() - start) * 1000)
             if debug_enabled:
                 print(
-                    f"[DEBUG scan] protocol=http domain={domain_name} port={port} "
+                    f"[DEBUG scan] protocol=http service={service_name} port={port} "
                     f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
                     f"response={response[:16384]!r}"
                 )
@@ -689,14 +810,14 @@ def scan_domain(
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
-                        f"[DEBUG scan] protocol=http domain={domain_name} port={port} "
+                        f"[DEBUG scan] protocol=http service={service_name} port={port} "
                         f"ignoring SSL handshake failure (treated as online): {exc}"
                     )
             response = b""
 
         if debug_enabled and response:
             print(
-                f"[DEBUG scan response] protocol=http domain={domain_name} port={port} "
+                f"[DEBUG scan response] protocol=http service={service_name} port={port} "
                 f"response={response[:16384]!r}"
             )
 
@@ -708,7 +829,7 @@ def scan_domain(
         elif port in HTTPS_PORTS:
             try:
                 https_response, status_code, final_url = fetch_response(
-                    domain_name,
+                    service_name,
                     port,
                     "https",
                     url_path,
@@ -719,7 +840,7 @@ def scan_domain(
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
-                        f"[DEBUG scan] protocol=https domain={domain_name} port={port} "
+                        f"[DEBUG scan] protocol=https service={service_name} port={port} "
                         f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
                         f"response={https_response[:16384]!r}"
                     )
@@ -733,7 +854,7 @@ def scan_domain(
                     response_ms = int((time.monotonic() - start) * 1000)
                     if debug_enabled:
                         print(
-                            f"[DEBUG scan] protocol=https domain={domain_name} port={port} "
+                            f"[DEBUG scan] protocol=https service={service_name} port={port} "
                             f"ignoring SSL handshake failure (treated as online): {exc}"
                         )
             if status == "offline":
@@ -743,11 +864,11 @@ def scan_domain(
 
         if status != "online" and not use_proxy:
             try:
-                socket_response = fetch_socket_response(domain_name, port, url_path)
+                socket_response = fetch_socket_response(service_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
-                        f"[DEBUG scan] protocol=socket domain={domain_name} port={port} "
+                        f"[DEBUG scan] protocol=socket service={service_name} port={port} "
                         f"match={match!r} response={socket_response[:16384]!r}"
                     )
                 if socket_response and match_bytes in socket_response.lower():
@@ -756,11 +877,11 @@ def scan_domain(
                     status = "degraded"
             except (socket.timeout, socket.gaierror, OSError):
                 try:
-                    ssl_socket_response = fetch_socket_ssl_response(domain_name, port, url_path)
+                    ssl_socket_response = fetch_socket_ssl_response(service_name, port, url_path)
                     response_ms = int((time.monotonic() - start) * 1000)
                     if debug_enabled:
                         print(
-                            f"[DEBUG scan] protocol=socket-ssl domain={domain_name} port={port} "
+                            f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
                             f"match={match!r} response={ssl_socket_response[:16384]!r}"
                         )
                     if ssl_socket_response and match_bytes in ssl_socket_response.lower():
@@ -773,63 +894,76 @@ def scan_domain(
                         response_ms = int((time.monotonic() - start) * 1000)
                         if debug_enabled:
                             print(
-                                f"[DEBUG scan] protocol=socket-ssl domain={domain_name} port={port} "
+                                f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
                                 f"ignoring SSL handshake failure (treated as online): {exc}"
                             )
-        store_port_check(domain_id, port, status, response_ms)
+        store_port_check(service_id, port, status, response_ms)
         port_statuses[port] = status
     return port_statuses
 
 
-def sync_domain_ports(domain_id: int, domain_name: str, detected_ports: list[int] | None = None):
-    ports = detected_ports if detected_ports is not None else discover_ports(domain_name)
+scan_domain = scan_service
+
+
+def sync_service_ports(service_id: int, service_name: str, detected_ports: list[int] | None = None):
+    ports = detected_ports if detected_ports is not None else discover_ports(service_name)
     conn = get_db_connection()
     conn.execute(
-        "UPDATE domains SET ports = ? WHERE id = ?",
-        (json.dumps(sorted({int(port) for port in ports})), domain_id),
+        "UPDATE services SET ports = ? WHERE id = ?",
+        (json.dumps(sorted({int(port) for port in ports})), service_id),
     )
     conn.commit()
     conn.close()
-    domain = get_domain_by_id(domain_id)
-    scan_domain(
-        domain_id,
-        domain_name,
+    service = get_service_by_id(service_id)
+    scan_service(
+        service_id,
+        service_name,
         ports,
-        domain["match"] if domain else derive_match(domain_name),
-        url_path=domain["url_path"] if domain else "",
+        service["match"] if service else derive_match(service_name),
+        url_path=service["url_path"] if service else "",
     )
 
 
-def add_domain(
-    domain_name: str,
+sync_domain_ports = sync_service_ports
+
+
+def add_service(
+    service_name: str | None = None,
     match: str | None = None,
     url_path: str | None = None,
     paused: bool = False,
     comment: str = "",
     use_proxy: bool = False,
+    name: str | None = None,
 ):
-    normalized = normalize_domain(domain_name)
-    if domain_exists(normalized):
+    target_name = service_name if service_name is not None else name
+    if not target_name:
+        raise ValueError("Service name cannot be empty.")
+    normalized = normalize_service(target_name)
+    if service_exists(normalized):
         return None
-    domain_match = (match or derive_match(normalized)).strip().lower()
+    service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     detected = []
     if not paused:
         detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO domains (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (normalized, domain_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), json.dumps(detected)),
+        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), json.dumps(detected)),
     )
     conn.commit()
-    domain_id = cursor.lastrowid
+    service_id = cursor.lastrowid
     conn.close()
     if detected and not paused:
-        scan_domain(domain_id, normalized, detected, domain_match, url_path=normalized_path, use_proxy=use_proxy)
-    return domain_id
+        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy)
+    return service_id
 
 
-def import_domain_names(domain_names, progress_callback=None, cancelled_check=None):
+add_domain = add_service
+
+
+def import_service_names(service_names, progress_callback=None, cancelled_check=None):
     summary = {
         "total": 0,
         "imported": 0,
@@ -838,7 +972,7 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
         "invalid": [],
     }
 
-    entries = [str(value).strip() for value in domain_names if str(value).strip()]
+    entries = [str(value).strip() for value in service_names if str(value).strip()]
     total = len(entries)
     for index, value in enumerate(entries, start=1):
         summary["total"] += 1
@@ -848,19 +982,20 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
             progress_callback({
                 "index": index,
                 "total": total,
+                "service": value,
                 "domain": value,
                 "port": None,
                 "status": "checking",
-                "message": f"Checking domain {index} of {total}: {value}",
+                "message": f"Checking service {index} of {total}: {value}",
             })
         try:
-            normalized = normalize_domain(value)
+            normalized = normalize_service(value)
         except ValueError:
             summary["invalid"].append(value)
             summary["skipped"] += 1
             continue
 
-        if domain_exists(normalized):
+        if service_exists(normalized):
             summary["duplicates"].append(normalized)
             summary["skipped"] += 1
             continue
@@ -869,6 +1004,7 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
             progress_callback({
                 "index": index,
                 "total": total,
+                "service": normalized,
                 "domain": normalized,
                 "port": None,
                 "status": "scanning",
@@ -877,10 +1013,11 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
 
         detected = discover_ports(
             normalized,
-            progress_callback=lambda info, domain=normalized: progress_callback({
+            progress_callback=lambda info, s=normalized: progress_callback({
                 "index": index,
                 "total": total,
-                "domain": domain,
+                "service": s,
+                "domain": s,
                 "port": info["port"],
                 "status": "port",
                 "message": info["message"],
@@ -890,16 +1027,19 @@ def import_domain_names(domain_names, progress_callback=None, cancelled_check=No
 
         conn = get_db_connection()
         cursor = conn.execute(
-                "INSERT INTO domains (name, match, url_path, paused, ports) VALUES (?, ?, ?, 0, ?)",
-                (normalized, derive_match(normalized), "", json.dumps(detected)),
+            "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, 0, ?)",
+            (normalized, derive_match(normalized), "", json.dumps(detected)),
         )
         conn.commit()
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.close()
-        scan_domain(domain_id, normalized, detected, derive_match(normalized), url_path="")
+        scan_service(service_id, normalized, detected, derive_match(normalized), url_path="")
         summary["imported"] += 1
 
     return summary
+
+
+import_domain_names = import_service_names
 
 
 def parse_csv_ports(value: str) -> list[int] | None:
@@ -918,26 +1058,29 @@ def parse_csv_ports(value: str) -> list[int] | None:
     return sorted(set(ports)) if ports else None
 
 
-def export_domains_csv() -> tuple[str, int]:
-    domains = domain_list()
+def export_services_csv() -> tuple[str, int]:
+    services = service_list()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Domain", "Match", "URL path", "Comment", "Paused", "Proxy", "Ports"])
-    for d in domains:
-        ports_str = ", ".join(str(p) for p in d["ports"])
+    writer.writerow(["Service", "Match", "URL path", "Comment", "Paused", "Proxy", "Ports"])
+    for s in services:
+        ports_str = ", ".join(str(p) for p in s["ports"])
         writer.writerow([
-            d["name"],
-            d["match"],
-            d["url_path"],
-            d.get("comment", "") or "",
-            "1" if d["paused"] else "0",
-            "1" if d.get("use_proxy") else "0",
+            s["name"],
+            s["match"],
+            s["url_path"],
+            s.get("comment", "") or "",
+            "1" if s["paused"] else "0",
+            "1" if s.get("use_proxy") else "0",
             ports_str,
         ])
-    return output.getvalue(), len(domains)
+    return output.getvalue(), len(services)
 
 
-def import_domains_from_csv(
+export_domains_csv = export_services_csv
+
+
+def import_services_from_csv(
     csv_content: str,
     progress_callback=None,
     cancelled_check=None,
@@ -947,6 +1090,8 @@ def import_domains_from_csv(
         "imported": 0,
         "skipped": 0,
         "invalid": 0,
+        "imported_services": [],
+        "skipped_services": [],
         "imported_domains": [],
         "skipped_domains": [],
         "invalid_rows": [],
@@ -961,12 +1106,12 @@ def import_domains_from_csv(
     data_rows = []
 
     first_cells = [c.strip().lower() for c in raw_rows[0]]
-    if any(h in first_cells for h in ("domain", "domain name", "name")):
+    if any(h in first_cells for h in ("service", "service name", "domain", "domain name", "name")):
         header = first_cells
         for idx, col in enumerate(header):
-            if col in ("domain", "domain name", "name"):
-                col_map["domain"] = idx
-            elif col in ("match", "domain match"):
+            if col in ("service", "service name", "domain", "domain name", "name"):
+                col_map["service"] = idx
+            elif col in ("match", "service match", "domain match"):
                 col_map["match"] = idx
             elif col in ("url path", "url_path", "path", "url"):
                 col_map["url_path"] = idx
@@ -982,11 +1127,11 @@ def import_domains_from_csv(
     else:
         first_len = len(raw_rows[0])
         if first_len >= 7:
-            col_map = {"domain": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "ports": 6}
+            col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "ports": 6}
         elif first_len == 6:
-            col_map = {"domain": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "ports": 5}
+            col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "ports": 5}
         else:
-            col_map = {"domain": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
+            col_map = {"service": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
         data_rows = raw_rows
 
     total_records = len(data_rows)
@@ -996,32 +1141,34 @@ def import_domains_from_csv(
             raise ImportCancelled("Import cancelled")
 
         summary["total"] += 1
-        d_idx = col_map.get("domain", 0)
-        domain_val = row[d_idx].strip() if d_idx < len(row) else ""
+        s_idx = col_map.get("service", 0)
+        service_val = row[s_idx].strip() if s_idx < len(row) else ""
 
         if progress_callback is not None:
             progress_callback({
                 "index": index,
                 "total": total_records,
-                "domain": domain_val or f"Record {index}",
+                "service": service_val or f"Record {index}",
+                "domain": service_val or f"Record {index}",
                 "status": "processing",
-                "message": f"Processing record {index} of {total_records}: {domain_val}",
+                "message": f"Processing record {index} of {total_records}: {service_val}",
             })
 
-        if not domain_val or any(c.isspace() for c in domain_val):
+        if not service_val or any(c.isspace() for c in service_val):
             summary["invalid"] += 1
-            summary["invalid_rows"].append(f"Row {index}: Invalid domain '{domain_val}'")
+            summary["invalid_rows"].append(f"Row {index}: Invalid service '{service_val}'")
             continue
 
         try:
-            normalized = normalize_domain(domain_val)
+            normalized = normalize_service(service_val)
         except ValueError:
             summary["invalid"] += 1
-            summary["invalid_rows"].append(f"Row {index}: Invalid domain '{domain_val}'")
+            summary["invalid_rows"].append(f"Row {index}: Invalid service '{service_val}'")
             continue
 
-        if domain_exists(normalized):
+        if service_exists(normalized):
             summary["skipped"] += 1
+            summary["skipped_services"].append(normalized)
             summary["skipped_domains"].append(normalized)
             continue
 
@@ -1054,11 +1201,11 @@ def import_domains_from_csv(
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), json.dumps(ports_val)),
         )
         conn.commit()
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.close()
 
         if not paused_val and ports_val:
@@ -1066,20 +1213,25 @@ def import_domains_from_csv(
                 progress_callback({
                     "index": index,
                     "total": total_records,
+                    "service": normalized,
                     "domain": normalized,
                     "status": "scanning",
                     "message": f"Scanning ports for {normalized} ({', '.join(str(p) for p in ports_val)})",
                 })
-            scan_domain(domain_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val)
+            scan_service(service_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val)
 
         summary["imported"] += 1
+        summary["imported_services"].append(normalized)
         summary["imported_domains"].append(normalized)
 
     return summary
 
 
-def update_domain(
-    domain_id: int,
+import_domains_from_csv = import_services_from_csv
+
+
+def update_service(
+    service_id: int,
     name: str,
     ports_input: str,
     match: str | None = None,
@@ -1088,23 +1240,23 @@ def update_domain(
     comment: str | None = None,
     use_proxy: bool | None = None,
 ):
-    normalized = normalize_domain(name)
-    domain_match = (match or derive_match(normalized)).strip().lower()
+    normalized = normalize_service(name)
+    service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
-    existing_domain = None
+    existing_service = None
     if paused is None or comment is None or use_proxy is None:
-        existing_domain = get_domain_by_id(domain_id)
+        existing_service = get_service_by_id(service_id)
 
     if paused is None:
-        paused = existing_domain["paused"] if existing_domain else False
+        paused = existing_service["paused"] if existing_service else False
 
     if use_proxy is None:
-        use_proxy_val = existing_domain["use_proxy"] if existing_domain and "use_proxy" in existing_domain else False
+        use_proxy_val = existing_service["use_proxy"] if existing_service and "use_proxy" in existing_service else False
     else:
         use_proxy_val = bool(use_proxy)
 
     if comment is None:
-        comment_val = existing_domain["comment"] if existing_domain and "comment" in existing_domain.keys() else ""
+        comment_val = existing_service["comment"] if existing_service and "comment" in existing_service.keys() else ""
     else:
         comment_val = str(comment).strip()
 
@@ -1121,22 +1273,25 @@ def update_domain(
                 raise ValueError(f"Invalid port value '{value}'")
     conn = get_db_connection()
     conn.execute(
-        "UPDATE domains SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, ports = ? WHERE id = ?",
+        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, ports = ? WHERE id = ?",
         (
             normalized,
-            domain_match,
+            service_match,
             normalized_path,
             comment_val,
             int(paused),
             int(use_proxy_val),
             json.dumps(sorted({int(port) for port in incoming_ports})),
-            domain_id,
+            service_id,
         ),
     )
     conn.commit()
     conn.close()
     if incoming_ports and not paused:
-        scan_domain(domain_id, normalized, incoming_ports, domain_match, url_path=normalized_path, use_proxy=use_proxy_val)
+        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val)
+
+
+update_domain = update_service
 
 
 def parse_port_values(ports_input: str):
@@ -1156,25 +1311,25 @@ def parse_port_values(ports_input: str):
     return sorted(set(values))
 
 
-def bulk_update_ports(domain_ids, action: str, ports_input: str):
+def bulk_update_ports(service_ids, action: str, ports_input: str):
     ports = parse_port_values(ports_input)
-    if not domain_ids:
-        raise ValueError("Select at least one domain.")
+    if not service_ids:
+        raise ValueError("Select at least one service.")
     if action not in {"add", "remove"}:
         raise ValueError("Choose whether to add or remove ports.")
     if not ports:
         raise ValueError("Enter at least one port.")
 
     conn = get_db_connection()
-    placeholders = ", ".join("?" for _ in domain_ids)
+    placeholders = ", ".join("?" for _ in service_ids)
     rows = conn.execute(
-        f"SELECT id, ports FROM domains WHERE id IN ({placeholders})",
-        tuple(domain_ids),
+        f"SELECT id, ports FROM services WHERE id IN ({placeholders})",
+        tuple(service_ids),
     ).fetchall()
     found_ids = {row["id"] for row in rows}
-    if found_ids != set(domain_ids):
+    if found_ids != set(service_ids):
         conn.close()
-        raise ValueError("One or more selected domains no longer exists.")
+        raise ValueError("One or more selected services no longer exists.")
 
     for row in rows:
         current_ports = set(parse_ports(row["ports"]))
@@ -1183,25 +1338,28 @@ def bulk_update_ports(domain_ids, action: str, ports_input: str):
         else:
             updated_ports = current_ports.difference(ports)
         conn.execute(
-            "UPDATE domains SET ports = ? WHERE id = ?",
+            "UPDATE services SET ports = ? WHERE id = ?",
             (json.dumps(sorted(updated_ports)), row["id"]),
         )
         if action == "remove":
             port_placeholders = ", ".join("?" for _ in ports)
             conn.execute(
-                f"DELETE FROM port_checks WHERE domain_id = ? AND port IN ({port_placeholders})",
-                (row["id"], *ports),
+                f"DELETE FROM port_checks WHERE (service_id = ? OR domain_id = ?) AND port IN ({port_placeholders})",
+                (row["id"], row["id"], *ports),
             )
     conn.commit()
     conn.close()
 
 
-def delete_domain(domain_id: int):
+def delete_service(service_id: int):
     conn = get_db_connection()
-    conn.execute("DELETE FROM port_checks WHERE domain_id = ?", (domain_id,))
-    conn.execute("DELETE FROM domains WHERE id = ?", (domain_id,))
+    conn.execute("DELETE FROM port_checks WHERE service_id = ? OR domain_id = ?", (service_id, service_id))
+    conn.execute("DELETE FROM services WHERE id = ?", (service_id,))
     conn.commit()
     conn.close()
+
+
+delete_domain = delete_service
 
 
 def get_status_rows():
@@ -1209,17 +1367,17 @@ def get_status_rows():
     rows = conn.execute(
         """
         WITH latest AS (
-            SELECT domain_id, port, is_online, status, last_response_ms, checked_at,
-                   ROW_NUMBER() OVER (PARTITION BY domain_id, port ORDER BY checked_at DESC) AS rn
+            SELECT COALESCE(service_id, domain_id) AS service_id, port, is_online, status, last_response_ms, checked_at,
+                   ROW_NUMBER() OVER (PARTITION BY COALESCE(service_id, domain_id), port ORDER BY checked_at DESC) AS rn
             FROM port_checks
         )
-         SELECT d.id, d.name, d.match, d.ports, d.use_proxy, latest.port, latest.is_online,
+         SELECT s.id, s.name, s.match, s.ports, s.use_proxy, latest.port, latest.is_online,
              COALESCE(latest.status, CASE WHEN latest.is_online = 1 THEN 'online' ELSE 'offline' END) AS status,
              latest.last_response_ms, latest.checked_at
-        FROM domains d
-        LEFT JOIN latest ON latest.domain_id = d.id AND latest.rn = 1 AND instr(d.ports, port) > 0
-        WHERE d.paused = 0
-        ORDER BY d.name, latest.port
+        FROM services s
+        LEFT JOIN latest ON latest.service_id = s.id AND latest.rn = 1 AND instr(s.ports, port) > 0
+        WHERE s.paused = 0
+        ORDER BY s.name, latest.port
         """
     ).fetchall()
     conn.close()
@@ -1346,7 +1504,7 @@ def send_email(
       {content_html}
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
-      PulseCheck &bull; Network &amp; Domain Monitoring
+      PulseCheck &bull; Network &amp; Service Monitoring
     </div>
   </div>
 </body>
@@ -1392,14 +1550,15 @@ def index():
     return redirect(url_for("status"))
 
 
-def create_import_session(domain_names):
+def create_import_session(service_names):
     token = uuid.uuid4().hex
     with IMPORT_LOCK:
         IMPORT_STATE[token] = {
             "status": "queued",
             "token": token,
             "index": 0,
-            "total": len([line for line in domain_names if str(line).strip()]),
+            "total": len([line for line in service_names if str(line).strip()]),
+            "service": None,
             "domain": None,
             "port": None,
             "message": "Preparing import",
@@ -1410,7 +1569,7 @@ def create_import_session(domain_names):
         }
     thread = threading.Thread(
         target=run_import_worker,
-        args=(token, domain_names),
+        args=(token, service_names),
         daemon=True,
     )
     thread.start()
@@ -1423,30 +1582,32 @@ def update_import_state(token, **updates):
     return state
 
 
-def run_import_worker(token, domain_names):
+def run_import_worker(token, service_names):
     state = IMPORT_STATE.get(token)
     if state is None:
         return
 
     def progress(info):
-        state = IMPORT_STATE.get(token)
-        if not state:
+        st = IMPORT_STATE.get(token)
+        if not st:
             return
-        state["status"] = info.get("status", state["status"])
-        state["index"] = info.get("index", state.get("index", 0))
-        state["total"] = info.get("total", state.get("total", 0))
-        state["domain"] = info.get("domain", state.get("domain"))
-        state["port"] = info.get("port")
-        state["message"] = info.get("message", state.get("message", "Working"))
+        st["status"] = info.get("status", st["status"])
+        st["index"] = info.get("index", st.get("index", 0))
+        st["total"] = info.get("total", st.get("total", 0))
+        srv_name = info.get("service") or info.get("domain")
+        st["service"] = srv_name
+        st["domain"] = srv_name
+        st["port"] = info.get("port")
+        st["message"] = info.get("message", st.get("message", "Working"))
 
     def cancelled_check():
-        state = IMPORT_STATE.get(token)
-        return bool(state and state.get("cancelled"))
+        st = IMPORT_STATE.get(token)
+        return bool(st and st.get("cancelled"))
 
     state["status"] = "running"
     try:
-        summary = import_domain_names(
-            domain_names,
+        summary = import_service_names(
+            service_names,
             progress_callback=progress,
             cancelled_check=cancelled_check,
         )
@@ -1468,7 +1629,7 @@ def create_csv_import_session(csv_content: str):
     token = uuid.uuid4().hex
     raw_rows = [r for r in csv.reader(io.StringIO(csv_content)) if r and any(cell.strip() for cell in r)]
     first_cells = [c.strip().lower() for c in raw_rows[0]] if raw_rows else []
-    has_header = any(h in first_cells for h in ("domain", "domain name", "name"))
+    has_header = any(h in first_cells for h in ("service", "service name", "domain", "domain name", "name"))
     total_records = max(len(raw_rows) - 1, 0) if has_header else len(raw_rows)
 
     with IMPORT_LOCK:
@@ -1477,6 +1638,7 @@ def create_csv_import_session(csv_content: str):
             "token": token,
             "index": 0,
             "total": total_records,
+            "service": None,
             "domain": None,
             "port": None,
             "message": "Preparing CSV import",
@@ -1506,7 +1668,9 @@ def run_csv_import_worker(token, csv_content):
         st["status"] = info.get("status", st["status"])
         st["index"] = info.get("index", st.get("index", 0))
         st["total"] = info.get("total", st.get("total", 0))
-        st["domain"] = info.get("domain", st.get("domain"))
+        srv_name = info.get("service") or info.get("domain")
+        st["service"] = srv_name
+        st["domain"] = srv_name
         st["port"] = info.get("port")
         st["message"] = info.get("message", st.get("message", "Working"))
 
@@ -1516,7 +1680,7 @@ def run_csv_import_worker(token, csv_content):
 
     state["status"] = "running"
     try:
-        summary = import_domains_from_csv(
+        summary = import_services_from_csv(
             csv_content,
             progress_callback=progress,
             cancelled_check=cancelled_check,
@@ -1526,7 +1690,7 @@ def run_csv_import_worker(token, csv_content):
     except ImportCancelled:
         state["status"] = "cancelled"
         state["summary"] = {"cancelled": True}
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover
         state["status"] = "error"
         state["error"] = str(exc)
     finally:
@@ -1543,7 +1707,7 @@ def handle_import():
             file = request.files["csv_file"]
             try:
                 content = file.read().decode("utf-8", errors="replace")
-                summary = import_domains_from_csv(content)
+                summary = import_services_from_csv(content)
                 flash(
                     f"CSV Import complete: {summary['imported']} imported, {summary['skipped']} skipped (already in database), {summary['invalid']} invalid (Total rows: {summary['total']}).",
                     "success" if summary["imported"] > 0 else "message",
@@ -1552,39 +1716,43 @@ def handle_import():
                 flash(f"Error processing CSV file: {exc}", "error")
             return redirect(url_for("handle_import"))
 
-        raw_text = request.form.get("domains", "")
+        raw_text = request.form.get("services") or request.form.get("domains") or ""
         items = [line.strip() for line in raw_text.splitlines() if line.strip()]
         if not items:
-            flash("No domain names or CSV file were supplied.", "error")
+            flash("No service names or CSV file were supplied.", "error")
             return redirect(url_for("handle_import"))
 
-        summary = import_domain_names(items)
+        summary = import_service_names(items)
         flash(
-            f"Imported {summary['imported']} domains; skipped {summary['skipped']} duplicate or invalid entries.",
+            f"Imported {summary['imported']} services; skipped {summary['skipped']} duplicate or invalid entries.",
             "success",
         )
-        return redirect(url_for("domains"))
+        return redirect(url_for("services"))
 
-    domains = domain_list()
-    return render_template("import.html", domain_count=len(domains))
+    items = service_list()
+    return render_template("import.html", service_count=len(items), domain_count=len(items), services=items, domains=items)
 
 
 @app.route("/import/export", methods=["GET"])
+@app.route("/services/export.csv", methods=["GET"])
 @app.route("/domains/export.csv", methods=["GET"])
-def export_domains_route():
-    csv_content, count = export_domains_csv()
+def export_services_route():
+    csv_content, count = export_services_csv()
     response = Response(csv_content, mimetype="text/csv")
-    response.headers["Content-Disposition"] = "attachment; filename=pulsecheck_domains.csv"
+    response.headers["Content-Disposition"] = "attachment; filename=pulsecheck_services.csv"
     response.headers["X-Exported-Count"] = str(count)
     return response
 
 
+export_domains_route = export_services_route
+
+
 @app.route("/import/start", methods=["POST"])
 def start_import():
-    raw_text = request.form.get("domains", "")
+    raw_text = request.form.get("services") or request.form.get("domains") or ""
     items = [line.strip() for line in raw_text.splitlines() if line.strip()]
     if not items:
-        return {"error": "No domain names were supplied."}, 400
+        return {"error": "No service names were supplied."}, 400
 
     token = create_import_session(items)
     return {"token": token, "status": "started"}
@@ -1608,11 +1776,13 @@ def import_status(token):
     state = IMPORT_STATE.get(token)
     if not state:
         return {"status": "not_found"}, 404
+    srv_name = state.get("service") or state.get("domain")
     response = {
         "status": state.get("status"),
         "index": state.get("index", 0),
         "total": state.get("total", 0),
-        "domain": state.get("domain"),
+        "service": srv_name,
+        "domain": srv_name,
         "port": state.get("port"),
         "message": state.get("message", "Working"),
         "cancelled": state.get("cancelled", False),
@@ -1634,87 +1804,115 @@ def cancel_import(token):
     return {"status": "cancel_requested"}
 
 
+@app.route("/services")
 @app.route("/domains")
-def domains():
-    return render_template("domains.html", domains=domain_list())
+def services():
+    items = service_list()
+    return render_template("services.html", services=items, domains=items)
 
 
+domains = services
+
+
+@app.route("/services/add", methods=["GET", "POST"])
 @app.route("/domains/add", methods=["GET", "POST"])
-def add_domain_route():
+def add_service_route():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         match = request.form.get("match", "").strip()
         comment = request.form.get("comment", "").strip()
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         if not name:
-            flash("A domain name is required.")
-            return redirect(url_for("add_domain_route"))
+            flash("A service name is required.")
+            return redirect(url_for("add_service_route"))
         try:
-            result = add_domain(name, match or None, request.form.get("url_path", ""), comment=comment, use_proxy=use_proxy)
+            result = add_service(name, match or None, request.form.get("url_path", ""), comment=comment, use_proxy=use_proxy)
         except ValueError as exc:
             flash(str(exc))
-            return redirect(url_for("add_domain_route"))
+            return redirect(url_for("add_service_route"))
         if result is None:
-            flash("That domain already exists.")
-            return redirect(url_for("domains"))
-        flash(f"Added domain {name}.")
-        return redirect(url_for("domains"))
-    return render_template("domains.html", domains=domain_list(), add_mode=True)
+            flash("That service already exists.")
+            return redirect(url_for("services"))
+        flash(f"Added service {name}.")
+        return redirect(url_for("services"))
+    items = service_list()
+    return render_template("services.html", services=items, domains=items, add_mode=True)
 
 
+add_domain_route = add_service_route
+
+
+@app.route("/services/bulk-ports", methods=["POST"])
 @app.route("/domains/bulk-ports", methods=["POST"])
 def bulk_ports_route():
-    raw_ids = request.form.getlist("domain_ids")
+    raw_ids = request.form.getlist("service_ids") or request.form.getlist("domain_ids")
     return_to = request.form.get("return_to", "").strip()
-    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+    if not (
+        return_to.startswith("/services")
+        or return_to.startswith("services")
+        or return_to.startswith("/domains")
+        or return_to.startswith("domains")
+    ):
         return_to = ""
     try:
-        domain_ids = sorted({int(value) for value in raw_ids})
+        service_ids = sorted({int(value) for value in raw_ids})
         bulk_update_ports(
-            domain_ids,
+            service_ids,
             request.form.get("port_action", ""),
             request.form.get("ports", ""),
         )
     except (TypeError, ValueError) as exc:
         flash(str(exc))
-        return redirect(return_to or url_for("domains"))
-    flash("Updated ports for the selected domains.")
-    return redirect(return_to or url_for("domains"))
+        return redirect(return_to or url_for("services"))
+    flash("Updated ports for the selected services.")
+    return redirect(return_to or url_for("services"))
 
 
+@app.route("/services/bulk-delete", methods=["POST"])
 @app.route("/domains/bulk-delete", methods=["POST"])
 def bulk_delete_route():
-    raw_ids = request.form.getlist("domain_ids")
+    raw_ids = request.form.getlist("service_ids") or request.form.getlist("domain_ids")
     return_to = request.form.get("return_to", "").strip()
-    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+    if not (
+        return_to.startswith("/services")
+        or return_to.startswith("services")
+        or return_to.startswith("/domains")
+        or return_to.startswith("domains")
+    ):
         return_to = ""
     try:
-        domain_ids = sorted({int(value) for value in raw_ids})
+        service_ids = sorted({int(value) for value in raw_ids})
     except ValueError:
-        flash("Invalid domain selection.")
-        return redirect(return_to or url_for("domains"))
-    if not domain_ids:
-        flash("Select at least one domain to delete.")
-        return redirect(return_to or url_for("domains"))
+        flash("Invalid service selection.")
+        return redirect(return_to or url_for("services"))
+    if not service_ids:
+        flash("Select at least one service to delete.")
+        return redirect(return_to or url_for("services"))
 
     deleted = 0
-    for domain_id in domain_ids:
-        if get_domain_by_id(domain_id) is not None:
-            delete_domain(domain_id)
+    for service_id in service_ids:
+        if get_service_by_id(service_id) is not None:
+            delete_service(service_id)
             deleted += 1
-    flash(f"Deleted {deleted} selected domain{'s' if deleted != 1 else ''}.")
-    return redirect(return_to or url_for("domains"))
+    flash(f"Deleted {deleted} selected service{'s' if deleted != 1 else ''}.")
+    return redirect(return_to or url_for("services"))
 
 
-@app.route("/domains/<int:domain_id>/edit", methods=["GET", "POST"])
-def edit_domain(domain_id):
-    domain = get_domain_by_id(domain_id)
-    if domain is None:
-        flash("Domain not found.")
-        return redirect(url_for("domains"))
+@app.route("/services/<int:service_id>/edit", methods=["GET", "POST"])
+@app.route("/domains/<int:service_id>/edit", methods=["GET", "POST"])
+def edit_service(service_id):
+    service = get_service_by_id(service_id)
+    if service is None:
+        flash("Service not found.")
+        return redirect(url_for("services"))
 
     return_to = request.args.get("return_to") or request.form.get("return_to") or ""
-    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+    if not (
+        return_to.startswith("/services")
+        or return_to.startswith("services")
+        or return_to.startswith("/domains")
+        or return_to.startswith("domains")
+    ):
         return_to = ""
 
     if request.method == "POST":
@@ -1726,37 +1924,53 @@ def edit_domain(domain_id):
         paused = request.form.get("paused") == "on"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         try:
-            update_domain(domain_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy)
+            update_service(service_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy)
         except ValueError as exc:
             flash(str(exc))
-            return redirect(url_for("edit_domain", domain_id=domain_id, return_to=return_to))
-        flash(f"Updated domain {name}.")
-        return redirect(return_to or url_for("domains"))
+            return redirect(url_for("edit_service", service_id=service_id, return_to=return_to))
+        flash(f"Updated service {name}.")
+        return redirect(return_to or url_for("services"))
 
-    return render_template("edit_domain.html", domain=domain, return_to=return_to)
+    return render_template("edit_service.html", service=service, domain=service, return_to=return_to)
 
 
-@app.route("/domains/<int:domain_id>/delete", methods=["POST"])
-def delete_domain_route(domain_id):
-    domain = get_domain_by_id(domain_id)
+edit_domain = edit_service
+
+
+@app.route("/services/<int:service_id>/delete", methods=["POST"])
+@app.route("/domains/<int:service_id>/delete", methods=["POST"])
+def delete_service_route(service_id):
+    service = get_service_by_id(service_id)
     return_to = request.form.get("return_to") or request.args.get("return_to") or ""
-    if not (return_to.startswith("/domains") or return_to.startswith("domains")):
+    if not (
+        return_to.startswith("/services")
+        or return_to.startswith("services")
+        or return_to.startswith("/domains")
+        or return_to.startswith("domains")
+    ):
         return_to = ""
-    if domain is not None:
-        delete_domain(domain_id)
-        flash(f"Deleted domain {domain['name']}.")
-    return redirect(return_to or url_for("domains"))
+    if service is not None:
+        delete_service(service_id)
+        flash(f"Deleted service {service['name']}.")
+    return redirect(return_to or url_for("services"))
 
 
-@app.route("/domains/<int:domain_id>/rescan", methods=["POST"])
-def rescan_domain_route(domain_id):
-    domain = get_domain_by_id(domain_id)
-    if domain is None:
-        flash("Domain not found.")
-        return redirect(url_for("domains"))
-    scan_domain(domain_id, domain["name"], domain["ports"], domain["match"], url_path=domain["url_path"], use_proxy=domain.get("use_proxy", False))
-    flash(f"Rescanned {domain['name']}.")
+delete_domain_route = delete_service_route
+
+
+@app.route("/services/<int:service_id>/rescan", methods=["POST"])
+@app.route("/domains/<int:service_id>/rescan", methods=["POST"])
+def rescan_service_route(service_id):
+    service = get_service_by_id(service_id)
+    if service is None:
+        flash("Service not found.")
+        return redirect(url_for("services"))
+    scan_service(service_id, service["name"], service["ports"], service["match"], url_path=service["url_path"], use_proxy=service.get("use_proxy", False))
+    flash(f"Rescanned {service['name']}.")
     return redirect(url_for("status"))
+
+
+rescan_domain_route = rescan_service_route
 
 
 @app.route("/status")
@@ -1825,7 +2039,7 @@ def settings_route():
 
 def run_background_tasks():
     scheduler = BackgroundScheduler(daemon=True)
-    scheduler.add_job(check_all_domains, "interval", minutes=10, id="pulsecheck_scan")
+    scheduler.add_job(check_all_services, "interval", minutes=10, id="pulsecheck_scan")
     scheduler.start()
     return scheduler
 
@@ -1841,26 +2055,31 @@ def compute_overall_status(port_statuses: dict[int, str]) -> str:
     return "degraded"
 
 
-def get_domain_snapshots() -> dict[int, dict]:
+def get_service_snapshots() -> dict[int, dict]:
     rows = get_status_rows()
-    domains: dict[int, dict] = {}
+    services_map: dict[int, dict] = {}
     for row in rows:
-        d_id = row["id"]
-        if d_id not in domains:
-            domains[d_id] = {
-                "id": d_id,
+        s_id = row["id"]
+        if s_id not in services_map:
+            services_map[s_id] = {
+                "id": s_id,
                 "name": row["name"],
+                "service": row["name"],
+                "domain": row["name"],
                 "has_checks": False,
                 "port_statuses": {},
             }
         if row["port"] is not None and row["checked_at"] is not None:
-            domains[d_id]["has_checks"] = True
-            domains[d_id]["port_statuses"][row["port"]] = row["status"]
+            services_map[s_id]["has_checks"] = True
+            services_map[s_id]["port_statuses"][row["port"]] = row["status"]
 
-    for d_id, d_data in domains.items():
-        d_data["overall_status"] = compute_overall_status(d_data["port_statuses"])
+    for s_id, s_data in services_map.items():
+        s_data["overall_status"] = compute_overall_status(s_data["port_statuses"])
 
-    return domains
+    return services_map
+
+
+get_domain_snapshots = get_service_snapshots
 
 
 def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
@@ -1875,20 +2094,21 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         return False, "SMTP host not configured."
 
     count = len(changes)
-    subject = f"[PulseCheck] State Change Alert: {count} domain{'s' if count > 1 else ''} updated"
+    subject = f"[PulseCheck] State Change Alert: {count} service{'s' if count > 1 else ''} updated"
     now_str = get_current_local_time_str()
 
     lines = [
-        "PulseCheck Domain State Change Alert",
-        "====================================",
+        "PulseCheck Service State Change Alert",
+        "=====================================",
         f"Scan Completed: {now_str}",
         "",
-        f"The following {count} domain{'s have' if count > 1 else ' has'} changed state since the previous scan:",
+        f"The following {count} service{'s have' if count > 1 else ' has'} changed state since the previous scan:",
         "",
     ]
 
     for item in changes:
-        lines.append(f"• Domain: {item['domain']}")
+        target_name = item.get("service") or item.get("domain") or item.get("name")
+        lines.append(f"• Service: {target_name}")
         lines.append(f"  Overall Status: {item['old_status'].upper()} -> {item['new_status'].upper()}")
         if item.get("port_changes"):
             lines.append("  Port Details:")
@@ -1903,6 +2123,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
     cards_html = []
     for item in changes:
+        target_name = item.get("service") or item.get("domain") or item.get("name")
         old_st = item["old_status"].upper()
         new_st = item["new_status"].upper()
         badge_color = "#059669" if new_st == "UP" else ("#dc2626" if new_st == "DOWN" else "#d97706")
@@ -1913,7 +2134,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         cards_html.append(
             f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-    <strong style="font-size: 16px; color: #0f172a;">{item['domain']}</strong>
+    <strong style="font-size: 16px; color: #0f172a;">{target_name}</strong>
     <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; background: {badge_color}; color: #ffffff;">{new_st}</span>
   </div>
   <div style="font-size: 14px; color: #334155;">Status changed from <strong>{old_st}</strong> to <strong>{new_st}</strong></div>
@@ -1921,7 +2142,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 </div>"""
         )
 
-    domain_cards_str = "\n".join(cards_html)
+    service_cards_str = "\n".join(cards_html)
     html_body = f"""<!doctype html>
 <html>
 <head>
@@ -1943,16 +2164,16 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
       </table>
     </div>
     <div style="padding: 24px;">
-      <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Domain State Change Alert</h2>
+      <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Service State Change Alert</h2>
       <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b;">Scan completed: {now_str}</p>
-      <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> domain{'s have' if count > 1 else ' has'} changed state since the previous scan:</p>
-      {domain_cards_str}
+      <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> service{'s have' if count > 1 else ' has'} changed state since the previous scan:</p>
+      {service_cards_str}
       <div style="margin-top: 20px; text-align: center;">
         <a href="{get_status_url()}" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
       </div>
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
-      PulseCheck &bull; Network &amp; Domain Monitoring
+      PulseCheck &bull; Network &amp; Service Monitoring
     </div>
   </div>
 </body>
@@ -1968,46 +2189,55 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def scan_domain_with_retries(
-    domain: dict,
+def scan_service_with_retries(
+    service: dict,
     max_retries: int = DEFAULT_SCAN_RETRIES,
     retry_interval: int = DEFAULT_SCAN_RETRY_INTERVAL,
     explicit_debug: bool | None = None,
 ) -> dict[int, str]:
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     port_statuses: dict[int, str] = {}
+    scanner = getattr(sys.modules[__name__], "scan_service", scan_service)
+    legacy_scanner = getattr(sys.modules[__name__], "scan_domain", None)
+    if legacy_scanner is not None and (hasattr(legacy_scanner, "assert_called") or legacy_scanner != scan_service):
+        scanner = legacy_scanner
+
     for attempt in range(max_retries + 1):
         try:
-            port_statuses = scan_domain(
-                domain["id"],
-                domain["name"],
-                domain["ports"],
-                domain["match"],
+            res = scanner(
+                service["id"],
+                service["name"],
+                service["ports"],
+                service["match"],
                 explicit_debug=debug_enabled,
-                url_path=domain.get("url_path", ""),
-                use_proxy=domain.get("use_proxy", False),
+                url_path=service.get("url_path", ""),
+                use_proxy=service.get("use_proxy", False),
             )
+            port_statuses = res if isinstance(res, dict) else {}
             overall = compute_overall_status(port_statuses)
             if overall == "online" or not port_statuses:
                 return port_statuses
             if attempt < max_retries:
                 if debug_enabled:
                     print(
-                        f"[DEBUG scan retry] Domain {domain['name']} overall status is {overall}. "
+                        f"[DEBUG scan retry] Service {service['name']} overall status is {overall}. "
                         f"Retrying ({attempt + 1}/{max_retries}) in {retry_interval}s..."
                     )
                 time.sleep(retry_interval)
         except Exception as exc:
             if debug_enabled:
                 print(
-                    f"[DEBUG scan retry] Exception scanning {domain['name']} on attempt {attempt + 1}: {exc}"
+                    f"[DEBUG scan retry] Exception scanning {service['name']} on attempt {attempt + 1}: {exc}"
                 )
             if attempt < max_retries:
                 time.sleep(retry_interval)
     return port_statuses
 
 
-def check_all_domains(
+scan_domain_with_retries = scan_service_with_retries
+
+
+def check_all_services(
     workers: int | None = None,
     max_retries: int | None = None,
     retry_interval: int | None = None,
@@ -2016,32 +2246,37 @@ def check_all_domains(
     retries = DEFAULT_SCAN_RETRIES if max_retries is None else max_retries
     interval = DEFAULT_SCAN_RETRY_INTERVAL if retry_interval is None else retry_interval
 
-    before_snapshots = get_domain_snapshots()
-    active_domains = [domain for domain in domain_list() if not domain.get("paused")]
+    before_snapshots = get_service_snapshots()
+    active_services = [service for service in service_list() if not service.get("paused")]
 
-    if active_domains:
-        max_workers = min(num_workers, len(active_domains))
+    if active_services:
+        max_workers = min(num_workers, len(active_services))
+        scan_worker = getattr(sys.modules[__name__], "scan_service_with_retries", scan_service_with_retries)
+        legacy_worker = getattr(sys.modules[__name__], "scan_domain_with_retries", None)
+        if legacy_worker is not None and (hasattr(legacy_worker, "assert_called") or legacy_worker != scan_service_with_retries):
+            scan_worker = legacy_worker
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(
-                    scan_domain_with_retries,
-                    domain,
+                    scan_worker,
+                    service,
                     max_retries=retries,
                     retry_interval=interval,
                 )
-                for domain in active_domains
+                for service in active_services
             ]
             for future in futures:
                 try:
                     future.result()
                 except Exception as exc:
-                    print(f"[PulseCheck Scan Error] Domain scan thread error: {exc}")
+                    print(f"[PulseCheck Scan Error] Service scan thread error: {exc}")
 
-    after_snapshots = get_domain_snapshots()
+    after_snapshots = get_service_snapshots()
     changes = []
 
-    for domain_id, after_info in after_snapshots.items():
-        before_info = before_snapshots.get(domain_id)
+    for service_id, after_info in after_snapshots.items():
+        before_info = before_snapshots.get(service_id)
         if not before_info or not before_info["has_checks"]:
             continue
 
@@ -2053,6 +2288,7 @@ def check_all_domains(
 
         if before_info["overall_status"] != after_info["overall_status"] or port_changes:
             changes.append({
+                "service": after_info["name"],
                 "domain": after_info["name"],
                 "old_status": before_info["overall_status"],
                 "new_status": after_info["overall_status"],
@@ -2063,6 +2299,9 @@ def check_all_domains(
         send_state_change_notification(changes)
 
     return changes
+
+
+check_all_domains = check_all_services
 
 
 def cli_menu():

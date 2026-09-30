@@ -17,7 +17,8 @@ class ImportFlowTests(unittest.TestCase):
         pulsecheck_app.DB_PATH = self.original_db
         self.temp_dir.cleanup()
 
-    def test_import_skips_duplicate_names_and_tracks_summary(self):
+    @patch("app.discover_ports", return_value=[80, 443])
+    def test_import_skips_duplicate_names_and_tracks_summary(self, mock_discover):
         pulsecheck_app.add_domain("example.com")
 
         result = pulsecheck_app.import_domain_names([

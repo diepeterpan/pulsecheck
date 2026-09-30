@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block content %}
+  {% set item = service or domain %}
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Edit Service</h2>
+      <a class="button secondary" href="{{ return_to or url_for('services') }}">Back to list</a>
+    </div>
+    <form method="post">
+      <input type="hidden" name="return_to" value="{{ return_to }}">
+
+      <label for="name">Service name</label>
+      <input type="text" id="name" name="name" value="{{ item.name }}" required>
+
+      <label for="match">Match</label>
+      <input type="text" id="match" name="match" value="{{ item.match }}" required>
+
+      <label for="url_path">URL path (optional)</label>
+      <input type="text" id="url_path" name="url_path" value="{{ item.url_path }}" placeholder="/test/test.asp">
+
+      <label for="comment">Comment (optional)</label>
+      <input type="text" id="comment" name="comment" value="{{ item.comment or '' }}" placeholder="Notes, purpose, or owner">
+
+      <div style="display: flex; gap: 24px; align-items: center; margin: 12px 0;">
+        <label for="paused" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="paused" name="paused" {% if item.paused %}checked{% endif %}>
+          Paused
+        </label>
+        <label for="use_proxy" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="use_proxy" name="use_proxy" {% if item.use_proxy %}checked{% endif %}>
+          Use Proxy Server
+        </label>
+      </div>
+
+      <label for="ports">Ports</label>
+      <input type="text" id="ports" name="ports" value="{{ item.ports | join(', ') }}" placeholder="80, 443, 8443">
+
+      <div style="display: flex; gap: 12px; margin-top: 10px;">
+        <button type="submit" class="button primary">Save</button>
+        <a href="{{ return_to or url_for('services') }}" class="button secondary" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; padding: 10px 18px; border-radius: 8px;">Cancel</a>
+      </div>
+    </form>
+  </section>
+{% endblock %}

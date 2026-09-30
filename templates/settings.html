@@ -35,7 +35,7 @@
               </h3>
               <span class="hub-tag">Alert Notifications</span>
             </div>
-            <p class="tab-card-subtitle">Configure outbound SMTP credentials to receive instant email notifications when monitored domains change status.</p>
+            <p class="tab-card-subtitle">Configure outbound SMTP credentials to receive instant email notifications when monitored services change status.</p>
 
             <!-- Section 1: Outgoing Server -->
             <div class="settings-section-block">
@@ -149,7 +149,7 @@
                 <span class="guide-icon">1</span>
                 <div>
                   <strong>Automatic State Change Alerts</strong>
-                  <div>Emails are automatically dispatched whenever any domain transitions between <code>Online</code>, <code>Degraded</code>, and <code>Offline</code>.</div>
+                  <div>Emails are automatically dispatched whenever any service transitions between <code>Online</code>, <code>Degraded</code>, and <code>Offline</code>.</div>
                 </div>
               </li>
               <li class="guide-item">
@@ -190,7 +190,7 @@
               </h3>
               <span class="hub-tag">Forward Proxy</span>
             </div>
-            <p class="tab-card-subtitle">Configure an HTTP forward proxy server. Monitored domains flagged with <code>Use Proxy Server</code> will route all HTTP and HTTPS checks through this gateway.</p>
+            <p class="tab-card-subtitle">Configure an HTTP forward proxy server. Monitored services flagged with <code>Use Proxy Server</code> will route all HTTP and HTTPS checks through this gateway.</p>
 
             <!-- Section 1: Proxy Host & Port -->
             <div class="settings-section-block">
@@ -258,12 +258,12 @@
 
             <div class="proxy-flow-step">
               <strong>3. Socket Probe Protection</strong>
-              Direct raw socket fallbacks are automatically disabled for proxied domains to ensure traffic never bypasses your corporate proxy.
+              Direct raw socket fallbacks are automatically disabled for proxied services to ensure traffic never bypasses your corporate proxy.
             </div>
 
             <div class="proxy-flow-step">
-              <strong>4. Domain Activation</strong>
-              Enable the <strong>"Use Proxy Server"</strong> checkbox when adding or editing domains. A blue <code>Proxy</code> badge will appear on Status and Domains pages.
+              <strong>4. Service Activation</strong>
+              Enable the <strong>"Use Proxy Server"</strong> checkbox when adding or editing services. A blue <code>Proxy</code> badge will appear on Status and Services pages.
             </div>
           </div>
         </div>

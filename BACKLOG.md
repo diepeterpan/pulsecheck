@@ -9,25 +9,26 @@ Use this format for new entries:
 
 - Menu function: Import page
 - Required future change: Add a blocking overlay while importing with an option to cancel the import.
- - Status: completed
-- Menu function: Import page
-- Required future change: Show progress per domain name, including entry x of n being imported and the port currently being tested for each domain.
 - Status: completed
 
 - Menu function: Import page
-- Required future change: Skip domain names that are already in the database and continue importing the remaining entries without duplicating records.
+- Required future change: Show progress per service name, including entry x of n being imported and the port currently being tested for each service.
 - Status: completed
 
 - Menu function: Import page
-- Required future change: If a domain is already in the database, do not rescan its ports during import.
+- Required future change: Skip service names that are already in the database and continue importing the remaining entries without duplicating records.
 - Status: completed
 
-- Menu function: Domains page
-- Required future change: Add bulk port editing for pre-selected domains using checkboxes, including adding or removing ports in one action.
+- Menu function: Import page
+- Required future change: If a service is already in the database, do not rescan its ports during import.
 - Status: completed
 
-- Menu function: Domains page
-- Required future change: Show a confirmation prompt before deleting a domain entry.
+- Menu function: Services page
+- Required future change: Add bulk port editing for pre-selected services using checkboxes, including adding or removing ports in one action.
+- Status: completed
+
+- Menu function: Services page
+- Required future change: Show a confirmation prompt before deleting a service entry.
 - Status: completed
 
 - Menu function: Status page
@@ -39,12 +40,9 @@ Use this format for new entries:
 - Status: completed
 
 - Menu function: Background scanner
-- Required future change: Send an e-mail notification after check_all_domains completes with a list of all domains whose state changed since the previous scan.
+- Required future change: Send an e-mail notification after check_all_services completes with a list of all services whose state changed since the previous scan.
 - Status: completed
 
 - Menu function: Import page
-- Required future change: Add CSV file export and import of domains with Domain, Match, URL path, Paused, and Ports, showing stats and skipping existing domains.
+- Required future change: Add CSV file export and import of services with Service, Match, URL path, Paused, and Ports, showing stats and skipping existing services.
 - Status: completed
-
-
-

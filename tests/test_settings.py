@@ -203,35 +203,36 @@ class SettingsTests(unittest.TestCase):
 
         # Add domain and simulate previous check state: online
         conn = pulsecheck_app.get_db_connection()
-        cur = conn.execute(
+        conn.execute(
             "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, ?)",
             ("service.example", "service", "[80, 443]", 0),
         )
-        domain_id = cur.lastrowid
+        domain_id = conn.execute("SELECT id FROM services WHERE name = ?", ("service.example",)).fetchone()["id"]
         conn.execute(
-            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
-            (domain_id, 80),
+            "INSERT INTO port_checks (domain_id, service_id, port, is_online, status, checked_at) VALUES (?, ?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
+            (domain_id, domain_id, 80),
         )
         conn.execute(
-            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
-            (domain_id, 443),
+            "INSERT INTO port_checks (domain_id, service_id, port, is_online, status, checked_at) VALUES (?, ?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
+            (domain_id, domain_id, 443),
         )
         conn.commit()
         conn.close()
 
         # Simulate scan_domain changing port 80 to offline during scan
-        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path=""):
+        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path="", **kwargs):
             conn_inner = pulsecheck_app.get_db_connection()
             conn_inner.execute(
-                "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 0, 'offline', '2026-09-28 12:10:00 UTC')",
-                (d_id, 80),
+                "INSERT INTO port_checks (domain_id, service_id, port, is_online, status, checked_at) VALUES (?, ?, ?, 0, 'offline', '2026-09-28 12:10:00 UTC')",
+                (d_id, d_id, 80),
             )
             conn_inner.execute(
-                "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:10:00 UTC')",
-                (d_id, 443),
+                "INSERT INTO port_checks (domain_id, service_id, port, is_online, status, checked_at) VALUES (?, ?, ?, 1, 'online', '2026-09-28 12:10:00 UTC')",
+                (d_id, d_id, 443),
             )
             conn_inner.commit()
             conn_inner.close()
+            return {80: "offline", 443: "online"}
 
         mock_scan.side_effect = simulate_scan
 
@@ -265,27 +266,28 @@ class SettingsTests(unittest.TestCase):
 
         # Add domain with existing check state
         conn = pulsecheck_app.get_db_connection()
-        cur = conn.execute(
+        conn.execute(
             "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, ?)",
             ("stable.example", "stable", "[80]", 0),
         )
-        domain_id = cur.lastrowid
+        domain_id = conn.execute("SELECT id FROM services WHERE name = ?", ("stable.example",)).fetchone()["id"]
         conn.execute(
-            "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
-            (domain_id, 80),
+            "INSERT INTO port_checks (domain_id, service_id, port, is_online, status, checked_at) VALUES (?, ?, ?, 1, 'online', '2026-09-28 12:00:00 UTC')",
+            (domain_id, domain_id, 80),
         )
         conn.commit()
         conn.close()
 
         # Simulate scan yielding the same state
-        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path=""):
+        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path="", **kwargs):
             conn_inner = pulsecheck_app.get_db_connection()
             conn_inner.execute(
-                "INSERT INTO port_checks (domain_id, port, is_online, status, checked_at) VALUES (?, ?, 1, 'online', '2026-09-28 12:10:00 UTC')",
-                (d_id, 80),
+                "INSERT INTO port_checks (domain_id, service_id, port, is_online, status, checked_at) VALUES (?, ?, ?, 1, 'online', '2026-09-28 12:10:00 UTC')",
+                (d_id, d_id, 80),
             )
             conn_inner.commit()
             conn_inner.close()
+            return {80: "online"}
 
         mock_scan.side_effect = simulate_scan
 
@@ -310,7 +312,7 @@ class SettingsTests(unittest.TestCase):
         csv_text, count = pulsecheck_app.export_domains_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Domain,Match,URL path,Comment,Paused,Proxy,Ports")
+        self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Ports")
         self.assertIn('domain-a.com,domain,/test,Internal gateway,0,0,"80, 443"', lines)
         self.assertIn("domain-b.com,other,,,1,0,8080", lines)
 
@@ -363,9 +365,9 @@ bad site!!,bad,,0,80
         response = self.client.get("/import/export")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content_type, "text/csv; charset=utf-8")
-        self.assertIn("attachment; filename=pulsecheck_domains.csv", response.headers["Content-Disposition"])
+        self.assertIn("attachment; filename=pulsecheck_services.csv", response.headers["Content-Disposition"])
         self.assertEqual(response.headers["X-Exported-Count"], "1")
-        self.assertIn(b"Domain,Match,URL path,Comment,Paused,Proxy,Ports", response.data)
+        self.assertIn(b"Service,Match,URL path,Comment,Paused,Proxy,Ports", response.data)
         self.assertIn(b"test.org,test,,,0,0,443", response.data)
 
     @patch("app.scan_domain")
@@ -1131,7 +1133,7 @@ direct.example,direct,,Direct site,0,0,8080
         csv_text, count = pulsecheck_app.export_domains_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Domain,Match,URL path,Comment,Paused,Proxy,Ports")
+        self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Ports")
         self.assertIn('proxied.example,proxied,/health,Gateway,0,1,"80, 443"', lines)
         self.assertIn("direct.example,direct,,Direct site,0,0,8080", lines)
 
@@ -1415,7 +1417,7 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn("cell-hover-box", html)
         self.assertIn(long_domain, html)
         self.assertIn(long_match, html)
-        self.assertIn('<span class="hover-box-label">Domain</span>', html)
+        self.assertTrue('<span class="hover-box-label">Service</span>' in html or '<span class="hover-box-label">Domain</span>' in html)
         self.assertIn('<span class="hover-box-label">Match</span>', html)
         self.assertIn("cell-ports-wrapper", html)
         self.assertIn("status-ports-inline", html)

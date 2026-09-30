@@ -1,13 +1,13 @@
 # PulseCheck
 
-PulseCheck is a lightweight, Linux-friendly web application and monitoring daemon that stores domains in SQLite, discovers open ports, and monitors the health and availability of those services on an automated schedule.
+PulseCheck is a lightweight, Linux-friendly web application and monitoring daemon that stores services in SQLite, discovers open ports, and monitors the health and availability of those services on an automated schedule.
 
 ---
 
 ## Key Features
 
 - **Automated Health Monitoring**:
-  - Scheduled scans run in the background (default every 10 minutes) across all active domains.
+  - Scheduled scans run in the background (default every 10 minutes) across all active services.
   - Multi-threaded parallel scanning with configurable retry attempts and backoff intervals.
   - HTTP and HTTPS protocol verification with redirection handling (up to 5 hops).
   - Prepending of response headers to decompressed response bodies for full-header keyword matching (e.g. matching `Server`, `X-Powered-By`, or custom response headers).
@@ -16,30 +16,30 @@ PulseCheck is a lightweight, Linux-friendly web application and monitoring daemo
 
 - **HTTP Proxy Support**:
   - Global HTTP proxy server configuration (host/IP, port, optional username, and password).
-  - Per-domain **Proxy Server** toggle (`use_proxy`) to direct all HTTP and HTTPS requests through the proxy.
+  - Per-service **Proxy Server** toggle (`use_proxy`) to direct all HTTP and HTTPS requests through the proxy.
   - Supports HTTP forward proxying and HTTPS `CONNECT` tunneling with optional Basic authentication.
 
 - **Email Alerts & Notifications**:
   - Configurable outgoing SMTP settings (STARTTLS, SSL/TLS, or plain) with password encryption/storage.
-  - State change notifications: automatically sends email alerts when any monitored domain changes state (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
+  - State change notifications: automatically sends email alerts when any monitored service changes state (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
   - "Send Test Email" feature directly from the Settings interface.
 
-- **Domain Management**:
-  - Maintain domains with Add, Edit, Delete, and manual Rescan actions.
+- **Service Management**:
+  - Maintain services with Add, Edit, Delete, and manual Rescan actions.
   - Custom match tokens, optional URL paths (e.g. `/health`, `/status`), and descriptive comments/notes.
-  - Bulk port management: add or remove ports across multiple selected domains simultaneously, or perform bulk deletion.
-  - Interactive column filters (Domain, Match, URL path, Paused/Active status, and Ports) with URL query parameter preservation.
-  - Pause individual domains to temporarily bypass monitoring without deleting records.
+  - Bulk port management: add or remove ports across multiple selected services simultaneously, or perform bulk deletion.
+  - Interactive column filters (Service, Match, URL path, Paused/Active status, and Ports) with URL query parameter preservation.
+  - Pause individual services to temporarily bypass monitoring without deleting records.
 
 - **Live Status Dashboard**:
-  - Responsive grid layout displaying all active domains and their monitored ports.
+  - Responsive grid layout displaying all active services and their monitored ports.
   - Visual status badges: **Online** (green), **Degraded** (amber), and **Offline** (red).
   - Interactive tooltips showing the last successful check timestamp (converted to server local time) and round-trip response latency (in ms).
 
 - **Data Import & Export**:
-  - **CSV File Export**: Download all saved domains and configurations in a single standard CSV file.
-  - **CSV File Import**: Upload domain lists with automatic duplicate skipping and background progress tracking with cancel capability.
-  - **Quick Text Block Import**: Paste raw lists of domain names for rapid onboarding with automatic port discovery.
+  - **CSV File Export**: Download all saved services and configurations in a single standard CSV file.
+  - **CSV File Import**: Upload service lists with automatic duplicate skipping and background progress tracking with cancel capability.
+  - **Quick Text Block Import**: Paste raw lists of service hostnames for rapid onboarding with automatic port discovery.
 
 ---
 
@@ -105,22 +105,22 @@ PulseCheck menu
 | `PULSECHECK_HEADLESS` | `0` (`1` in Docker) | Set to `1` to bypass the interactive console menu and start the web server directly |
 | `PULSECHECK_DB_PATH` | `./pulsecheck.db` | Path to the SQLite database file |
 | `PULSECHECK_TIMEZONE` / `TZ` | System local time | Timezone for dashboard and alert timestamps (e.g. `Africa/Johannesburg`, `Europe/London`, `UTC`) |
-| `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel domain health checks |
-| `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a domain check fails |
+| `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel service health checks |
+| `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a service check fails |
 | `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
 
 ---
 
 ## CSV File Specification
 
-PulseCheck supports importing and exporting domains via CSV.
+PulseCheck supports importing and exporting services via CSV (with backward-compatible support for legacy domain headers).
 
 ### Columns
-`Domain, Match, URL path, Comment, Paused, Proxy, Ports`
+`Service, Match, URL path, Comment, Paused, Proxy, Ports`
 
 ### Example
 ```csv
-Domain,Match,URL path,Comment,Paused,Proxy,Ports
+Service,Match,URL path,Comment,Paused,Proxy,Ports
 internal.corp.local,internal,/health,Main API Gateway,0,1,"80, 443"
 api.example.com,api,,Production API,0,0,"443, 8443"
 backup-portal.example,backup,/login,DR Site,1,0,"80"

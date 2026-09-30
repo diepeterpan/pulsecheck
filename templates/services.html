@@ -2,20 +2,20 @@
 {% block content %}
   <section class="panel">
     <div class="panel-header">
-      <h2>Domain Maintenance</h2>
+      <h2>Service Maintenance</h2>
       {% if add_mode %}
-        <a class="button secondary" href="{{ url_for('domains') }}">Back to list</a>
+        <a class="button secondary" href="{{ url_for('services') }}">Back to list</a>
       {% else %}
-        <a class="button primary" href="{{ url_for('add_domain_route') }}">+ Add New Domain</a>
+        <a class="button primary" href="{{ url_for('add_service_route') }}">+ Add New Service</a>
       {% endif %}
     </div>
 
     {% if add_mode %}
-      <div class="add-domain-box">
-        <form method="post" action="{{ url_for('add_domain_route') }}" class="add-domain-form">
+      <div class="add-service-box add-domain-box">
+        <form method="post" action="{{ url_for('add_service_route') }}" class="add-service-form add-domain-form">
           <div class="form-row">
             <div class="form-field">
-              <label for="name">Domain</label>
+              <label for="name">Service</label>
               <input type="text" id="name" name="name" placeholder="example.com" required>
             </div>
             <div class="form-field">
@@ -37,18 +37,18 @@
               </label>
             </div>
             <div class="form-field form-field-btn">
-              <button type="submit" class="button primary">Add Domain</button>
+              <button type="submit" class="button primary">Add Service</button>
             </div>
           </div>
         </form>
       </div>
     {% endif %}
 
-    {% if domains and not add_mode %}
-      <div class="domain-toolbar">
-        <div class="domain-stats-group">
-          <span class="domain-count-badge">
-            Showing <strong id="filtered-domains-count">{{ domains | length }}</strong> of <strong>{{ domains | length }}</strong> domains
+    {% if services and not add_mode %}
+      <div class="service-toolbar domain-toolbar">
+        <div class="service-stats-group domain-stats-group">
+          <span class="service-count-badge domain-count-badge">
+            Showing <strong id="filtered-services-count">{{ services | length }}</strong> of <strong>{{ services | length }}</strong> services
           </span>
         </div>
 
@@ -56,7 +56,7 @@
           <input type="hidden" name="return_to" id="bulk-return-to" value="">
           <div class="bulk-controls-wrapper">
             <div class="bulk-group selection-group">
-              <button type="button" id="select-all-domains" class="btn-tool">Select all</button>
+              <button type="button" id="select-all-services" class="btn-tool">Select all</button>
             </div>
             <div class="bulk-group port-group">
               <span class="bulk-label">Ports:</span>
@@ -68,7 +68,7 @@
               <button type="submit" class="btn-tool">Apply</button>
             </div>
             <div class="bulk-group delete-group">
-              <button type="submit" class="btn-tool danger" formaction="{{ url_for('bulk_delete_route') }}" formnovalidate onclick="return confirm('Delete all selected Domains?');">Delete selected</button>
+              <button type="submit" class="btn-tool danger" formaction="{{ url_for('bulk_delete_route') }}" formnovalidate onclick="return confirm('Delete all selected Services?');">Delete selected</button>
             </div>
           </div>
         </form>
@@ -76,22 +76,22 @@
     {% endif %}
 
     <div class="table-responsive">
-      <table class="domains-table">
+      <table class="services-table domains-table">
         <thead>
           <tr>
             <th class="col-select">Select</th>
-            <th class="col-domain">Domain</th>
+            <th class="col-service col-domain">Service</th>
             <th class="col-match">Match</th>
             <th class="col-path">URL path</th>
             <th class="col-paused">Paused</th>
             <th class="col-ports">Ports</th>
             <th class="col-actions">Actions</th>
           </tr>
-          {% if domains and not add_mode %}
+          {% if services and not add_mode %}
             <tr class="filter-header-row">
               <th class="col-filter-cell col-select"></th>
-              <th class="col-filter-cell col-domain">
-                <input type="search" id="filter-col-domain" class="column-filter-input" data-col="domain" placeholder="Filter domain..." value="{{ request.args.get('filter_domain', request.args.get('filter', '')) }}" autocomplete="off" aria-label="Filter domain">
+              <th class="col-filter-cell col-service col-domain">
+                <input type="search" id="filter-col-service" class="column-filter-input" data-col="service" placeholder="Filter service..." value="{{ request.args.get('filter_service', request.args.get('filter_domain', request.args.get('filter', '')) ) }}" autocomplete="off" aria-label="Filter service">
               </th>
               <th class="col-filter-cell col-match">
                 <input type="search" id="filter-col-match" class="column-filter-input" data-col="match" placeholder="Filter match..." value="{{ request.args.get('filter_match', '') }}" autocomplete="off" aria-label="Filter match">
@@ -116,39 +116,40 @@
           {% endif %}
         </thead>
         <tbody>
-          {% for domain in domains %}
-            <tr class="domain-row"
-                data-domain="{{ domain.name | lower }}"
-                data-match="{{ domain.match | lower }}"
-                data-path="{{ (domain.url_path or '(root)') | lower }}"
-                data-comment="{{ (domain.comment or '') | lower }}"
-                data-paused="{{ 'paused' if domain.paused else 'active' }}"
-                data-ports="{{ (domain.ports | join(' ') if domain.ports else 'none') | lower }}">
-              <td class="col-select"><input type="checkbox" class="domain-checkbox" name="domain_ids" value="{{ domain.id }}" form="bulk-port-form" aria-label="Select {{ domain.name }}"></td>
-              <td class="col-domain">
-                <div class="domain-name-container">
-                  <strong class="domain-name-text">{{ domain.name }}</strong>
-                  {% if domain.use_proxy %}
+          {% for service in services %}
+            <tr class="service-row domain-row"
+                data-service="{{ service.name | lower }}"
+                data-domain="{{ service.name | lower }}"
+                data-match="{{ service.match | lower }}"
+                data-path="{{ (service.url_path or '(root)') | lower }}"
+                data-comment="{{ (service.comment or '') | lower }}"
+                data-paused="{{ 'paused' if service.paused else 'active' }}"
+                data-ports="{{ (service.ports | join(' ') if service.ports else 'none') | lower }}">
+              <td class="col-select"><input type="checkbox" class="service-checkbox domain-checkbox" name="service_ids" value="{{ service.id }}" form="bulk-port-form" aria-label="Select {{ service.name }}"></td>
+              <td class="col-service col-domain">
+                <div class="service-name-container domain-name-container">
+                  <strong class="service-name-text domain-name-text">{{ service.name }}</strong>
+                  {% if service.use_proxy %}
                     <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                   {% endif %}
-                  {% if domain.comment %}
-                    <span class="domain-comment-badge" title="{{ domain.comment }}" tabindex="0" aria-label="Comment: {{ domain.comment }}">
+                  {% if service.comment %}
+                    <span class="domain-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
                       <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                      <span class="tooltip-bubble">{{ domain.comment }}</span>
+                      <span class="tooltip-bubble">{{ service.comment }}</span>
                     </span>
                   {% endif %}
                 </div>
               </td>
-              <td class="col-match">{{ domain.match }}</td>
-              <td class="col-path">{% if domain.url_path %}<span class="path-pill">{{ domain.url_path }}</span>{% else %}<span class="path-root">(root)</span>{% endif %}</td>
-              <td class="col-paused">{% if domain.paused %}<span class="badge paused">Paused</span>{% else %}<span class="badge active">Active</span>{% endif %}</td>
-              <td class="col-ports">{% if domain.ports %}{{ domain.ports | join(', ') }}{% else %}<span class="no-ports">None detected</span>{% endif %}</td>
+              <td class="col-match">{{ service.match }}</td>
+              <td class="col-path">{% if service.url_path %}<span class="path-pill">{{ service.url_path }}</span>{% else %}<span class="path-root">(root)</span>{% endif %}</td>
+              <td class="col-paused">{% if service.paused %}<span class="badge paused">Paused</span>{% else %}<span class="badge active">Active</span>{% endif %}</td>
+              <td class="col-ports">{% if service.ports %}{{ service.ports | join(', ') }}{% else %}<span class="no-ports">None detected</span>{% endif %}</td>
               <td class="col-actions">
                 <div class="row-actions">
-                  <a class="btn-action edit" href="{{ url_for('edit_domain', domain_id=domain.id) }}">Edit</a>
-                  <form method="post" action="{{ url_for('delete_domain_route', domain_id=domain.id) }}" class="inline-form">
-                    <input type="hidden" name="return_to" class="delete-domain-return-to" value="">
-                    <button type="submit" class="btn-action danger" onclick="return confirm('Delete {{ domain.name }}?');">Delete</button>
+                  <a class="btn-action edit" href="{{ url_for('edit_service', service_id=service.id) }}">Edit</a>
+                  <form method="post" action="{{ url_for('delete_service_route', service_id=service.id) }}" class="inline-form">
+                    <input type="hidden" name="return_to" class="delete-service-return-to delete-domain-return-to" value="">
+                    <button type="submit" class="btn-action danger" onclick="return confirm('Delete {{ service.name }}?');">Delete</button>
                   </form>
                 </div>
               </td>
@@ -159,32 +160,32 @@
     </div>
   </section>
 
-  {% if domains and not add_mode %}
+  {% if services and not add_mode %}
     <script>
-      const selectAllButton = document.getElementById('select-all-domains');
-      const domainCheckboxes = Array.from(document.querySelectorAll('.domain-checkbox'));
-      const domainRows = Array.from(document.querySelectorAll('.domain-row'));
-      const countDisplay = document.getElementById('filtered-domains-count');
+      const selectAllButton = document.getElementById('select-all-services') || document.getElementById('select-all-domains');
+      const serviceCheckboxes = Array.from(document.querySelectorAll('.service-checkbox, .domain-checkbox'));
+      const serviceRows = Array.from(document.querySelectorAll('.service-row, .domain-row'));
+      const countDisplay = document.getElementById('filtered-services-count') || document.getElementById('filtered-domains-count');
       const resetButton = document.getElementById('reset-all-filters');
 
-      const filterDomain = document.getElementById('filter-col-domain');
+      const filterService = document.getElementById('filter-col-service') || document.getElementById('filter-col-domain');
       const filterMatch = document.getElementById('filter-col-match');
       const filterPath = document.getElementById('filter-col-path');
       const filterPaused = document.getElementById('filter-col-paused');
       const filterPorts = document.getElementById('filter-col-ports');
 
-      const filterInputs = [filterDomain, filterMatch, filterPath, filterPaused, filterPorts].filter(Boolean);
+      const filterInputs = [filterService, filterMatch, filterPath, filterPaused, filterPorts].filter(Boolean);
 
       function initFilters() {
         const urlParams = new URLSearchParams(window.location.search);
         let hasUrlParam = false;
-        ['filter_domain', 'filter', 'filter_match', 'filter_path', 'filter_paused', 'filter_ports'].forEach(k => {
+        ['filter_service', 'filter_domain', 'filter', 'filter_match', 'filter_path', 'filter_paused', 'filter_ports'].forEach(k => {
           if (urlParams.has(k) && urlParams.get(k).trim()) hasUrlParam = true;
         });
 
         if (hasUrlParam) {
-          if (filterDomain && (urlParams.get('filter_domain') || urlParams.get('filter'))) {
-            filterDomain.value = urlParams.get('filter_domain') || urlParams.get('filter');
+          if (filterService && (urlParams.get('filter_service') || urlParams.get('filter_domain') || urlParams.get('filter'))) {
+            filterService.value = urlParams.get('filter_service') || urlParams.get('filter_domain') || urlParams.get('filter');
           }
           if (filterMatch && urlParams.get('filter_match')) {
             filterMatch.value = urlParams.get('filter_match');
@@ -200,9 +201,9 @@
           }
         } else {
           try {
-            const saved = JSON.parse(sessionStorage.getItem('pulsecheck_domain_filters') || 'null');
+            const saved = JSON.parse(sessionStorage.getItem('pulsecheck_service_filters') || sessionStorage.getItem('pulsecheck_domain_filters') || 'null');
             if (saved) {
-              if (filterDomain && saved.domain) filterDomain.value = saved.domain;
+              if (filterService && (saved.service || saved.domain)) filterService.value = saved.service || saved.domain;
               if (filterMatch && saved.match) filterMatch.value = saved.match;
               if (filterPath && saved.path) filterPath.value = saved.path;
               if (filterPaused && saved.paused) filterPaused.value = saved.paused;
@@ -213,7 +214,7 @@
       }
 
       function applyColumnFilters() {
-        const domainQuery = (filterDomain ? filterDomain.value : '').trim().toLowerCase();
+        const serviceQuery = (filterService ? filterService.value : '').trim().toLowerCase();
         const matchQuery = (filterMatch ? filterMatch.value : '').trim().toLowerCase();
         const pathQuery = (filterPath ? filterPath.value : '').trim().toLowerCase();
         const pausedQuery = (filterPaused ? filterPaused.value : '').toLowerCase();
@@ -221,20 +222,20 @@
 
         let visibleCount = 0;
 
-        domainRows.forEach((row) => {
-          const domain = row.dataset.domain || '';
+        serviceRows.forEach((row) => {
+          const serviceName = row.dataset.service || row.dataset.domain || '';
           const match = row.dataset.match || '';
           const path = row.dataset.path || '';
           const paused = row.dataset.paused || '';
           const ports = row.dataset.ports || '';
 
-          const matchDomain = !domainQuery || domain.includes(domainQuery);
+          const matchService = !serviceQuery || serviceName.includes(serviceQuery);
           const matchMatch = !matchQuery || match.includes(matchQuery);
           const matchPath = !pathQuery || path.includes(pathQuery);
           const matchPaused = !pausedQuery || paused === pausedQuery;
           const matchPorts = !portsQuery || ports.includes(portsQuery);
 
-          const isVisible = matchDomain && matchMatch && matchPath && matchPaused && matchPorts;
+          const isVisible = matchService && matchMatch && matchPath && matchPaused && matchPorts;
           row.hidden = !isVisible;
           if (isVisible) visibleCount++;
         });
@@ -243,14 +244,17 @@
           countDisplay.textContent = visibleCount;
         }
 
-        const hasFilter = domainQuery || matchQuery || pathQuery || pausedQuery || portsQuery;
+        const hasFilter = serviceQuery || matchQuery || pathQuery || pausedQuery || portsQuery;
         if (resetButton) {
           resetButton.disabled = !hasFilter;
         }
 
         // Sync with URL and sessionStorage
         const params = new URLSearchParams();
-        if (domainQuery) params.set('filter_domain', (filterDomain ? filterDomain.value : '').trim());
+        if (serviceQuery) {
+          params.set('filter_service', (filterService ? filterService.value : '').trim());
+          params.set('filter_domain', (filterService ? filterService.value : '').trim());
+        }
         if (matchQuery) params.set('filter_match', (filterMatch ? filterMatch.value : '').trim());
         if (pathQuery) params.set('filter_path', (filterPath ? filterPath.value : '').trim());
         if (pausedQuery) params.set('filter_paused', pausedQuery);
@@ -262,16 +266,20 @@
 
         if (hasFilter) {
           try {
-            sessionStorage.setItem('pulsecheck_domain_filters', JSON.stringify({
-              domain: (filterDomain ? filterDomain.value : '').trim(),
+            const filterState = {
+              service: (filterService ? filterService.value : '').trim(),
+              domain: (filterService ? filterService.value : '').trim(),
               match: (filterMatch ? filterMatch.value : '').trim(),
               path: (filterPath ? filterPath.value : '').trim(),
               paused: pausedQuery,
               ports: (filterPorts ? filterPorts.value : '').trim()
-            }));
+            };
+            sessionStorage.setItem('pulsecheck_service_filters', JSON.stringify(filterState));
+            sessionStorage.setItem('pulsecheck_domain_filters', JSON.stringify(filterState));
           } catch (e) {}
         } else {
           try {
+            sessionStorage.removeItem('pulsecheck_service_filters');
             sessionStorage.removeItem('pulsecheck_domain_filters');
           } catch (e) {}
         }
@@ -285,7 +293,7 @@
         });
 
         // Update Delete form return_to inputs
-        document.querySelectorAll('.delete-domain-return-to').forEach((input) => {
+        document.querySelectorAll('.delete-service-return-to, .delete-domain-return-to').forEach((input) => {
           input.value = newRelativePathQuery;
         });
 
@@ -304,12 +312,13 @@
 
       if (resetButton) {
         resetButton.addEventListener('click', () => {
-          if (filterDomain) filterDomain.value = '';
+          if (filterService) filterService.value = '';
           if (filterMatch) filterMatch.value = '';
           if (filterPath) filterPath.value = '';
           if (filterPaused) filterPaused.value = '';
           if (filterPorts) filterPorts.value = '';
           try {
+            sessionStorage.removeItem('pulsecheck_service_filters');
             sessionStorage.removeItem('pulsecheck_domain_filters');
           } catch (e) {}
           applyColumnFilters();
@@ -317,7 +326,7 @@
       }
 
       function getVisibleCheckboxes() {
-        return domainRows.filter(r => !r.hidden).map(r => r.querySelector('.domain-checkbox')).filter(Boolean);
+        return serviceRows.filter(r => !r.hidden).map(r => r.querySelector('.service-checkbox, .domain-checkbox')).filter(Boolean);
       }
 
       function updateSelectAllLabel() {
@@ -339,7 +348,7 @@
         });
       }
 
-      domainCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelectAllLabel));
+      serviceCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelectAllLabel));
 
       initFilters();
       applyColumnFilters();

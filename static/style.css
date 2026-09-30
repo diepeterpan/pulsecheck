@@ -79,13 +79,16 @@ nav a.active {
     text-underline-offset: 4px;
 }
 
-.status-domain-link {
+.status-domain-link,
+.status-service-link {
     color: inherit;
     text-decoration: none;
 }
 
 .status-domain-link:hover,
-.status-domain-link:focus-visible {
+.status-domain-link:focus-visible,
+.status-service-link:hover,
+.status-service-link:focus-visible {
     text-decoration: underline;
     text-underline-offset: 3px;
 }
@@ -202,8 +205,9 @@ button.danger {
     margin: 0 0 20px;
 }
 
-/* Domain Maintenance Add Mode Form */
-.add-domain-box {
+/* Service / Domain Maintenance Add Mode Form */
+.add-domain-box,
+.add-service-box {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
@@ -211,25 +215,29 @@ button.danger {
     margin-bottom: 20px;
 }
 
-.add-domain-form .form-row {
+.add-domain-form .form-row,
+.add-service-form .form-row {
     display: flex;
     flex-wrap: wrap;
     align-items: flex-end;
     gap: 12px;
 }
 
-.add-domain-form .form-field {
+.add-domain-form .form-field,
+.add-service-form .form-field {
     flex: 1 1 200px;
 }
 
-.add-domain-form .form-field label {
+.add-domain-form .form-field label,
+.add-service-form .form-field label {
     display: block;
     font-size: 0.85rem;
     margin-bottom: 4px;
     color: #475569;
 }
 
-.add-domain-form .form-field input {
+.add-domain-form .form-field input,
+.add-service-form .form-field input {
     width: 100%;
     padding: 8px 12px;
     border: 1px solid #cbd5e1;
@@ -237,12 +245,14 @@ button.danger {
     font-size: 0.9rem;
 }
 
-.add-domain-form .form-field-btn {
+.add-domain-form .form-field-btn,
+.add-service-form .form-field-btn {
     flex: 0 0 auto;
 }
 
-/* Domain Toolbar (Filter & Bulk Operations) */
-.domain-toolbar {
+/* Service / Domain Toolbar (Filter & Bulk Operations) */
+.domain-toolbar,
+.service-toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -255,12 +265,14 @@ button.danger {
     margin-bottom: 16px;
 }
 
-.domain-filter-group {
+.domain-filter-group,
+.service-filter-group {
     flex: 1 1 240px;
     max-width: 320px;
 }
 
-.domain-filter-group input {
+.domain-filter-group input,
+.service-filter-group input {
     width: 100%;
     padding: 7px 12px;
     border: 1px solid #cbd5e1;
@@ -269,7 +281,8 @@ button.danger {
     background: #ffffff;
 }
 
-.domain-filter-group input:focus {
+.domain-filter-group input:focus,
+.service-filter-group input:focus {
     border-color: #3b82f6;
     outline: none;
     box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
@@ -360,7 +373,7 @@ button.danger {
     border-color: #fca5a5;
 }
 
-/* Domains Table & Single-Line Entries */
+/* Services / Domains Table & Single-Line Entries */
 .table-responsive {
     width: 100%;
     overflow-x: auto;
@@ -370,13 +383,15 @@ button.danger {
     background: #ffffff;
 }
 
-.domains-table {
+.domains-table,
+.services-table {
     width: 100%;
     border-collapse: collapse;
     margin: 0;
 }
 
-.domains-table th {
+.domains-table th,
+.services-table th {
     background: #f8fafc;
     color: #475569;
     font-size: 0.8rem;
@@ -389,7 +404,8 @@ button.danger {
     text-align: left;
 }
 
-.domains-table td {
+.domains-table td,
+.services-table td {
     padding: 10px 14px;
     border-bottom: 1px solid #f1f5f9;
     white-space: nowrap;
@@ -398,11 +414,13 @@ button.danger {
     text-align: left;
 }
 
-.domains-table tbody tr:hover {
+.domains-table tbody tr:hover,
+.services-table tbody tr:hover {
     background: #f8fafc;
 }
 
-.domains-table tbody tr:last-child td {
+.domains-table tbody tr:last-child td,
+.services-table tbody tr:last-child td {
     border-bottom: none;
 }
 
@@ -496,18 +514,21 @@ button.danger {
     color: #94a3b8;
 }
 
-/* Domain stats / count badge in toolbar */
-.domain-stats-group {
+/* Service / Domain stats / count badge in toolbar */
+.domain-stats-group,
+.service-stats-group {
     flex: 0 0 auto;
 }
 
-.domain-count-badge {
+.domain-count-badge,
+.service-count-badge {
     font-size: 0.82rem;
     color: #64748b;
     white-space: nowrap;
 }
 
-.domain-count-badge strong {
+.domain-count-badge strong,
+.service-count-badge strong {
     color: #1e293b;
 }
 
@@ -522,24 +543,28 @@ button.danger {
     display: block;
 }
 
-.col-domain strong {
+.col-domain strong,
+.col-service strong {
     color: #0f172a;
     font-weight: 600;
 }
 
-.domain-name-container {
+.domain-name-container,
+.service-name-container {
     display: inline-flex;
     align-items: center;
     gap: 8px;
     position: relative;
 }
 
-.domain-name-text {
+.domain-name-text,
+.service-name-text {
     color: #0f172a;
     font-weight: 600;
 }
 
-.domain-comment-badge {
+.domain-comment-badge,
+.service-comment-badge {
     position: relative;
     display: inline-flex;
     align-items: center;
@@ -555,14 +580,17 @@ button.danger {
 }
 
 .domain-comment-badge:hover,
-.domain-comment-badge:focus {
+.domain-comment-badge:focus,
+.service-comment-badge:hover,
+.service-comment-badge:focus {
     background: #4338ca;
     color: #ffffff;
     border-color: #4338ca;
     outline: none;
 }
 
-.domain-comment-badge .tooltip-bubble {
+.domain-comment-badge .tooltip-bubble,
+.service-comment-badge .tooltip-bubble {
     visibility: hidden;
     opacity: 0;
     position: absolute;
@@ -586,7 +614,8 @@ button.danger {
     transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.domain-comment-badge .tooltip-bubble::after {
+.domain-comment-badge .tooltip-bubble::after,
+.service-comment-badge .tooltip-bubble::after {
     content: "";
     position: absolute;
     top: 100%;
@@ -598,7 +627,9 @@ button.danger {
 }
 
 .domain-comment-badge:hover .tooltip-bubble,
-.domain-comment-badge:focus .tooltip-bubble {
+.domain-comment-badge:focus .tooltip-bubble,
+.service-comment-badge:hover .tooltip-bubble,
+.service-comment-badge:focus .tooltip-bubble {
     visibility: visible;
     opacity: 1;
     transform: translateX(-50%) translateY(0);
@@ -813,7 +844,8 @@ button.danger {
     min-width: 720px;
 }
 
-.status-table .col-domain {
+.status-table .col-domain,
+.status-table .col-service {
     width: 22%;
 }
 
@@ -855,6 +887,7 @@ button.danger {
 }
 
 .status-table td.col-domain,
+.status-table td.col-service,
 .status-table td.col-match,
 .status-table td.col-ports {
     position: relative;
@@ -886,20 +919,23 @@ button.danger {
     line-height: 1.4;
 }
 
-.status-table .status-domain-strong {
+.status-table .status-domain-strong,
+.status-table .status-service-strong {
     display: block;
     max-width: 100%;
     min-width: 0;
 }
 
-.status-table .status-domain-link {
+.status-table .status-domain-link,
+.status-table .status-service-link {
     color: #0f172a;
     text-decoration: none;
     display: inline;
     transition: color 0.15s ease;
 }
 
-.status-table .status-domain-link:hover {
+.status-table .status-domain-link:hover,
+.status-table .status-service-link:hover {
     color: #2563eb;
     text-decoration: underline;
 }

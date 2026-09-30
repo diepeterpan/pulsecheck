@@ -6,9 +6,9 @@
     </div>
 
     {% if grouped %}
-      <div class="domain-toolbar status-toolbar">
-        <div class="domain-filter-group">
-          <input type="search" id="status-filter" placeholder="Filter domains..." autocomplete="off" aria-label="Filter domains by name">
+      <div class="service-toolbar domain-toolbar status-toolbar">
+        <div class="service-filter-group domain-filter-group">
+          <input type="search" id="status-filter" placeholder="Filter services..." autocomplete="off" aria-label="Filter services by name">
         </div>
 
         <div class="status-filter-pills" id="status-filter-pills">
@@ -20,10 +20,10 @@
       </div>
 
       <div class="table-responsive">
-        <table class="domains-table status-table">
+        <table class="services-table domains-table status-table">
           <thead>
             <tr>
-              <th class="col-domain">Domain</th>
+              <th class="col-service col-domain">Service</th>
               <th class="col-match">Match</th>
               <th class="col-status">Status</th>
               <th class="col-ports">Monitored Ports</th>
@@ -33,15 +33,15 @@
             </tr>
           </thead>
           <tbody>
-            {% for domain_name, entries in grouped.items() %}
+            {% for service_name, entries in grouped.items() %}
               {% set first_entry = entries[0] %}
               {% set valid_ports = entries | selectattr('port') | list %}
               {% set checked_entries = entries | selectattr('checked_at') | list %}
               {% if checked_entries %}
                 {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
-                {% set domain_checked_at = latest_entry.checked_at_local %}
+                {% set service_checked_at = latest_entry.checked_at_local %}
               {% else %}
-                {% set domain_checked_at = first_entry.checked_at_local %}
+                {% set service_checked_at = first_entry.checked_at_local %}
               {% endif %}
               {% if not valid_ports %}
                 {% set overall_status = 'none' %}
@@ -62,18 +62,18 @@
                 {% endif %}
               {% endif %}
 
-              <tr class="domain-row status-row" data-domain="{{ domain_name | lower }}" data-status="{{ overall_status }}">
-                <td class="col-domain">
+              <tr class="service-row domain-row status-row" data-service="{{ service_name | lower }}" data-domain="{{ service_name | lower }}" data-status="{{ overall_status }}">
+                <td class="col-service col-domain">
                   <div class="cell-truncate-wrapper" tabindex="0">
-                    <strong class="status-domain-strong truncate-text">
-                      <a class="status-domain-link" href="{{ url_for('domains', filter=domain_name) }}" title="{{ domain_name }}">{{ domain_name }}</a>
+                    <strong class="status-service-strong status-domain-strong truncate-text">
+                      <a class="status-service-link status-domain-link" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}">{{ service_name }}</a>
                     </strong>
                     {% if first_entry.use_proxy %}
                       <span class="badge badge-proxy" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                     {% endif %}
                     <span class="cell-hover-box" role="tooltip">
-                      <span class="hover-box-label">Domain</span>
-                      <span class="hover-box-value">{{ domain_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}</span>
+                      <span class="hover-box-label">Service</span>
+                      <span class="hover-box-value">{{ service_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}</span>
                     </span>
                   </div>
                 </td>
@@ -135,14 +135,14 @@
                   {% endif %}
                 </td>
                 <td class="col-time">
-                  <span class="scan-time">{{ domain_checked_at or 'Never' }}</span>
+                  <span class="scan-time">{{ service_checked_at or 'Never' }}</span>
                 </td>
                 <td class="col-actions">
                   <div class="row-actions">
-                    <form method="post" action="{{ url_for('rescan_domain_route', domain_id=first_entry.id) }}" class="inline-form">
-                      <button type="submit" class="btn-action primary" title="Rescan this domain now">Rescan</button>
+                    <form method="post" action="{{ url_for('rescan_service_route', service_id=first_entry.id) }}" class="inline-form">
+                      <button type="submit" class="btn-action primary" title="Rescan this service now">Rescan</button>
                     </form>
-                    <a class="btn-action edit" href="{{ url_for('edit_domain', domain_id=first_entry.id) }}" title="Edit domain settings">Edit</a>
+                    <a class="btn-action edit" href="{{ url_for('edit_service', service_id=first_entry.id) }}" title="Edit service settings">Edit</a>
                   </div>
                 </td>
               </tr>
@@ -172,9 +172,9 @@
         function applyFilters() {
           const query = (statusFilter ? statusFilter.value : '').trim().toLowerCase();
           statusRows.forEach(row => {
-            const domain = row.dataset.domain || '';
+            const serviceName = row.dataset.service || row.dataset.domain || '';
             const status = row.dataset.status || '';
-            const matchesQuery = !query || domain.includes(query);
+            const matchesQuery = !query || serviceName.includes(query);
             const matchesStatus = (currentStatusFilter === 'all') || (status === currentStatusFilter);
             row.hidden = !(matchesQuery && matchesStatus);
           });
