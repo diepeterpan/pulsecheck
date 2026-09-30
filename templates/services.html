@@ -11,8 +11,8 @@
     </div>
 
     {% if add_mode %}
-      <div class="add-service-box add-domain-box">
-        <form method="post" action="{{ url_for('add_service_route') }}" class="add-service-form add-domain-form">
+      <div class="add-service-box add-service-box">
+        <form method="post" action="{{ url_for('add_service_route') }}" class="add-service-form add-service-form">
           <div class="form-row">
             <div class="form-field">
               <label for="name">Service</label>
@@ -45,9 +45,9 @@
     {% endif %}
 
     {% if services and not add_mode %}
-      <div class="service-toolbar domain-toolbar">
-        <div class="service-stats-group domain-stats-group">
-          <span class="service-count-badge domain-count-badge">
+      <div class="service-toolbar service-toolbar">
+        <div class="service-stats-group service-stats-group">
+          <span class="service-count-badge service-count-badge">
             Showing <strong id="filtered-services-count">{{ services | length }}</strong> of <strong>{{ services | length }}</strong> services
           </span>
         </div>
@@ -76,11 +76,11 @@
     {% endif %}
 
     <div class="table-responsive">
-      <table class="services-table domains-table">
+      <table class="services-table services-table">
         <thead>
           <tr>
             <th class="col-select">Select</th>
-            <th class="col-service col-domain">Service</th>
+            <th class="col-service col-service">Service</th>
             <th class="col-match">Match</th>
             <th class="col-path">URL path</th>
             <th class="col-paused">Paused</th>
@@ -90,8 +90,8 @@
           {% if services and not add_mode %}
             <tr class="filter-header-row">
               <th class="col-filter-cell col-select"></th>
-              <th class="col-filter-cell col-service col-domain">
-                <input type="search" id="filter-col-service" class="column-filter-input" data-col="service" placeholder="Filter service..." value="{{ request.args.get('filter_service', request.args.get('filter_domain', request.args.get('filter', '')) ) }}" autocomplete="off" aria-label="Filter service">
+              <th class="col-filter-cell col-service col-service">
+                <input type="search" id="filter-col-service" class="column-filter-input" data-col="service" placeholder="Filter service..." value="{{ request.args.get('filter_service', request.args.get('filter', '')) }}" autocomplete="off" aria-label="Filter service">
               </th>
               <th class="col-filter-cell col-match">
                 <input type="search" id="filter-col-match" class="column-filter-input" data-col="match" placeholder="Filter match..." value="{{ request.args.get('filter_match', '') }}" autocomplete="off" aria-label="Filter match">
@@ -117,23 +117,23 @@
         </thead>
         <tbody>
           {% for service in services %}
-            <tr class="service-row domain-row"
+            <tr class="service-row service-row"
                 data-service="{{ service.name | lower }}"
-                data-domain="{{ service.name | lower }}"
+                
                 data-match="{{ service.match | lower }}"
                 data-path="{{ (service.url_path or '(root)') | lower }}"
                 data-comment="{{ (service.comment or '') | lower }}"
                 data-paused="{{ 'paused' if service.paused else 'active' }}"
                 data-ports="{{ (service.ports | join(' ') if service.ports else 'none') | lower }}">
-              <td class="col-select"><input type="checkbox" class="service-checkbox domain-checkbox" name="service_ids" value="{{ service.id }}" form="bulk-port-form" aria-label="Select {{ service.name }}"></td>
-              <td class="col-service col-domain">
-                <div class="service-name-container domain-name-container">
-                  <strong class="service-name-text domain-name-text">{{ service.name }}</strong>
+              <td class="col-select"><input type="checkbox" class="service-checkbox service-checkbox" name="service_ids" value="{{ service.id }}" form="bulk-port-form" aria-label="Select {{ service.name }}"></td>
+              <td class="col-service col-service">
+                <div class="service-name-container service-name-container">
+                  <strong class="service-name-text service-name-text">{{ service.name }}</strong>
                   {% if service.use_proxy %}
                     <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                   {% endif %}
                   {% if service.comment %}
-                    <span class="domain-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
+                    <span class="service-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
                       <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                       <span class="tooltip-bubble">{{ service.comment }}</span>
                     </span>
@@ -148,7 +148,7 @@
                 <div class="row-actions">
                   <a class="btn-action edit" href="{{ url_for('edit_service', service_id=service.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('delete_service_route', service_id=service.id) }}" class="inline-form">
-                    <input type="hidden" name="return_to" class="delete-service-return-to delete-domain-return-to" value="">
+                    <input type="hidden" name="return_to" class="delete-service-return-to delete-service-return-to" value="">
                     <button type="submit" class="btn-action danger" onclick="return confirm('Delete {{ service.name }}?');">Delete</button>
                   </form>
                 </div>
@@ -162,13 +162,13 @@
 
   {% if services and not add_mode %}
     <script>
-      const selectAllButton = document.getElementById('select-all-services') || document.getElementById('select-all-domains');
-      const serviceCheckboxes = Array.from(document.querySelectorAll('.service-checkbox, .domain-checkbox'));
-      const serviceRows = Array.from(document.querySelectorAll('.service-row, .domain-row'));
-      const countDisplay = document.getElementById('filtered-services-count') || document.getElementById('filtered-domains-count');
+      const selectAllButton = document.getElementById('select-all-services') || document.getElementById('select-all-services');
+      const serviceCheckboxes = Array.from(document.querySelectorAll('.service-checkbox, .service-checkbox'));
+      const serviceRows = Array.from(document.querySelectorAll('.service-row, .service-row'));
+      const countDisplay = document.getElementById('filtered-services-count') || document.getElementById('filtered-services-count');
       const resetButton = document.getElementById('reset-all-filters');
 
-      const filterService = document.getElementById('filter-col-service') || document.getElementById('filter-col-domain');
+      const filterService = document.getElementById('filter-col-service') || document.getElementById('filter-col-service');
       const filterMatch = document.getElementById('filter-col-match');
       const filterPath = document.getElementById('filter-col-path');
       const filterPaused = document.getElementById('filter-col-paused');
@@ -179,13 +179,13 @@
       function initFilters() {
         const urlParams = new URLSearchParams(window.location.search);
         let hasUrlParam = false;
-        ['filter_service', 'filter_domain', 'filter', 'filter_match', 'filter_path', 'filter_paused', 'filter_ports'].forEach(k => {
+        ['filter_service', 'filter', 'filter_match', 'filter_path', 'filter_paused', 'filter_ports'].forEach(k => {
           if (urlParams.has(k) && urlParams.get(k).trim()) hasUrlParam = true;
         });
 
         if (hasUrlParam) {
-          if (filterService && (urlParams.get('filter_service') || urlParams.get('filter_domain') || urlParams.get('filter'))) {
-            filterService.value = urlParams.get('filter_service') || urlParams.get('filter_domain') || urlParams.get('filter');
+          if (filterService && (urlParams.get('filter_service') || urlParams.get('filter'))) {
+            filterService.value = urlParams.get('filter_service') || urlParams.get('filter');
           }
           if (filterMatch && urlParams.get('filter_match')) {
             filterMatch.value = urlParams.get('filter_match');
@@ -201,9 +201,9 @@
           }
         } else {
           try {
-            const saved = JSON.parse(sessionStorage.getItem('pulsecheck_service_filters') || sessionStorage.getItem('pulsecheck_domain_filters') || 'null');
+            const saved = JSON.parse(sessionStorage.getItem('pulsecheck_service_filters') || 'null');
             if (saved) {
-              if (filterService && (saved.service || saved.domain)) filterService.value = saved.service || saved.domain;
+              if (filterService && saved.service) filterService.value = saved.service;
               if (filterMatch && saved.match) filterMatch.value = saved.match;
               if (filterPath && saved.path) filterPath.value = saved.path;
               if (filterPaused && saved.paused) filterPaused.value = saved.paused;
@@ -223,7 +223,7 @@
         let visibleCount = 0;
 
         serviceRows.forEach((row) => {
-          const serviceName = row.dataset.service || row.dataset.domain || '';
+          const serviceName = row.dataset.service || row.dataset.service || '';
           const match = row.dataset.match || '';
           const path = row.dataset.path || '';
           const paused = row.dataset.paused || '';
@@ -253,7 +253,6 @@
         const params = new URLSearchParams();
         if (serviceQuery) {
           params.set('filter_service', (filterService ? filterService.value : '').trim());
-          params.set('filter_domain', (filterService ? filterService.value : '').trim());
         }
         if (matchQuery) params.set('filter_match', (filterMatch ? filterMatch.value : '').trim());
         if (pathQuery) params.set('filter_path', (filterPath ? filterPath.value : '').trim());
@@ -268,19 +267,16 @@
           try {
             const filterState = {
               service: (filterService ? filterService.value : '').trim(),
-              domain: (filterService ? filterService.value : '').trim(),
               match: (filterMatch ? filterMatch.value : '').trim(),
               path: (filterPath ? filterPath.value : '').trim(),
               paused: pausedQuery,
               ports: (filterPorts ? filterPorts.value : '').trim()
             };
             sessionStorage.setItem('pulsecheck_service_filters', JSON.stringify(filterState));
-            sessionStorage.setItem('pulsecheck_domain_filters', JSON.stringify(filterState));
           } catch (e) {}
         } else {
           try {
             sessionStorage.removeItem('pulsecheck_service_filters');
-            sessionStorage.removeItem('pulsecheck_domain_filters');
           } catch (e) {}
         }
 
@@ -293,7 +289,7 @@
         });
 
         // Update Delete form return_to inputs
-        document.querySelectorAll('.delete-service-return-to, .delete-domain-return-to').forEach((input) => {
+        document.querySelectorAll('.delete-service-return-to, .delete-service-return-to').forEach((input) => {
           input.value = newRelativePathQuery;
         });
 
@@ -319,14 +315,13 @@
           if (filterPorts) filterPorts.value = '';
           try {
             sessionStorage.removeItem('pulsecheck_service_filters');
-            sessionStorage.removeItem('pulsecheck_domain_filters');
           } catch (e) {}
           applyColumnFilters();
         });
       }
 
       function getVisibleCheckboxes() {
-        return serviceRows.filter(r => !r.hidden).map(r => r.querySelector('.service-checkbox, .domain-checkbox')).filter(Boolean);
+        return serviceRows.filter(r => !r.hidden).map(r => r.querySelector('.service-checkbox')).filter(Boolean);
       }
 
       function updateSelectAllLabel() {

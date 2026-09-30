@@ -896,7 +896,6 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
                 "index": index,
                 "total": total,
                 "service": value,
-                "domain": value,
                 "port": None,
                 "status": "checking",
                 "message": f"Checking service {index} of {total}: {value}",
@@ -918,7 +917,6 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
                 "index": index,
                 "total": total,
                 "service": normalized,
-                "domain": normalized,
                 "port": None,
                 "status": "scanning",
                 "message": f"Scanning ports for {normalized}",
@@ -930,7 +928,6 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
                 "index": index,
                 "total": total,
                 "service": s,
-                "domain": s,
                 "port": info["port"],
                 "status": "port",
                 "message": info["message"],
@@ -999,8 +996,6 @@ def import_services_from_csv(
         "invalid": 0,
         "imported_services": [],
         "skipped_services": [],
-        "imported_domains": [],
-        "skipped_domains": [],
         "invalid_rows": [],
     }
 
@@ -1056,7 +1051,6 @@ def import_services_from_csv(
                 "index": index,
                 "total": total_records,
                 "service": service_val or f"Record {index}",
-                "domain": service_val or f"Record {index}",
                 "status": "processing",
                 "message": f"Processing record {index} of {total_records}: {service_val}",
             })
@@ -1076,7 +1070,6 @@ def import_services_from_csv(
         if service_exists(normalized):
             summary["skipped"] += 1
             summary["skipped_services"].append(normalized)
-            summary["skipped_domains"].append(normalized)
             continue
 
         m_idx = col_map.get("match", -1)
@@ -1121,7 +1114,6 @@ def import_services_from_csv(
                     "index": index,
                     "total": total_records,
                     "service": normalized,
-                    "domain": normalized,
                     "status": "scanning",
                     "message": f"Scanning ports for {normalized} ({', '.join(str(p) for p in ports_val)})",
                 })
@@ -1129,7 +1121,6 @@ def import_services_from_csv(
 
         summary["imported"] += 1
         summary["imported_services"].append(normalized)
-        summary["imported_domains"].append(normalized)
 
     return summary
 
@@ -2141,7 +2132,6 @@ def check_all_services(
         if before_info["overall_status"] != after_info["overall_status"] or port_changes:
             changes.append({
                 "service": after_info["name"],
-                "domain": after_info["name"],
                 "old_status": before_info["overall_status"],
                 "new_status": after_info["overall_status"],
                 "port_changes": port_changes,

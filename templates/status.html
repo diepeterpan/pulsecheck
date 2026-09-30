@@ -6,8 +6,8 @@
     </div>
 
     {% if grouped %}
-      <div class="service-toolbar domain-toolbar status-toolbar">
-        <div class="service-filter-group domain-filter-group">
+      <div class="service-toolbar service-toolbar status-toolbar">
+        <div class="service-filter-group service-filter-group">
           <input type="search" id="status-filter" placeholder="Filter services..." autocomplete="off" aria-label="Filter services by name">
         </div>
 
@@ -20,10 +20,10 @@
       </div>
 
       <div class="table-responsive">
-        <table class="services-table domains-table status-table">
+        <table class="services-table services-table status-table">
           <thead>
             <tr>
-              <th class="col-service col-domain">Service</th>
+              <th class="col-service col-service">Service</th>
               <th class="col-match">Match</th>
               <th class="col-status">Status</th>
               <th class="col-ports">Monitored Ports</th>
@@ -62,11 +62,11 @@
                 {% endif %}
               {% endif %}
 
-              <tr class="service-row domain-row status-row" data-service="{{ service_name | lower }}" data-domain="{{ service_name | lower }}" data-status="{{ overall_status }}">
-                <td class="col-service col-domain">
+              <tr class="service-row service-row status-row" data-service="{{ service_name | lower }}"  data-status="{{ overall_status }}">
+                <td class="col-service col-service">
                   <div class="cell-truncate-wrapper" tabindex="0">
-                    <strong class="status-service-strong status-domain-strong truncate-text">
-                      <a class="status-service-link status-domain-link" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}">{{ service_name }}</a>
+                    <strong class="status-service-strong status-service-strong truncate-text">
+                      <a class="status-service-link status-service-link" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}">{{ service_name }}</a>
                     </strong>
                     {% if first_entry.use_proxy %}
                       <span class="badge badge-proxy" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
@@ -172,7 +172,7 @@
         function applyFilters() {
           const query = (statusFilter ? statusFilter.value : '').trim().toLowerCase();
           statusRows.forEach(row => {
-            const serviceName = row.dataset.service || row.dataset.domain || '';
+            const serviceName = row.dataset.service || row.dataset.service || '';
             const status = row.dataset.status || '';
             const matchesQuery = !query || serviceName.includes(query);
             const matchesStatus = (currentStatusFilter === 'all') || (status === currentStatusFilter);

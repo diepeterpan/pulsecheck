@@ -191,7 +191,7 @@ class SettingsTests(unittest.TestCase):
 
     @patch("app.send_email")
     @patch("app.scan_service")
-    def test_check_all_domains_sends_notification_on_state_change(self, mock_scan, mock_send_email):
+    def test_check_all_services_sends_notification_on_state_change(self, mock_scan, mock_send_email):
         mock_send_email.return_value = (True, "Sent")
 
         # Configure SMTP settings
@@ -239,7 +239,7 @@ class SettingsTests(unittest.TestCase):
         changes = pulsecheck_app.check_all_services()
 
         self.assertEqual(len(changes), 1)
-        self.assertEqual(changes[0]["domain"], "service.example")
+        self.assertEqual(changes[0]["service"], "service.example")
         self.assertEqual(changes[0]["old_status"], "online")
         self.assertEqual(changes[0]["new_status"], "degraded")
         self.assertIn("Port 80: ONLINE -> OFFLINE", changes[0]["port_changes"])
@@ -256,7 +256,7 @@ class SettingsTests(unittest.TestCase):
 
     @patch("app.send_email")
     @patch("app.scan_service")
-    def test_check_all_domains_no_notification_when_no_change(self, mock_scan, mock_send_email):
+    def test_check_all_services_no_notification_when_no_change(self, mock_scan, mock_send_email):
         # Configure SMTP settings
         pulsecheck_app.save_settings({
             "smtp_host": "smtp.example.com",
@@ -296,7 +296,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(changes, [])
         mock_send_email.assert_not_called()
 
-    def test_export_domains_csv(self):
+    def test_export_services_csv(self):
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
             "INSERT INTO services (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
@@ -317,7 +317,7 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("domain-b.com,other,,,1,0,8080", lines)
 
     @patch("app.scan_service")
-    def test_import_domains_from_csv_success_and_skip_duplicates(self, mock_scan):
+    def test_import_services_from_csv_success_and_skip_duplicates(self, mock_scan):
         # Seed an existing domain in the database
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
@@ -338,9 +338,9 @@ bad site!!,bad,,0,80
         self.assertEqual(summary["imported"], 2)
         self.assertEqual(summary["skipped"], 1)
         self.assertEqual(summary["invalid"], 1)
-        self.assertIn("existing.com", summary["skipped_domains"])
-        self.assertIn("newsite.com", summary["imported_domains"])
-        self.assertIn("pausedsite.com", summary["imported_domains"])
+        self.assertIn("existing.com", summary["skipped_services"])
+        self.assertIn("newsite.com", summary["imported_services"])
+        self.assertIn("pausedsite.com", summary["imported_services"])
 
         # Check newsite.com in DB
         domains = {d["name"]: d for d in pulsecheck_app.service_list()}
@@ -390,7 +390,7 @@ bad site!!,bad,,0,80
 
     @patch("app.discover_ports")
     @patch("app.scan_service")
-    def test_update_domain_with_empty_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
+    def test_update_service_with_empty_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
             "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
@@ -411,7 +411,7 @@ bad site!!,bad,,0,80
 
     @patch("app.discover_ports")
     @patch("app.scan_service")
-    def test_import_domains_from_csv_no_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
+    def test_import_services_from_csv_no_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
         csv_data = """Domain,Match,URL path,Paused,Ports
 noports.com,noports,,0,
 """
@@ -561,7 +561,7 @@ site3.com,site3,,0,80
             pulsecheck_app.DB_PATH = orig_db_path
             temp_dir.cleanup()
 
-    def test_domain_comment_crud(self):
+    def test_service_comment_crud(self):
         with patch("app.scan_service"):
             service_id = pulsecheck_app.add_service(
                 "comment-test.com",
@@ -582,7 +582,7 @@ site3.com,site3,,0,80
             domain = pulsecheck_app.get_service_by_id(service_id)
             self.assertEqual(domain["comment"], "Updated secondary API server")
 
-    def test_domain_comment_web_ui(self):
+    def test_service_comment_web_ui(self):
         with patch("app.scan_service"):
             # Add domain via web POST
             resp = self.client.post(
@@ -601,7 +601,7 @@ site3.com,site3,,0,80
             list_resp = self.client.get("/services")
             self.assertEqual(list_resp.status_code, 200)
             html = list_resp.data.decode("utf-8")
-            self.assertIn('class="domain-comment-badge"', html)
+            self.assertIn('class="service-comment-badge"', html)
             self.assertIn('Customer billing system', html)
             self.assertIn('class="tooltip-bubble"', html)
 
@@ -666,10 +666,10 @@ site3.com,site3,,0,80
             self.assertEqual(reimported["headerless-comment.io"]["comment"], "Direct node")
             self.assertEqual(reimported["legacy-no-comment.io"]["comment"], "")
 
-    def test_domains_filter_query_params_prefill(self):
+    def test_services_filter_query_params_prefill(self):
         with patch("app.scan_service"):
             pulsecheck_app.add_service("alpha.com")
-        resp = self.client.get("/services?filter_domain=alpha&filter_match=alp&filter_path=/test&filter_paused=active&filter_ports=443")
+        resp = self.client.get("/services?filter_service=alpha&filter_match=alp&filter_path=/test&filter_paused=active&filter_ports=443")
         self.assertEqual(resp.status_code, 200)
         html = resp.data.decode("utf-8")
         self.assertIn('value="alpha"', html)
@@ -678,10 +678,10 @@ site3.com,site3,,0,80
         self.assertIn('value="active" selected', html)
         self.assertIn('value="443"', html)
 
-    def test_edit_domain_maintains_filter_return_to(self):
+    def test_edit_service_maintains_filter_return_to(self):
         with patch("app.scan_service"):
             service_id = pulsecheck_app.add_service("filter-preserve.com")
-            return_url = "/services?filter_domain=filter-preserve&filter_paused=active"
+            return_url = "/services?filter_service=filter-preserve&filter_paused=active"
 
             # 1. GET edit page with return_to (properly URL-encoded)
             import html as html_lib
@@ -971,7 +971,7 @@ site3.com,site3,,0,80
         self.assertEqual(row[0], "online")
         self.assertEqual(row[1], 1)
 
-    def test_scan_domain_with_retries(self):
+    def test_scan_service_with_retries(self):
         # 1. Success on first attempt: no sleep, exactly 1 call
         sleep_calls = []
         scan_calls = []
@@ -1027,9 +1027,9 @@ site3.com,site3,,0,80
         self.assertEqual(len(scan_calls), 4)
         self.assertEqual(sleep_calls, [10, 10, 10])
 
-    def test_check_all_domains_parallel_execution(self):
+    def test_check_all_services_parallel_execution(self):
         import threading
-        # Insert 6 domains into DB
+        # Insert 6 services into DB
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
         for i in range(1, 7):
@@ -1037,19 +1037,19 @@ site3.com,site3,,0,80
         conn.commit()
         conn.close()
 
-        scanned_domains = []
+        scanned_services = []
         lock = threading.Lock()
 
-        def mock_scan_retries(domain, max_retries=3, retry_interval=10, explicit_debug=None):
+        def mock_scan_retries(service, max_retries=3, retry_interval=10, explicit_debug=None):
             with lock:
-                scanned_domains.append(domain["name"])
+                scanned_services.append(service["name"])
             return {80: "online"}
 
         with patch("app.scan_service_with_retries", side_effect=mock_scan_retries):
             pulsecheck_app.check_all_services(workers=5, max_retries=3, retry_interval=0)
 
-        self.assertEqual(len(scanned_domains), 6)
-        self.assertEqual(set(scanned_domains), {f"dom{i}.local" for i in range(1, 7)})
+        self.assertEqual(len(scanned_services), 6)
+        self.assertEqual(set(scanned_services), {f"dom{i}.local" for i in range(1, 7)})
 
     def test_proxy_settings_storage_and_password_preservation(self):
         new_settings = {
@@ -1079,7 +1079,7 @@ site3.com,site3,,0,80
         self.assertEqual(reloaded["proxy_password"], "supersecretpassword")
 
     @patch("app.scan_service")
-    def test_domain_use_proxy_database_field_and_edit(self, mock_scan):
+    def test_service_use_proxy_database_field_and_edit(self, mock_scan):
         # 1. Add domain with use_proxy default (False)
         service_id = pulsecheck_app.add_service("plain.example", paused=True)
         d = pulsecheck_app.get_service_by_id(service_id)
@@ -1262,7 +1262,7 @@ direct.example,direct,,Direct site,0,0,8080
 
     @patch("app.fetch_socket_response")
     @patch("app.fetch_response")
-    def test_scan_domain_uses_proxy_and_skips_socket_fallback(self, mock_fetch, mock_socket):
+    def test_scan_service_uses_proxy_and_skips_socket_fallback(self, mock_fetch, mock_socket):
         # Configure domain in DB with use_proxy=1
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
@@ -1353,7 +1353,7 @@ direct.example,direct,,Direct site,0,0,8080
         # Verify body was decompressed
         self.assertIn(b"Decompressed Secret Content", body)
 
-    def test_scan_domain_matches_token_in_headers(self):
+    def test_scan_service_matches_token_in_headers(self):
         class FakeResponseWithHeaderToken:
             status = 200
             headers = {"X-Cluster-Node": "WorkerNode77"}
@@ -1390,14 +1390,14 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertEqual(row["status"], "online")
         self.assertEqual(row["is_online"], 1)
 
-    def test_status_page_domain_and_match_truncation_and_hover_box(self):
+    def test_status_page_service_and_match_truncation_and_hover_box(self):
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        long_domain = "really-long-subdomain-12345.production.api.internal-cloud-network.company.com"
+        long_service = "really-long-subdomain-12345.production.api.internal-cloud-network.company.com"
         long_match = "Corporate Authentication Portal - Cluster Edge Node 42"
         c.execute(
             "INSERT INTO services (name, match, ports, paused) VALUES (?, ?, ?, 0)",
-            (long_domain, long_match, "[443]"),
+            (long_service, long_match, "[443]"),
         )
         d_id = c.lastrowid
         c.execute(
@@ -1415,7 +1415,7 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn("cell-truncate-wrapper", html)
         self.assertIn("truncate-text", html)
         self.assertIn("cell-hover-box", html)
-        self.assertIn(long_domain, html)
+        self.assertIn(long_service, html)
         self.assertIn(long_match, html)
         self.assertTrue('<span class="hover-box-label">Service</span>' in html or '<span class="hover-box-label">Domain</span>' in html)
         self.assertIn('<span class="hover-box-label">Match</span>', html)

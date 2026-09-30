@@ -79,14 +79,14 @@ nav a.active {
     text-underline-offset: 4px;
 }
 
-.status-domain-link,
+.status-service-link,
 .status-service-link {
     color: inherit;
     text-decoration: none;
 }
 
-.status-domain-link:hover,
-.status-domain-link:focus-visible,
+.status-service-link:hover,
+.status-service-link:focus-visible,
 .status-service-link:hover,
 .status-service-link:focus-visible {
     text-decoration: underline;
@@ -205,8 +205,8 @@ button.danger {
     margin: 0 0 20px;
 }
 
-/* Service / Domain Maintenance Add Mode Form */
-.add-domain-box,
+/* Service Maintenance Add Mode Form */
+.add-service-box,
 .add-service-box {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
@@ -215,7 +215,7 @@ button.danger {
     margin-bottom: 20px;
 }
 
-.add-domain-form .form-row,
+.add-service-form .form-row,
 .add-service-form .form-row {
     display: flex;
     flex-wrap: wrap;
@@ -223,12 +223,12 @@ button.danger {
     gap: 12px;
 }
 
-.add-domain-form .form-field,
+.add-service-form .form-field,
 .add-service-form .form-field {
     flex: 1 1 200px;
 }
 
-.add-domain-form .form-field label,
+.add-service-form .form-field label,
 .add-service-form .form-field label {
     display: block;
     font-size: 0.85rem;
@@ -236,7 +236,7 @@ button.danger {
     color: #475569;
 }
 
-.add-domain-form .form-field input,
+.add-service-form .form-field input,
 .add-service-form .form-field input {
     width: 100%;
     padding: 8px 12px;
@@ -245,13 +245,13 @@ button.danger {
     font-size: 0.9rem;
 }
 
-.add-domain-form .form-field-btn,
+.add-service-form .form-field-btn,
 .add-service-form .form-field-btn {
     flex: 0 0 auto;
 }
 
-/* Service / Domain Toolbar (Filter & Bulk Operations) */
-.domain-toolbar,
+/* Service Toolbar (Filter & Bulk Operations) */
+.service-toolbar,
 .service-toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -265,13 +265,13 @@ button.danger {
     margin-bottom: 16px;
 }
 
-.domain-filter-group,
+.service-filter-group,
 .service-filter-group {
     flex: 1 1 240px;
     max-width: 320px;
 }
 
-.domain-filter-group input,
+.service-filter-group input,
 .service-filter-group input {
     width: 100%;
     padding: 7px 12px;
@@ -281,7 +281,7 @@ button.danger {
     background: #ffffff;
 }
 
-.domain-filter-group input:focus,
+.service-filter-group input:focus,
 .service-filter-group input:focus {
     border-color: #3b82f6;
     outline: none;
@@ -373,7 +373,7 @@ button.danger {
     border-color: #fca5a5;
 }
 
-/* Services / Domains Table & Single-Line Entries */
+/* Services Table & Single-Line Entries */
 .table-responsive {
     width: 100%;
     overflow-x: auto;
@@ -383,14 +383,14 @@ button.danger {
     background: #ffffff;
 }
 
-.domains-table,
+.services-table,
 .services-table {
     width: 100%;
     border-collapse: collapse;
     margin: 0;
 }
 
-.domains-table th,
+.services-table th,
 .services-table th {
     background: #f8fafc;
     color: #475569;
@@ -404,7 +404,7 @@ button.danger {
     text-align: left;
 }
 
-.domains-table td,
+.services-table td,
 .services-table td {
     padding: 10px 14px;
     border-bottom: 1px solid #f1f5f9;
@@ -414,12 +414,12 @@ button.danger {
     text-align: left;
 }
 
-.domains-table tbody tr:hover,
+.services-table tbody tr:hover,
 .services-table tbody tr:hover {
     background: #f8fafc;
 }
 
-.domains-table tbody tr:last-child td,
+.services-table tbody tr:last-child td,
 .services-table tbody tr:last-child td {
     border-bottom: none;
 }
@@ -514,20 +514,20 @@ button.danger {
     color: #94a3b8;
 }
 
-/* Service / Domain stats / count badge in toolbar */
-.domain-stats-group,
+/* Service stats / count badge in toolbar */
+.service-stats-group,
 .service-stats-group {
     flex: 0 0 auto;
 }
 
-.domain-count-badge,
+.service-count-badge,
 .service-count-badge {
     font-size: 0.82rem;
     color: #64748b;
     white-space: nowrap;
 }
 
-.domain-count-badge strong,
+.service-count-badge strong,
 .service-count-badge strong {
     color: #1e293b;
 }
@@ -543,13 +543,13 @@ button.danger {
     display: block;
 }
 
-.col-domain strong,
+.col-service strong,
 .col-service strong {
     color: #0f172a;
     font-weight: 600;
 }
 
-.domain-name-container,
+.service-name-container,
 .service-name-container {
     display: inline-flex;
     align-items: center;
@@ -557,13 +557,13 @@ button.danger {
     position: relative;
 }
 
-.domain-name-text,
+.service-name-text,
 .service-name-text {
     color: #0f172a;
     font-weight: 600;
 }
 
-.domain-comment-badge,
+.service-comment-badge,
 .service-comment-badge {
     position: relative;
     display: inline-flex;
@@ -579,8 +579,8 @@ button.danger {
     transition: all 0.15s ease;
 }
 
-.domain-comment-badge:hover,
-.domain-comment-badge:focus,
+.service-comment-badge:hover,
+.service-comment-badge:focus,
 .service-comment-badge:hover,
 .service-comment-badge:focus {
     background: #4338ca;
@@ -589,7 +589,7 @@ button.danger {
     outline: none;
 }
 
-.domain-comment-badge .tooltip-bubble,
+.service-comment-badge .tooltip-bubble,
 .service-comment-badge .tooltip-bubble {
     visibility: hidden;
     opacity: 0;
@@ -614,7 +614,7 @@ button.danger {
     transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.domain-comment-badge .tooltip-bubble::after,
+.service-comment-badge .tooltip-bubble::after,
 .service-comment-badge .tooltip-bubble::after {
     content: "";
     position: absolute;
@@ -626,8 +626,8 @@ button.danger {
     border-color: #0f172a transparent transparent transparent;
 }
 
-.domain-comment-badge:hover .tooltip-bubble,
-.domain-comment-badge:focus .tooltip-bubble,
+.service-comment-badge:hover .tooltip-bubble,
+.service-comment-badge:focus .tooltip-bubble,
 .service-comment-badge:hover .tooltip-bubble,
 .service-comment-badge:focus .tooltip-bubble {
     visibility: visible;
@@ -744,7 +744,7 @@ button.danger {
     margin: 0;
 }
 
-/* Status Page Styling (Matches Domain Maintenance) */
+/* Status Page Styling (Matches Service Maintenance) */
 .status-toolbar {
     margin-bottom: 16px;
 }
@@ -844,7 +844,7 @@ button.danger {
     min-width: 720px;
 }
 
-.status-table .col-domain,
+.status-table .col-service,
 .status-table .col-service {
     width: 22%;
 }
@@ -886,7 +886,7 @@ button.danger {
     vertical-align: middle;
 }
 
-.status-table td.col-domain,
+.status-table td.col-service,
 .status-table td.col-service,
 .status-table td.col-match,
 .status-table td.col-ports {
@@ -919,14 +919,14 @@ button.danger {
     line-height: 1.4;
 }
 
-.status-table .status-domain-strong,
+.status-table .status-service-strong,
 .status-table .status-service-strong {
     display: block;
     max-width: 100%;
     min-width: 0;
 }
 
-.status-table .status-domain-link,
+.status-table .status-service-link,
 .status-table .status-service-link {
     color: #0f172a;
     text-decoration: none;
@@ -934,7 +934,7 @@ button.danger {
     transition: color 0.15s ease;
 }
 
-.status-table .status-domain-link:hover,
+.status-table .status-service-link:hover,
 .status-table .status-service-link:hover {
     color: #2563eb;
     text-decoration: underline;
@@ -948,7 +948,7 @@ button.danger {
     color: #94a3b8;
 }
 
-/* Hover Box for Truncated Domain and Match Fields */
+/* Hover Box for Truncated Service and Match Fields */
 .status-table .cell-hover-box {
     position: absolute;
     bottom: calc(100% + 8px);
