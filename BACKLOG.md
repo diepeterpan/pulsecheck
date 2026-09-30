@@ -57,7 +57,7 @@ Use this format for new entries:
 - Required future change: Introduce and display an application version number:
   - On the webpage near the application name.
   - In the email body near the application name.
-- Status: pending
+- Status: completed
 
 - Menu function: Edit Service page
 - Required future change: Add a live "Test" button on the service edit screen:

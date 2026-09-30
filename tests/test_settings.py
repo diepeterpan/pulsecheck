@@ -479,6 +479,8 @@ site3.com,site3,,0,80
         self.assertIn('src="/static/logo.gif"', data)
         self.assertIn('alt="PulseCheck Logo"', data)
         self.assertIn('PulseCheck</h1>', data)
+        self.assertIn('class="brand-version"', data)
+        self.assertIn(f"v{pulsecheck_app.APP_VERSION}", data)
 
     @patch("smtplib.SMTP")
     def test_send_email_includes_logo(self, mock_smtp_class):
@@ -507,6 +509,11 @@ site3.com,site3,,0,80
         self.assertIn("text/html", content_types)
         self.assertIn("image/png", content_types)
         
+        # Check that HTML includes version number near PulseCheck
+        html_part = [p for p in parts if p.get_content_type() == "text/html"][0]
+        html_content = html_part.get_content()
+        self.assertIn(f"v{pulsecheck_app.APP_VERSION}", html_content)
+
         # Check that the image part has Content-ID <pulsecheck_logo>
         image_parts = [p for p in parts if p.get_content_type() == "image/png"]
         self.assertTrue(len(image_parts) >= 1)
@@ -1592,6 +1599,34 @@ direct.example,direct,,Direct site,0,0,8080
 
             # Service name and status badge should be grouped together in the card header
             self.assertIn('srv-down.com</strong>\n    <span style="display: inline-block;', html_body)
+
+            # Check that version number is displayed in plain text and HTML header
+            self.assertIn(f"PulseCheck v{pulsecheck_app.APP_VERSION}", body)
+            self.assertIn(f"v{pulsecheck_app.APP_VERSION}", html_body)
+            self.assertIn(f'PulseCheck</span>\n            <span style="display: inline-block; margin-left: 8px; font-size: 11px;', html_body)
+
+    def test_version_number_display_and_config(self):
+        # Verify app version exists and is non-empty
+        self.assertTrue(hasattr(pulsecheck_app, "APP_VERSION"))
+        self.assertTrue(pulsecheck_app.APP_VERSION)
+
+        # Check template context processor provides version
+        with pulsecheck_app.app.test_request_context():
+            context = pulsecheck_app.inject_version()
+            self.assertEqual(context.get("app_version"), pulsecheck_app.APP_VERSION)
+            self.assertEqual(context.get("version"), pulsecheck_app.APP_VERSION)
+
+        # Check web UI status page renders version badge
+        response = self.client.get("/status")
+        self.assertEqual(response.status_code, 200)
+        html = response.data.decode("utf-8")
+        self.assertIn(f'<span class="brand-version">v{pulsecheck_app.APP_VERSION}</span>', html)
+
+        # Check services and settings pages also render version badge via base template
+        for path in ("/services", "/settings", "/import"):
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(f'<span class="brand-version">v{pulsecheck_app.APP_VERSION}</span>', resp.data.decode("utf-8"))
 
 
 if __name__ == "__main__":

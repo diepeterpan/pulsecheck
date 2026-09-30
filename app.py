@@ -40,6 +40,8 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.0")
+__version__ = APP_VERSION
 
 
 def get_url_scheme() -> str:
@@ -62,6 +64,14 @@ def get_status_url() -> str:
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "pulsecheck-local-dev"
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+
+@app.context_processor
+def inject_version():
+    return {
+        "app_version": APP_VERSION,
+        "version": APP_VERSION,
+    }
 IMPORT_STATE = {}
 IMPORT_LOCK = threading.Lock()
 
@@ -1333,7 +1343,8 @@ def send_email(
             <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
           </td>
           <td style="vertical-align: middle;">
-            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px;">PulseCheck</span>
+            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; vertical-align: middle;">PulseCheck</span>
+            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #94a3b8; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
           </td>
         </tr>
       </table>
@@ -1342,7 +1353,7 @@ def send_email(
       {content_html}
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
-      PulseCheck &bull; Network &amp; Service Monitoring
+      PulseCheck v{APP_VERSION} &bull; Network &amp; Service Monitoring
     </div>
   </div>
 </body>
@@ -1828,7 +1839,7 @@ def settings_route():
             else:
                 now_str = get_current_local_time_str()
                 test_body = (
-                    "Hello from PulseCheck!\n\n"
+                    f"Hello from PulseCheck v{APP_VERSION}!\n\n"
                     "This is a test notification confirming that your SMTP settings and destination "
                     "email address are configured properly.\n\n"
                     f"Timestamp: {now_str}\n"
@@ -1908,7 +1919,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
     now_str = get_current_local_time_str()
 
     lines = [
-        "PulseCheck Service State Change Alert",
+        f"PulseCheck v{APP_VERSION} Service State Change Alert",
         "=====================================",
         f"Scan Completed: {now_str}",
         "",
@@ -1981,7 +1992,8 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
             <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
           </td>
           <td style="vertical-align: middle;">
-            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px;">PulseCheck</span>
+            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; vertical-align: middle;">PulseCheck</span>
+            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #94a3b8; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
           </td>
         </tr>
       </table>
@@ -1996,7 +2008,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
       </div>
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
-      PulseCheck &bull; Network &amp; Service Monitoring
+      PulseCheck v{APP_VERSION} &bull; Network &amp; Service Monitoring
     </div>
   </div>
 </body>
