@@ -1530,6 +1530,85 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn("Save Settings", html)
         self.assertIn("Send Test Email", html)
 
+    def test_port_checks_cleanup_migration(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        old_db_path = os.path.join(temp_dir.name, "old_pulsecheck.db")
+        orig_db_path = pulsecheck_app.DB_PATH
+
+        try:
+            conn = sqlite3.connect(old_db_path)
+            conn.execute(
+                """
+                CREATE TABLE services (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    match TEXT NOT NULL DEFAULT '',
+                    url_path TEXT NOT NULL DEFAULT '',
+                    comment TEXT NOT NULL DEFAULT '',
+                    paused INTEGER NOT NULL DEFAULT 0,
+                    use_proxy INTEGER NOT NULL DEFAULT 0,
+                    ports TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            # Create old port_checks table having both domain_id and service_id, with FK to old table
+            conn.execute(
+                """
+                CREATE TABLE port_checks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    domain_id INTEGER NOT NULL,
+                    service_id INTEGER,
+                    port INTEGER NOT NULL,
+                    is_online INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'offline',
+                    last_response_ms INTEGER,
+                    checked_at TEXT NOT NULL,
+                    FOREIGN KEY(domain_id) REFERENCES domains(id)
+                )
+                """
+            )
+            conn.execute(
+                "INSERT INTO services (id, name) VALUES (10, 'migrated-service.com')"
+            )
+            conn.execute(
+                """
+                INSERT INTO port_checks (id, domain_id, service_id, port, is_online, status, last_response_ms, checked_at)
+                VALUES (1, 10, NULL, 443, 1, 'online', 45, '2026-09-30 09:00:00')
+                """
+            )
+            conn.commit()
+            conn.close()
+
+            pulsecheck_app.DB_PATH = old_db_path
+            pulsecheck_app.init_db()
+
+            conn = sqlite3.connect(old_db_path)
+            conn.row_factory = sqlite3.Row
+
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(port_checks)").fetchall()}
+            self.assertNotIn("domain_id", cols)
+            self.assertIn("service_id", cols)
+
+            row = conn.execute("SELECT * FROM port_checks WHERE id = 1").fetchone()
+            self.assertIsNotNone(row)
+            self.assertEqual(row["service_id"], 10)
+            self.assertEqual(row["port"], 443)
+            self.assertEqual(row["is_online"], 1)
+            self.assertEqual(row["status"], "online")
+            self.assertEqual(row["last_response_ms"], 45)
+
+            fks = conn.execute("PRAGMA foreign_key_list(port_checks)").fetchall()
+            has_services_fk = any(
+                row["table"] == "services" and row["from"] == "service_id" and row["to"] == "id"
+                for row in fks
+            )
+            self.assertTrue(has_services_fk)
+            conn.close()
+        finally:
+            pulsecheck_app.DB_PATH = orig_db_path
+            temp_dir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
