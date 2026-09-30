@@ -19,9 +19,9 @@ class ImportFlowTests(unittest.TestCase):
 
     @patch("app.discover_ports", return_value=[80, 443])
     def test_import_skips_duplicate_names_and_tracks_summary(self, mock_discover):
-        pulsecheck_app.add_domain("example.com")
+        pulsecheck_app.add_service("example.com")
 
-        result = pulsecheck_app.import_domain_names([
+        result = pulsecheck_app.import_service_names([
             "example.com",
             "example.org",
             "mail.example.org",
@@ -30,46 +30,46 @@ class ImportFlowTests(unittest.TestCase):
         self.assertEqual(result["total"], 3)
         self.assertEqual(result["imported"], 2)
         self.assertEqual(result["skipped"], 1)
-        self.assertEqual(len(pulsecheck_app.domain_list()), 3)
+        self.assertEqual(len(pulsecheck_app.service_list()), 3)
 
-    def test_paused_domains_are_not_scanned_or_shown_in_status(self):
+    def test_paused_services_are_not_scanned_or_shown_in_status(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, ports, paused) VALUES (?, ?, ?, ?)",
+            "INSERT INTO services (name, match, ports, paused) VALUES (?, ?, ?, ?)",
             ("paused.example", "paused", "[443]", 1),
         )
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.fetch_response") as fetch:
-            pulsecheck_app.scan_domain(domain_id, "paused.example", [443], "paused")
+            pulsecheck_app.scan_service(service_id, "paused.example", [443], "paused")
         fetch.assert_not_called()
         self.assertEqual(pulsecheck_app.get_status_rows(), [])
 
-    def test_update_domain_preserves_paused_when_not_specified(self):
+    def test_update_service_preserves_paused_when_not_specified(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, url_path, ports, paused) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO services (name, match, url_path, ports, paused) VALUES (?, ?, ?, ?, ?)",
             ("paused.example", "paused", "", "[443]", 1),
         )
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.commit()
         conn.close()
 
-        with patch("app.scan_domain"):
-            pulsecheck_app.update_domain(domain_id, "paused.example", "443")
+        with patch("app.scan_service"):
+            pulsecheck_app.update_service(service_id, "paused.example", "443")
 
-        self.assertTrue(pulsecheck_app.get_domain_by_id(domain_id)["paused"])
+        self.assertTrue(pulsecheck_app.get_service_by_id(service_id)["paused"])
 
     def test_scan_classifies_server_response_against_match(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[80, 443, 22]"),
         )
         conn.commit()
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.close()
 
         responses = [
@@ -81,12 +81,12 @@ class ImportFlowTests(unittest.TestCase):
         with patch("app.fetch_response", side_effect=responses), patch(
             "app.fetch_socket_response", side_effect=[b"", b""]
         ):
-            pulsecheck_app.scan_domain(domain_id, "acme.example", [80, 443, 22], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [80, 443, 22], "acme")
 
         conn = pulsecheck_app.get_db_connection()
         statuses = [row["status"] for row in conn.execute(
-            "SELECT status FROM port_checks WHERE domain_id = ? ORDER BY port",
-            (domain_id,),
+            "SELECT status FROM port_checks WHERE service_id = ? ORDER BY port",
+            (service_id,),
         ).fetchall()]
         conn.close()
         self.assertEqual(statuses, ["offline", "online", "degraded"])
@@ -94,11 +94,11 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_attempts_https_after_http_timeout(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[443]"),
         )
         conn.commit()
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.close()
 
         with patch(
@@ -108,14 +108,14 @@ class ImportFlowTests(unittest.TestCase):
                 (b"acme HTTPS service", 200, "https://acme.example:443/"),
             ],
         ) as fetch:
-            pulsecheck_app.scan_domain(domain_id, "acme.example", [443], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [443], "acme")
 
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(fetch.call_args_list[1].args[2], "https")
         conn = pulsecheck_app.get_db_connection()
         status = conn.execute(
-            "SELECT status FROM port_checks WHERE domain_id = ?",
-            (domain_id,),
+            "SELECT status FROM port_checks WHERE service_id = ?",
+            (service_id,),
         ).fetchone()["status"]
         conn.close()
         self.assertEqual(status, "online")
@@ -123,11 +123,11 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_uses_socket_fallback_when_http_and_https_do_not_match(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[443]"),
         )
         conn.commit()
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.close()
 
         with patch(
@@ -137,12 +137,12 @@ class ImportFlowTests(unittest.TestCase):
                 (b"other HTTPS service", 200, "https://acme.example:443/"),
             ],
         ), patch("app.fetch_socket_response", return_value=b"acme socket service"):
-            pulsecheck_app.scan_domain(domain_id, "acme.example", [443], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [443], "acme")
 
         conn = pulsecheck_app.get_db_connection()
         status = conn.execute(
-            "SELECT status FROM port_checks WHERE domain_id = ?",
-            (domain_id,),
+            "SELECT status FROM port_checks WHERE service_id = ?",
+            (service_id,),
         ).fetchone()["status"]
         conn.close()
         self.assertEqual(status, "online")
@@ -150,11 +150,11 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_uses_ssl_socket_fallback_when_plain_socket_fails(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO domains (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[443]"),
         )
         conn.commit()
-        domain_id = cursor.lastrowid
+        service_id = cursor.lastrowid
         conn.close()
 
         with patch(
@@ -166,12 +166,12 @@ class ImportFlowTests(unittest.TestCase):
         ), patch("app.fetch_socket_response", side_effect=OSError("plain socket failed")), patch(
             "app.fetch_socket_ssl_response", return_value=b"acme SSL socket service"
         ):
-            pulsecheck_app.scan_domain(domain_id, "acme.example", [443], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [443], "acme")
 
         conn = pulsecheck_app.get_db_connection()
         status = conn.execute(
-            "SELECT status FROM port_checks WHERE domain_id = ?",
-            (domain_id,),
+            "SELECT status FROM port_checks WHERE service_id = ?",
+            (service_id,),
         ).fetchone()["status"]
         conn.close()
         self.assertEqual(status, "online")

@@ -48,11 +48,6 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(service["comment"], "Authentication microservice")
         self.assertTrue(service["use_proxy"])
 
-        # 3. Verify sync with domains compatibility view/table
-        domain_copy = pulsecheck_app.get_domain_by_id(service_id)
-        self.assertIsNotNone(domain_copy)
-        self.assertEqual(domain_copy["name"], "auth.service.local")
-
         # 4. Update service
         pulsecheck_app.update_service(
             service_id=service_id,
@@ -75,7 +70,6 @@ class ServiceTests(unittest.TestCase):
         # 5. Delete service
         pulsecheck_app.delete_service(service_id)
         self.assertIsNone(pulsecheck_app.get_service_by_id(service_id))
-        self.assertIsNone(pulsecheck_app.get_domain_by_id(service_id))
 
     @patch("app.scan_service")
     @patch("app.discover_ports", return_value=[80, 443])

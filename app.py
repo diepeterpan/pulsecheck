@@ -78,12 +78,6 @@ def get_db_connection():
 
 def init_db():
     conn = get_db_connection()
-    tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-    if "domains" in tables and "services" not in tables:
-        conn.execute("ALTER TABLE domains RENAME TO services")
-        tables.add("services")
-        tables.discard("domains")
-
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS services (
@@ -103,23 +97,14 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS port_checks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            service_id INTEGER,
-            domain_id INTEGER,
+            service_id INTEGER NOT NULL,
             port INTEGER NOT NULL,
             is_online INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'offline',
             last_response_ms INTEGER,
-            checked_at TEXT NOT NULL
+            checked_at TEXT NOT NULL,
+            FOREIGN KEY(service_id) REFERENCES services(id)
         )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS port_checks_sync_ids AFTER INSERT ON port_checks
-        BEGIN
-            UPDATE port_checks SET service_id = domain_id WHERE id = NEW.id AND service_id IS NULL AND domain_id IS NOT NULL;
-            UPDATE port_checks SET domain_id = service_id WHERE id = NEW.id AND domain_id IS NULL AND service_id IS NOT NULL;
-        END;
         """
     )
     conn.execute(
@@ -130,6 +115,7 @@ def init_db():
         )
         """
     )
+
     service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)").fetchall()}
     if "match" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN match TEXT NOT NULL DEFAULT ''")
@@ -141,108 +127,10 @@ def init_db():
         conn.execute("ALTER TABLE services ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
     if "use_proxy" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
-    conn.execute(
-        "UPDATE services SET match = lower(substr(name, 1, instr(name || '.', '.') - 1)) "
-        "WHERE match = ''"
-    )
 
     port_check_columns = {row["name"] for row in conn.execute("PRAGMA table_info(port_checks)").fetchall()}
     if "status" not in port_check_columns:
         conn.execute("ALTER TABLE port_checks ADD COLUMN status TEXT NOT NULL DEFAULT 'offline'")
-    if "service_id" not in port_check_columns:
-        conn.execute("ALTER TABLE port_checks ADD COLUMN service_id INTEGER")
-        if "domain_id" in port_check_columns:
-            conn.execute("UPDATE port_checks SET service_id = domain_id WHERE service_id IS NULL")
-    if "domain_id" not in port_check_columns:
-        conn.execute("ALTER TABLE port_checks ADD COLUMN domain_id INTEGER")
-        if "service_id" in port_check_columns:
-            conn.execute("UPDATE port_checks SET domain_id = service_id WHERE domain_id IS NULL")
-
-    conn.execute("UPDATE port_checks SET status = 'online' WHERE status = 'offline' AND is_online = 1")
-
-    # Compatibility table for 'domains' so legacy queries, tests, and cursor.lastrowid work seamlessly
-    domain_view = conn.execute("SELECT 1 FROM sqlite_master WHERE type='view' AND name='domains'").fetchone()
-    if domain_view:
-        conn.execute("DROP VIEW domains")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS domains (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            match TEXT NOT NULL DEFAULT '',
-            url_path TEXT NOT NULL DEFAULT '',
-            comment TEXT NOT NULL DEFAULT '',
-            paused INTEGER NOT NULL DEFAULT 0,
-            use_proxy INTEGER NOT NULL DEFAULT 0,
-            ports TEXT NOT NULL DEFAULT '[]',
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO domains (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
-        SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS domains_to_services_insert AFTER INSERT ON domains
-        BEGIN
-            INSERT OR REPLACE INTO services (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
-            SELECT NEW.id, NEW.name, NEW.match, NEW.url_path, NEW.comment, NEW.paused, NEW.use_proxy, NEW.ports, NEW.created_at
-            WHERE NOT EXISTS (SELECT 1 FROM services WHERE id = NEW.id AND name = NEW.name);
-        END;
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS services_to_domains_insert AFTER INSERT ON services
-        BEGIN
-            INSERT OR REPLACE INTO domains (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
-            SELECT NEW.id, NEW.name, NEW.match, NEW.url_path, NEW.comment, NEW.paused, NEW.use_proxy, NEW.ports, NEW.created_at
-            WHERE NOT EXISTS (SELECT 1 FROM domains WHERE id = NEW.id AND name = NEW.name);
-        END;
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS domains_to_services_update AFTER UPDATE ON domains
-        BEGIN
-            UPDATE services
-            SET name = NEW.name, match = NEW.match, url_path = NEW.url_path, comment = NEW.comment,
-                paused = NEW.paused, use_proxy = NEW.use_proxy, ports = NEW.ports
-            WHERE id = OLD.id;
-        END;
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS services_to_domains_update AFTER UPDATE ON services
-        BEGIN
-            UPDATE domains
-            SET name = NEW.name, match = NEW.match, url_path = NEW.url_path, comment = NEW.comment,
-                paused = NEW.paused, use_proxy = NEW.use_proxy, ports = NEW.ports
-            WHERE id = OLD.id;
-        END;
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS domains_to_services_delete AFTER DELETE ON domains
-        BEGIN
-            DELETE FROM services WHERE id = OLD.id;
-        END;
-        """
-    )
-    conn.execute(
-        """
-        CREATE TRIGGER IF NOT EXISTS services_to_domains_delete AFTER DELETE ON services
-        BEGIN
-            DELETE FROM domains WHERE id = OLD.id;
-        END;
-        """
-    )
 
     conn.commit()
     conn.close()
@@ -258,9 +146,6 @@ def normalize_service(value: str) -> str:
     if not cleaned:
         raise ValueError("Service name cannot be empty.")
     return cleaned
-
-
-normalize_domain = normalize_service
 
 
 def derive_match(service_name: str) -> str:
@@ -371,9 +256,6 @@ def service_list():
     ]
 
 
-domain_list = service_list
-
-
 def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
@@ -396,9 +278,6 @@ def get_service_by_id(service_id):
     }
 
 
-get_domain_by_id = get_service_by_id
-
-
 def service_exists(service_name: str):
     conn = get_db_connection()
     row = conn.execute(
@@ -407,9 +286,6 @@ def service_exists(service_name: str):
     ).fetchone()
     conn.close()
     return row is not None
-
-
-domain_exists = service_exists
 
 
 def discover_ports(service_name: str, progress_callback=None, cancelled_check=None):
@@ -436,11 +312,10 @@ def store_port_check(service_id: int, port: int, status: str, response_ms: int |
     conn = get_db_connection()
     conn.execute(
         """
-        INSERT INTO port_checks (service_id, domain_id, port, is_online, status, last_response_ms, checked_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
-            service_id,
             service_id,
             port,
             1 if status == "online" else 0,
@@ -902,9 +777,6 @@ def scan_service(
     return port_statuses
 
 
-scan_domain = scan_service
-
-
 def sync_service_ports(service_id: int, service_name: str, detected_ports: list[int] | None = None):
     ports = detected_ports if detected_ports is not None else discover_ports(service_name)
     conn = get_db_connection()
@@ -922,9 +794,6 @@ def sync_service_ports(service_id: int, service_name: str, detected_ports: list[
         service["match"] if service else derive_match(service_name),
         url_path=service["url_path"] if service else "",
     )
-
-
-sync_domain_ports = sync_service_ports
 
 
 def add_service(
@@ -958,9 +827,6 @@ def add_service(
     if detected and not paused:
         scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy)
     return service_id
-
-
-add_domain = add_service
 
 
 def import_service_names(service_names, progress_callback=None, cancelled_check=None):
@@ -1039,9 +905,6 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
     return summary
 
 
-import_domain_names = import_service_names
-
-
 def parse_csv_ports(value: str) -> list[int] | None:
     clean = (value or "").strip().strip("[]()")
     if not clean:
@@ -1075,9 +938,6 @@ def export_services_csv() -> tuple[str, int]:
             ports_str,
         ])
     return output.getvalue(), len(services)
-
-
-export_domains_csv = export_services_csv
 
 
 def import_services_from_csv(
@@ -1227,9 +1087,6 @@ def import_services_from_csv(
     return summary
 
 
-import_domains_from_csv = import_services_from_csv
-
-
 def update_service(
     service_id: int,
     name: str,
@@ -1291,9 +1148,6 @@ def update_service(
         scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val)
 
 
-update_domain = update_service
-
-
 def parse_port_values(ports_input: str):
     values = []
     raw_parts = ports_input.replace(",", "\n").splitlines()
@@ -1344,8 +1198,8 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
         if action == "remove":
             port_placeholders = ", ".join("?" for _ in ports)
             conn.execute(
-                f"DELETE FROM port_checks WHERE (service_id = ? OR domain_id = ?) AND port IN ({port_placeholders})",
-                (row["id"], row["id"], *ports),
+                f"DELETE FROM port_checks WHERE service_id = ? AND port IN ({port_placeholders})",
+                (row["id"], *ports),
             )
     conn.commit()
     conn.close()
@@ -1353,13 +1207,10 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
 
 def delete_service(service_id: int):
     conn = get_db_connection()
-    conn.execute("DELETE FROM port_checks WHERE service_id = ? OR domain_id = ?", (service_id, service_id))
+    conn.execute("DELETE FROM port_checks WHERE service_id = ?", (service_id,))
     conn.execute("DELETE FROM services WHERE id = ?", (service_id,))
     conn.commit()
     conn.close()
-
-
-delete_domain = delete_service
 
 
 def get_status_rows():
@@ -1367,8 +1218,8 @@ def get_status_rows():
     rows = conn.execute(
         """
         WITH latest AS (
-            SELECT COALESCE(service_id, domain_id) AS service_id, port, is_online, status, last_response_ms, checked_at,
-                   ROW_NUMBER() OVER (PARTITION BY COALESCE(service_id, domain_id), port ORDER BY checked_at DESC) AS rn
+            SELECT service_id, port, is_online, status, last_response_ms, checked_at,
+                   ROW_NUMBER() OVER (PARTITION BY service_id, port ORDER BY checked_at DESC) AS rn
             FROM port_checks
         )
          SELECT s.id, s.name, s.match, s.ports, s.use_proxy, latest.port, latest.is_online,
@@ -1735,16 +1586,12 @@ def handle_import():
 
 @app.route("/import/export", methods=["GET"])
 @app.route("/services/export.csv", methods=["GET"])
-@app.route("/domains/export.csv", methods=["GET"])
 def export_services_route():
     csv_content, count = export_services_csv()
     response = Response(csv_content, mimetype="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=pulsecheck_services.csv"
     response.headers["X-Exported-Count"] = str(count)
     return response
-
-
-export_domains_route = export_services_route
 
 
 @app.route("/import/start", methods=["POST"])
@@ -1805,17 +1652,12 @@ def cancel_import(token):
 
 
 @app.route("/services")
-@app.route("/domains")
 def services():
     items = service_list()
     return render_template("services.html", services=items, domains=items)
 
 
-domains = services
-
-
 @app.route("/services/add", methods=["GET", "POST"])
-@app.route("/domains/add", methods=["GET", "POST"])
 def add_service_route():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -1839,19 +1681,13 @@ def add_service_route():
     return render_template("services.html", services=items, domains=items, add_mode=True)
 
 
-add_domain_route = add_service_route
-
-
 @app.route("/services/bulk-ports", methods=["POST"])
-@app.route("/domains/bulk-ports", methods=["POST"])
 def bulk_ports_route():
-    raw_ids = request.form.getlist("service_ids") or request.form.getlist("domain_ids")
+    raw_ids = request.form.getlist("service_ids")
     return_to = request.form.get("return_to", "").strip()
     if not (
         return_to.startswith("/services")
         or return_to.startswith("services")
-        or return_to.startswith("/domains")
-        or return_to.startswith("domains")
     ):
         return_to = ""
     try:
@@ -1869,15 +1705,12 @@ def bulk_ports_route():
 
 
 @app.route("/services/bulk-delete", methods=["POST"])
-@app.route("/domains/bulk-delete", methods=["POST"])
 def bulk_delete_route():
-    raw_ids = request.form.getlist("service_ids") or request.form.getlist("domain_ids")
+    raw_ids = request.form.getlist("service_ids")
     return_to = request.form.get("return_to", "").strip()
     if not (
         return_to.startswith("/services")
         or return_to.startswith("services")
-        or return_to.startswith("/domains")
-        or return_to.startswith("domains")
     ):
         return_to = ""
     try:
@@ -1899,7 +1732,6 @@ def bulk_delete_route():
 
 
 @app.route("/services/<int:service_id>/edit", methods=["GET", "POST"])
-@app.route("/domains/<int:service_id>/edit", methods=["GET", "POST"])
 def edit_service(service_id):
     service = get_service_by_id(service_id)
     if service is None:
@@ -1910,8 +1742,6 @@ def edit_service(service_id):
     if not (
         return_to.startswith("/services")
         or return_to.startswith("services")
-        or return_to.startswith("/domains")
-        or return_to.startswith("domains")
     ):
         return_to = ""
 
@@ -1934,19 +1764,13 @@ def edit_service(service_id):
     return render_template("edit_service.html", service=service, domain=service, return_to=return_to)
 
 
-edit_domain = edit_service
-
-
 @app.route("/services/<int:service_id>/delete", methods=["POST"])
-@app.route("/domains/<int:service_id>/delete", methods=["POST"])
 def delete_service_route(service_id):
     service = get_service_by_id(service_id)
     return_to = request.form.get("return_to") or request.args.get("return_to") or ""
     if not (
         return_to.startswith("/services")
         or return_to.startswith("services")
-        or return_to.startswith("/domains")
-        or return_to.startswith("domains")
     ):
         return_to = ""
     if service is not None:
@@ -1955,11 +1779,7 @@ def delete_service_route(service_id):
     return redirect(return_to or url_for("services"))
 
 
-delete_domain_route = delete_service_route
-
-
 @app.route("/services/<int:service_id>/rescan", methods=["POST"])
-@app.route("/domains/<int:service_id>/rescan", methods=["POST"])
 def rescan_service_route(service_id):
     service = get_service_by_id(service_id)
     if service is None:
@@ -1968,9 +1788,6 @@ def rescan_service_route(service_id):
     scan_service(service_id, service["name"], service["ports"], service["match"], url_path=service["url_path"], use_proxy=service.get("use_proxy", False))
     flash(f"Rescanned {service['name']}.")
     return redirect(url_for("status"))
-
-
-rescan_domain_route = rescan_service_route
 
 
 @app.route("/status")
@@ -2077,9 +1894,6 @@ def get_service_snapshots() -> dict[int, dict]:
         s_data["overall_status"] = compute_overall_status(s_data["port_statuses"])
 
     return services_map
-
-
-get_domain_snapshots = get_service_snapshots
 
 
 def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
@@ -2198,9 +2012,6 @@ def scan_service_with_retries(
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     port_statuses: dict[int, str] = {}
     scanner = getattr(sys.modules[__name__], "scan_service", scan_service)
-    legacy_scanner = getattr(sys.modules[__name__], "scan_domain", None)
-    if legacy_scanner is not None and (hasattr(legacy_scanner, "assert_called") or legacy_scanner != scan_service):
-        scanner = legacy_scanner
 
     for attempt in range(max_retries + 1):
         try:
@@ -2234,9 +2045,6 @@ def scan_service_with_retries(
     return port_statuses
 
 
-scan_domain_with_retries = scan_service_with_retries
-
-
 def check_all_services(
     workers: int | None = None,
     max_retries: int | None = None,
@@ -2252,9 +2060,6 @@ def check_all_services(
     if active_services:
         max_workers = min(num_workers, len(active_services))
         scan_worker = getattr(sys.modules[__name__], "scan_service_with_retries", scan_service_with_retries)
-        legacy_worker = getattr(sys.modules[__name__], "scan_domain_with_retries", None)
-        if legacy_worker is not None and (hasattr(legacy_worker, "assert_called") or legacy_worker != scan_service_with_retries):
-            scan_worker = legacy_worker
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
@@ -2299,9 +2104,6 @@ def check_all_services(
         send_state_change_notification(changes)
 
     return changes
-
-
-check_all_domains = check_all_services
 
 
 def cli_menu():
