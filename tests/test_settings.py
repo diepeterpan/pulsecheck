@@ -201,7 +201,7 @@ class SettingsTests(unittest.TestCase):
             "recipient_email": "admin@example.com",
         })
 
-        # Add domain and simulate previous check state: online
+        # Add service and simulate previous check state: online
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
             "INSERT INTO services (name, match, ports, paused) VALUES (?, ?, ?, ?)",
@@ -264,7 +264,7 @@ class SettingsTests(unittest.TestCase):
             "recipient_email": "admin@example.com",
         })
 
-        # Add domain with existing check state
+        # Add service with existing check state
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
             "INSERT INTO services (name, match, ports, paused) VALUES (?, ?, ?, ?)",
@@ -300,11 +300,11 @@ class SettingsTests(unittest.TestCase):
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
             "INSERT INTO services (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
-            ("domain-a.com", "domain", "/test", "Internal gateway", 0, "[80, 443]"),
+            ("service-a.com", "service", "/test", "Internal gateway", 0, "[80, 443]"),
         )
         conn.execute(
             "INSERT INTO services (name, match, url_path, comment, paused, ports) VALUES (?, ?, ?, ?, ?, ?)",
-            ("domain-b.com", "other", "", "", 1, "[8080]"),
+            ("service-b.com", "other", "", "", 1, "[8080]"),
         )
         conn.commit()
         conn.close()
@@ -313,12 +313,12 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
         self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Ports")
-        self.assertIn('domain-a.com,domain,/test,Internal gateway,0,0,"80, 443"', lines)
-        self.assertIn("domain-b.com,other,,,1,0,8080", lines)
+        self.assertIn('service-a.com,service,/test,Internal gateway,0,0,"80, 443"', lines)
+        self.assertIn("service-b.com,other,,,1,0,8080", lines)
 
     @patch("app.scan_service")
     def test_import_services_from_csv_success_and_skip_duplicates(self, mock_scan):
-        # Seed an existing domain in the database
+        # Seed an existing service in the database
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
             "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
@@ -343,15 +343,15 @@ bad site!!,bad,,0,80
         self.assertIn("pausedsite.com", summary["imported_services"])
 
         # Check newsite.com in DB
-        domains = {d["name"]: d for d in pulsecheck_app.service_list()}
-        self.assertEqual(domains["newsite.com"]["match"], "newsite")
-        self.assertEqual(domains["newsite.com"]["url_path"], "/api")
-        self.assertFalse(domains["newsite.com"]["paused"])
-        self.assertEqual(domains["newsite.com"]["ports"], [80, 443])
+        services = {d["name"]: d for d in pulsecheck_app.service_list()}
+        self.assertEqual(services["newsite.com"]["match"], "newsite")
+        self.assertEqual(services["newsite.com"]["url_path"], "/api")
+        self.assertFalse(services["newsite.com"]["paused"])
+        self.assertEqual(services["newsite.com"]["ports"], [80, 443])
 
         # Check pausedsite.com in DB
-        self.assertTrue(domains["pausedsite.com"]["paused"])
-        self.assertEqual(domains["pausedsite.com"]["ports"], [8080])
+        self.assertTrue(services["pausedsite.com"]["paused"])
+        self.assertEqual(services["pausedsite.com"]["ports"], [8080])
 
     def test_export_route(self):
         conn = pulsecheck_app.get_db_connection()
@@ -385,8 +385,8 @@ bad site!!,bad,,0,80
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"CSV Import complete: 1 imported, 0 skipped", response.data)
 
-        domains = pulsecheck_app.service_list()
-        self.assertTrue(any(d["name"] == "uploaded.com" for d in domains))
+        services = pulsecheck_app.service_list()
+        self.assertTrue(any(d["name"] == "uploaded.com" for d in services))
 
     @patch("app.discover_ports")
     @patch("app.scan_service")
@@ -394,20 +394,20 @@ bad site!!,bad,,0,80
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
             "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
-            ("domain-to-edit.com", "domain", "", 0, "[80, 443]"),
+            ("service-to-edit.com", "service", "", 0, "[80, 443]"),
         )
         service_id = cur.lastrowid
         conn.commit()
         conn.close()
 
-        # Update domain with empty ports string
-        pulsecheck_app.update_service(service_id, "domain-to-edit.com", "")
+        # Update service with empty ports string
+        pulsecheck_app.update_service(service_id, "service-to-edit.com", "")
 
         mock_discover.assert_not_called()
         mock_scan.assert_not_called()
 
-        domain = pulsecheck_app.get_service_by_id(service_id)
-        self.assertEqual(domain["ports"], [])
+        service = pulsecheck_app.get_service_by_id(service_id)
+        self.assertEqual(service["ports"], [])
 
     @patch("app.discover_ports")
     @patch("app.scan_service")
@@ -420,8 +420,8 @@ noports.com,noports,,0,
         mock_discover.assert_not_called()
         mock_scan.assert_not_called()
 
-        domain = {d["name"]: d for d in pulsecheck_app.service_list()}["noports.com"]
-        self.assertEqual(domain["ports"], [])
+        service = {d["name"]: d for d in pulsecheck_app.service_list()}["noports.com"]
+        self.assertEqual(service["ports"], [])
 
     def test_csv_import_progress_and_cancel(self):
         progress_events = []
@@ -569,8 +569,8 @@ site3.com,site3,,0,80
             )
             self.assertIsNotNone(service_id)
 
-            domain = pulsecheck_app.get_service_by_id(service_id)
-            self.assertEqual(domain["comment"], "Primary internal API server")
+            service = pulsecheck_app.get_service_by_id(service_id)
+            self.assertEqual(service["comment"], "Primary internal API server")
 
             # Update comment
             pulsecheck_app.update_service(
@@ -579,12 +579,12 @@ site3.com,site3,,0,80
                 ports_input="80, 443",
                 comment="Updated secondary API server",
             )
-            domain = pulsecheck_app.get_service_by_id(service_id)
-            self.assertEqual(domain["comment"], "Updated secondary API server")
+            service = pulsecheck_app.get_service_by_id(service_id)
+            self.assertEqual(service["comment"], "Updated secondary API server")
 
     def test_service_comment_web_ui(self):
         with patch("app.scan_service"):
-            # Add domain via web POST
+            # Add service via web POST
             resp = self.client.post(
                 "/services/add",
                 data={
@@ -597,7 +597,7 @@ site3.com,site3,,0,80
             )
             self.assertEqual(resp.status_code, 200)
 
-            # Check domain list page displays comment in tooltip and badge
+            # Check service list page displays comment in tooltip and badge
             list_resp = self.client.get("/services")
             self.assertEqual(list_resp.status_code, 200)
             html = list_resp.data.decode("utf-8")
@@ -606,14 +606,14 @@ site3.com,site3,,0,80
             self.assertIn('class="tooltip-bubble"', html)
 
             # Check edit page contains the comment
-            domain = next(d for d in pulsecheck_app.service_list() if d["name"] == "web-comment.org")
-            edit_get = self.client.get(f"/services/{domain['id']}/edit")
+            service = next(d for d in pulsecheck_app.service_list() if d["name"] == "web-comment.org")
+            edit_get = self.client.get(f"/services/{service['id']}/edit")
             self.assertEqual(edit_get.status_code, 200)
             self.assertIn('value="Customer billing system"', edit_get.data.decode("utf-8"))
 
             # Update comment via edit page POST
             edit_post = self.client.post(
-                f"/services/{domain['id']}/edit",
+                f"/services/{service['id']}/edit",
                 data={
                     "name": "web-comment.org",
                     "match": "web",
@@ -624,7 +624,7 @@ site3.com,site3,,0,80
                 follow_redirects=True,
             )
             self.assertEqual(edit_post.status_code, 200)
-            updated = pulsecheck_app.get_service_by_id(domain["id"])
+            updated = pulsecheck_app.get_service_by_id(service["id"])
             self.assertEqual(updated["comment"], "Modified billing system")
 
     def test_csv_import_with_comment_column(self):
@@ -634,27 +634,27 @@ site3.com,site3,,0,80
             summary = pulsecheck_app.import_services_from_csv(csv_with_comment)
             self.assertEqual(summary["imported"], 1)
 
-            domain = next(d for d in pulsecheck_app.service_list() if d["name"] == "imported-comment.io")
-            self.assertEqual(domain["comment"], "Cloud load balancer")
+            service = next(d for d in pulsecheck_app.service_list() if d["name"] == "imported-comment.io")
+            self.assertEqual(service["comment"], "Cloud load balancer")
 
             # Import CSV without a Comment column (legacy format)
             legacy_csv = "Service,Match,URL path,Paused,Ports\nlegacy-no-comment.io,legacy,,0,80\n"
             summary2 = pulsecheck_app.import_services_from_csv(legacy_csv)
             self.assertEqual(summary2["imported"], 1)
-            domain2 = next(d for d in pulsecheck_app.service_list() if d["name"] == "legacy-no-comment.io")
-            self.assertEqual(domain2["comment"], "")
+            service2 = next(d for d in pulsecheck_app.service_list() if d["name"] == "legacy-no-comment.io")
+            self.assertEqual(service2["comment"], "")
 
             # Import headerless 6-column CSV
             headerless_csv = "headerless-comment.io,headerless,,Direct node,0,80\n"
             summary3 = pulsecheck_app.import_services_from_csv(headerless_csv)
             self.assertEqual(summary3["imported"], 1)
-            domain3 = next(d for d in pulsecheck_app.service_list() if d["name"] == "headerless-comment.io")
-            self.assertEqual(domain3["comment"], "Direct node")
+            service3 = next(d for d in pulsecheck_app.service_list() if d["name"] == "headerless-comment.io")
+            self.assertEqual(service3["comment"], "Direct node")
 
             # Round-trip export then import into clean db
             exported_csv, count = pulsecheck_app.export_services_csv()
             self.assertEqual(count, 3)
-            # Clear domains and import the exported CSV
+            # Clear services and import the exported CSV
             conn = pulsecheck_app.get_db_connection()
             conn.execute("DELETE FROM services")
             conn.commit()
@@ -1080,12 +1080,12 @@ site3.com,site3,,0,80
 
     @patch("app.scan_service")
     def test_service_use_proxy_database_field_and_edit(self, mock_scan):
-        # 1. Add domain with use_proxy default (False)
+        # 1. Add service with use_proxy default (False)
         service_id = pulsecheck_app.add_service("plain.example", paused=True)
         d = pulsecheck_app.get_service_by_id(service_id)
         self.assertFalse(d["use_proxy"])
 
-        # 2. Update domain with use_proxy=True
+        # 2. Update service with use_proxy=True
         pulsecheck_app.update_service(service_id, "plain.example", "80, 443", paused=True, use_proxy=True)
         d_updated = pulsecheck_app.get_service_by_id(service_id)
         self.assertTrue(d_updated["use_proxy"])
@@ -1125,9 +1125,9 @@ direct.example,direct,,Direct site,0,0,8080
         summary = pulsecheck_app.import_services_from_csv(csv_data)
         self.assertEqual(summary["imported"], 2)
 
-        domains = {d["name"]: d for d in pulsecheck_app.service_list()}
-        self.assertTrue(domains["proxied.example"]["use_proxy"])
-        self.assertFalse(domains["direct.example"]["use_proxy"])
+        services = {d["name"]: d for d in pulsecheck_app.service_list()}
+        self.assertTrue(services["proxied.example"]["use_proxy"])
+        self.assertFalse(services["direct.example"]["use_proxy"])
 
         # Export and verify the Proxy column
         csv_text, count = pulsecheck_app.export_services_csv()
@@ -1263,7 +1263,7 @@ direct.example,direct,,Direct site,0,0,8080
     @patch("app.fetch_socket_response")
     @patch("app.fetch_response")
     def test_scan_service_uses_proxy_and_skips_socket_fallback(self, mock_fetch, mock_socket):
-        # Configure domain in DB with use_proxy=1
+        # Configure service in DB with use_proxy=1
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
             "INSERT INTO services (name, match, ports, use_proxy) VALUES (?, ?, ?, 1)",
