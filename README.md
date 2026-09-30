@@ -22,19 +22,28 @@ PulseCheck is a lightweight, Linux-friendly web application and monitoring daemo
 - **Email Alerts & Notifications**:
   - Configurable outgoing SMTP settings (STARTTLS, SSL/TLS, or plain) with password encryption/storage.
   - State change notifications: automatically sends email alerts when any monitored service changes state (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
+  - Color-coded status badges next to service names: **OFFLINE** (red `#dc2626`), **DEGRADED** (orange `#ea580c`), and **ONLINE** (green `#16a34a`).
+  - Resized and optimized branded email header with embedded EKG logo and application version badge.
   - "Send Test Email" feature directly from the Settings interface.
 
-- **Service Management**:
+- **Service Management & Live Diagnostics**:
   - Maintain services with Add, Edit, Delete, and manual Rescan actions.
+  - **Live Port Diagnostics ("Test Probes")**:
+    - Interactive 2-column Edit Service layout preventing excessively wide input fields.
+    - Test probe connections live against unsaved form values before saving changes.
+    - Tabbed per-port diagnostic inspector with status dots, HTTP/error result codes, call duration (ms), retry counts, and local timestamps.
+    - Scrollable response snippet viewer (headers + body) with automatic **highlighting of matching tokens**.
+    - "All Ports" summary comparison table.
   - Custom match tokens, optional URL paths (e.g. `/health`, `/status`), and descriptive comments/notes.
   - Bulk port management: add or remove ports across multiple selected services simultaneously, or perform bulk deletion.
   - Interactive column filters (Service, Match, URL path, Paused/Active status, and Ports) with URL query parameter preservation.
   - Pause individual services to temporarily bypass monitoring without deleting records.
 
-- **Live Status Dashboard**:
+- **Live Status Dashboard & Versioning**:
   - Responsive grid layout displaying all active services and their monitored ports.
   - Visual status badges: **Online** (green), **Degraded** (amber), and **Offline** (red).
   - Interactive tooltips showing the last successful check timestamp (converted to server local time) and round-trip response latency (in ms).
+  - Application version display (`v1.0.0`) in the web UI header and alert notification emails, configurable via environment variable.
 
 - **Data Import & Export**:
   - **CSV File Export**: Download all saved services and configurations in a single standard CSV file.
@@ -108,6 +117,7 @@ PulseCheck menu
 | `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel service health checks |
 | `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a service check fails |
 | `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
+| `PULSECHECK_VERSION` | `1.0.0` | Application version displayed on the UI and in email alerts |
 
 ---
 
@@ -134,10 +144,10 @@ backup-portal.example,backup,/login,DR Site,1,0,"80"
 
 ## Testing
 
-PulseCheck includes an automated test suite covering settings persistence, database migrations, proxy tunneling, CSV import/export, and health check workflows.
+PulseCheck includes a comprehensive automated test suite (71 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 
 ```bash
-.venv/bin/python -m unittest discover tests
+python3 -m unittest discover tests
 ```
