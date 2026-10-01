@@ -641,6 +641,12 @@ button.danger {
     font-weight: 600;
 }
 
+.col-ports strong,
+.service-ports-text {
+    color: #000000;
+    font-weight: 600;
+}
+
 .service-name-container,
 .service-name-container {
     display: inline-flex;
@@ -1083,14 +1089,20 @@ button.danger {
 }
 
 .status-table td.col-service,
-.status-table td.col-service,
 .status-table td.col-match,
-.status-table td.col-ports {
+.status-table td.col-ports,
+.services-table td.col-ports {
     position: relative;
     overflow: visible;
 }
 
-.status-table .cell-truncate-wrapper {
+.services-table .col-ports {
+    width: 14%;
+    max-width: 150px;
+}
+
+.status-table .cell-truncate-wrapper,
+.services-table .cell-truncate-wrapper {
     position: relative;
     display: flex;
     align-items: center;
@@ -1099,13 +1111,15 @@ button.danger {
     cursor: default;
 }
 
-.status-table .cell-truncate-wrapper:focus-visible {
+.status-table .cell-truncate-wrapper:focus-visible,
+.services-table .cell-truncate-wrapper:focus-visible {
     outline: 2px solid #3b82f6;
     outline-offset: 2px;
     border-radius: 4px;
 }
 
-.status-table .truncate-text {
+.status-table .truncate-text,
+.services-table .truncate-text {
     display: block;
     max-width: 100%;
     min-width: 0;
@@ -1145,7 +1159,8 @@ button.danger {
 }
 
 /* Hover Box for Truncated Service and Match Fields */
-.status-table .cell-hover-box {
+.status-table .cell-hover-box,
+.services-table .cell-hover-box {
     position: absolute;
     bottom: calc(100% + 8px);
     left: 0;
@@ -1165,7 +1180,8 @@ button.danger {
     text-align: left;
 }
 
-.status-table .cell-hover-box::after {
+.status-table .cell-hover-box::after,
+.services-table .cell-hover-box::after {
     content: "";
     position: absolute;
     top: 100%;
@@ -1176,13 +1192,15 @@ button.danger {
 }
 
 /* For first row, show hover box below to avoid clipping against table top/header */
-.status-table tbody tr:first-child .cell-hover-box {
+.status-table tbody tr:first-child .cell-hover-box,
+.services-table tbody tr:first-child .cell-hover-box {
     bottom: auto;
     top: calc(100% + 8px);
     transform: translateY(-4px);
 }
 
-.status-table tbody tr:first-child .cell-hover-box::after {
+.status-table tbody tr:first-child .cell-hover-box::after,
+.services-table tbody tr:first-child .cell-hover-box::after {
     top: auto;
     bottom: 100%;
     border-color: transparent transparent #0f172a transparent;
@@ -1190,13 +1208,17 @@ button.danger {
 
 .status-table .cell-truncate-wrapper:hover .cell-hover-box,
 .status-table .cell-truncate-wrapper:focus .cell-hover-box,
-.status-table .cell-truncate-wrapper:focus-within .cell-hover-box {
+.status-table .cell-truncate-wrapper:focus-within .cell-hover-box,
+.services-table .cell-truncate-wrapper:hover .cell-hover-box,
+.services-table .cell-truncate-wrapper:focus .cell-hover-box,
+.services-table .cell-truncate-wrapper:focus-within .cell-hover-box {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
 }
 
-.status-table .cell-hover-box .hover-box-label {
+.status-table .cell-hover-box .hover-box-label,
+.services-table .cell-hover-box .hover-box-label {
     display: block;
     font-size: 0.68rem;
     font-weight: 700;
@@ -1206,7 +1228,8 @@ button.danger {
     margin-bottom: 2px;
 }
 
-.status-table .cell-hover-box .hover-box-value {
+.status-table .cell-hover-box .hover-box-value,
+.services-table .cell-hover-box .hover-box-value {
     display: block;
     font-size: 0.82rem;
     font-weight: 500;
@@ -1217,7 +1240,8 @@ button.danger {
 }
 
 /* Ports Inline Truncation and Ports Hover Box */
-.status-table .status-ports-inline {
+.status-table .status-ports-inline,
+.services-table .services-ports-inline {
     display: block;
     max-width: 100%;
     min-width: 0;
@@ -1241,22 +1265,25 @@ button.danger {
     margin-right: 0;
 }
 
-.status-table .cell-hover-box.cell-hover-box-ports {
-    min-width: 280px;
-    max-width: min(400px, 85vw);
+.status-table .cell-hover-box.cell-hover-box-ports,
+.services-table .cell-hover-box.cell-hover-box-ports {
+    min-width: 240px;
+    max-width: min(380px, 85vw);
     max-height: 320px;
     overflow-y: auto;
     padding: 9px 12px;
 }
 
-.status-table .hover-box-ports-list {
+.status-table .hover-box-ports-list,
+.services-table .hover-box-ports-list {
     display: flex;
     flex-direction: column;
     gap: 6px;
     margin-top: 6px;
 }
 
-.status-table .hover-box-port-row {
+.status-table .hover-box-port-row,
+.services-table .hover-box-port-row {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1265,7 +1292,8 @@ button.danger {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.status-table .hover-box-port-row:last-child {
+.status-table .hover-box-port-row:last-child,
+.services-table .hover-box-port-row:last-child {
     border-bottom: none;
 }
 

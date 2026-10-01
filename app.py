@@ -42,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.1")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.2 beta")
 __version__ = APP_VERSION
 
 
@@ -109,20 +109,46 @@ def init_db():
         )
         """
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS port_checks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            service_id INTEGER NOT NULL,
-            port INTEGER NOT NULL,
-            is_online INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'offline',
-            last_response_ms INTEGER,
-            checked_at TEXT NOT NULL,
-            FOREIGN KEY(service_id) REFERENCES services(id)
+
+    # Migrate port_checks table: port must allow NULL for ICMP (portless) probes.
+    # SQLite doesn't support ALTER COLUMN, so we rebuild the table if needed.
+    pc_cols = {row["name"]: row for row in conn.execute("PRAGMA table_info(port_checks)").fetchall()}
+    if "port" in pc_cols and pc_cols["port"]["notnull"] == 1:
+        # Rebuild port_checks with port INTEGER (nullable)
+        conn.executescript("""
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE IF NOT EXISTS port_checks_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                service_id INTEGER NOT NULL,
+                port INTEGER,
+                is_online INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'offline',
+                last_response_ms INTEGER,
+                checked_at TEXT NOT NULL,
+                FOREIGN KEY(service_id) REFERENCES services(id)
+            );
+            INSERT INTO port_checks_new (id, service_id, port, is_online, status, last_response_ms, checked_at)
+                SELECT id, service_id, port, is_online, status, last_response_ms, checked_at FROM port_checks;
+            DROP TABLE port_checks;
+            ALTER TABLE port_checks_new RENAME TO port_checks;
+            PRAGMA foreign_keys = ON;
+        """)
+    else:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS port_checks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                service_id INTEGER NOT NULL,
+                port INTEGER,
+                is_online INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'offline',
+                last_response_ms INTEGER,
+                checked_at TEXT NOT NULL,
+                FOREIGN KEY(service_id) REFERENCES services(id)
+            )
+            """
         )
-        """
-    )
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS settings (
@@ -145,6 +171,44 @@ def init_db():
         conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
     if "protocol" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN protocol TEXT NOT NULL DEFAULT ''")
+
+    # Migrate ports column from plain int list [80, 443] to per-port-protocol objects
+    # [{"port": 80, "protocol": ""}, {"port": 443, "protocol": "https"}]
+    rows_to_migrate = conn.execute("SELECT id, ports, protocol FROM services").fetchall()
+    for row in rows_to_migrate:
+        try:
+            raw = json.loads(row["ports"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            raw = []
+        if raw and isinstance(raw[0], int):
+            # Old format: plain integers — migrate to object format
+            legacy_proto = (row["protocol"] or "").strip().lower()
+            migrated = [{"port": int(p), "protocol": legacy_proto} for p in raw]
+            conn.execute(
+                "UPDATE services SET ports = ? WHERE id = ?",
+                (json.dumps(migrated), row["id"]),
+            )
+        elif raw and isinstance(raw[0], dict):
+            # Already new format — no migration needed
+            pass
+        # Empty list: leave as-is
+
+    # Clean up obsolete port_checks rows for ports no longer configured on services
+    try:
+        service_rows = conn.execute("SELECT id, ports FROM services").fetchall()
+        for s in service_rows:
+            p_list = parse_ports(s["ports"])
+            cfg_ports = {p.get("port") for p in p_list}
+            if None not in cfg_ports:
+                conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (s["id"],))
+            num_ports = [p["port"] for p in p_list if p.get("port") is not None]
+            if num_ports:
+                ph = ", ".join("?" for _ in num_ports)
+                conn.execute(f"DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({ph})", (s["id"], *num_ports))
+            else:
+                conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL", (s["id"],))
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -243,9 +307,117 @@ def format_local_time(value: str | None) -> str | None:
     return local_dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def parse_ports(value):
-    values = json.loads(value or "[]")
-    return sorted({int(port) for port in values})
+class PortEntry(dict):
+    """Represents a monitored port with its protocol.
+    Inherits from dict so that p['port'], p['protocol'], and JSON serialization work seamlessly.
+    Provides equality with integers and dicts so that tests and legacy code comparing
+    ports to lists of ints continue to work."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "port" not in self:
+            self["port"] = None
+        if "protocol" not in self:
+            self["protocol"] = ""
+
+    @property
+    def port(self):
+        return self.get("port")
+
+    @property
+    def protocol(self):
+        return self.get("protocol")
+
+    def __eq__(self, other):
+        if isinstance(other, int):
+            return self.get("port") == other
+        if isinstance(other, dict):
+            return self.get("port") == other.get("port") and (self.get("protocol") or "").strip().lower() == (other.get("protocol") or "").strip().lower()
+        if other is None:
+            return self.get("port") is None
+        if isinstance(other, str):
+            if other.isdigit():
+                return self.get("port") == int(other)
+            if other.lower() in ("icmp", "icmp-ping"):
+                return self.get("port") is None or self.get("protocol") in ("icmp", "icmp-ping")
+        return super().__eq__(other)
+
+    def __hash__(self):
+        return hash(self.get("port"))
+
+    def __int__(self):
+        p = self.get("port")
+        return int(p) if p is not None else 0
+
+    def __repr__(self):
+        return f"PortEntry(port={self.get('port')!r}, protocol={self.get('protocol')!r})"
+
+
+def parse_ports(value) -> list[PortEntry]:
+    """Parse the ports column from the DB into a list of PortEntry dicts.
+    Handles both the new object format and legacy plain-integer format gracefully."""
+    if isinstance(value, list):
+        raw = value
+    else:
+        try:
+            raw = json.loads(value or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return []
+    result = []
+    for item in raw:
+        if isinstance(item, int):
+            result.append(PortEntry({"port": item, "protocol": ""}))
+        elif isinstance(item, dict):
+            port_val = item.get("port")
+            proto_val = (item.get("protocol") or "").strip().lower()
+            result.append(PortEntry({"port": port_val, "protocol": proto_val}))
+        elif isinstance(item, str):
+            if item.isdigit():
+                result.append(PortEntry({"port": int(item), "protocol": ""}))
+            elif item.lower() in ("icmp", "icmp-ping"):
+                result.append(PortEntry({"port": None, "protocol": "icmp-ping"}))
+    return result
+
+
+def port_numbers(ports: list[dict]) -> list[int]:
+    """Return sorted list of numeric port numbers, excluding ICMP (port=None) entries."""
+    return sorted({int(p["port"]) for p in ports if p.get("port") is not None})
+
+
+def has_icmp(ports: list[dict]) -> bool:
+    """Return True if ports list contains an ICMP (portless) probe entry."""
+    return any(p.get("port") is None and p.get("protocol") in ("icmp-ping", "icmp") for p in ports)
+
+
+def get_port_protocol(ports: list[dict], port_num: int) -> str:
+    """Return the configured protocol for a specific port number, or empty string."""
+    for p in ports:
+        if p.get("port") == port_num:
+            return (p.get("protocol") or "").strip().lower()
+    return ""
+
+
+def ports_to_json(ports) -> str:
+    """Serialise a list of {port, protocol} dicts back to JSON for DB storage.
+    Handles list[dict], list[int], or strings gracefully."""
+    normalized = []
+    if isinstance(ports, str):
+        try:
+            ports = json.loads(ports)
+        except Exception:
+            ports = parse_diagnostic_ports(ports)
+    for p in (ports or []):
+        if isinstance(p, dict):
+            normalized.append({"port": p.get("port"), "protocol": (p.get("protocol") or "").strip().lower()})
+        elif isinstance(p, int):
+            normalized.append({"port": p, "protocol": ""})
+        elif isinstance(p, str):
+            if p.isdigit():
+                normalized.append({"port": int(p), "protocol": ""})
+            elif p.strip().lower() in ("icmp", "icmp-ping"):
+                normalized.append({"port": None, "protocol": "icmp-ping"})
+    return json.dumps(normalized)
+
 
 
 def service_list():
@@ -254,8 +426,15 @@ def service_list():
         "SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports, created_at FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
-    return [
-        {
+    services = []
+    for row in rows:
+        parsed_ports = parse_ports(row["ports"])
+        proto = row["protocol"] if "protocol" in row.keys() and row["protocol"] else ""
+        if not proto and parsed_ports:
+            protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
+            if protos:
+                proto = protos[0]
+        services.append({
             "id": row["id"],
             "name": row["name"],
             "match": row["match"],
@@ -263,12 +442,11 @@ def service_list():
             "comment": row["comment"] if "comment" in row.keys() else "",
             "paused": bool(row["paused"]),
             "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
-            "protocol": row["protocol"] if "protocol" in row.keys() and row["protocol"] else "",
-            "ports": parse_ports(row["ports"]),
+            "protocol": proto,
+            "ports": parsed_ports,
             "created_at": row["created_at"],
-        }
-        for row in rows
-    ]
+        })
+    return services
 
 
 def get_service_by_id(service_id):
@@ -280,6 +458,12 @@ def get_service_by_id(service_id):
     conn.close()
     if row is None:
         return None
+    parsed_ports = parse_ports(row["ports"])
+    proto = row["protocol"] if "protocol" in row.keys() and row["protocol"] else ""
+    if not proto and parsed_ports:
+        protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
+        if protos:
+            proto = protos[0]
     return {
         "id": row["id"],
         "name": row["name"],
@@ -288,8 +472,8 @@ def get_service_by_id(service_id):
         "comment": row["comment"] if "comment" in row.keys() else "",
         "paused": bool(row["paused"]),
         "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
-        "protocol": row["protocol"] if "protocol" in row.keys() and row["protocol"] else "",
-        "ports": parse_ports(row["ports"]),
+        "protocol": proto,
+        "ports": parsed_ports,
         "created_at": row["created_at"],
     }
 
@@ -304,8 +488,9 @@ def service_exists(service_name: str):
     return row is not None
 
 
-def discover_ports(service_name: str, progress_callback=None, cancelled_check=None):
-    found_ports = []
+def discover_ports(service_name: str, progress_callback=None, cancelled_check=None) -> list[dict]:
+    """Probe COMMON_PORTS and return a list of {port, protocol} dicts for open ports."""
+    found = []
     for port in COMMON_PORTS:
         if cancelled_check is not None and cancelled_check():
             raise ImportCancelled("Import cancelled")
@@ -317,13 +502,13 @@ def discover_ports(service_name: str, progress_callback=None, cancelled_check=No
             })
         try:
             with socket.create_connection((service_name, port), timeout=1.5):
-                found_ports.append(port)
+                found.append({"port": port, "protocol": ""})
         except (socket.timeout, socket.gaierror, OSError):
             continue
-    return sorted(found_ports)
+    return found
 
 
-def store_port_check(service_id: int, port: int, status: str, response_ms: int | None):
+def store_port_check(service_id: int, port: int | None, status: str, response_ms: int | None):
     conn = get_db_connection()
     conn.execute(
         """
@@ -670,8 +855,29 @@ def format_protocol_label(protocol: str | None) -> str:
     return mapping.get(p, p.upper())
 
 
+def format_ports_column(ports: list[dict] | None) -> str:
+    """Format ports for Services table PORTS column: PORT:PROTOCOL in black,
+    space-separated, with ICMP having no PORT: prefix.
+    """
+    if not ports:
+        return ""
+    items = []
+    for p in ports:
+        port_val = p.get("port")
+        proto_val = (p.get("protocol") or "").strip().upper()
+        if port_val is None or proto_val in ("ICMP", "ICMP-PING"):
+            items.append("ICMP")
+        elif proto_val:
+            items.append(f"{port_val}:{proto_val}")
+        else:
+            items.append(str(port_val))
+    return " ".join(items)
+
+
 app.jinja_env.filters["protocol_label"] = format_protocol_label
 app.jinja_env.globals["format_protocol_label"] = format_protocol_label
+app.jinja_env.filters["format_ports_column"] = format_ports_column
+app.jinja_env.globals["format_ports_column"] = format_ports_column
 
 
 def fetch_udp_response(service_name: str, port: int, url_path: str = "", timeout: float = 2.0) -> bytes:
@@ -761,6 +967,10 @@ def fetch_icmp_ping_response(service_name: str, timeout: float = 2.0) -> tuple[b
         latency_ms = max(1, int((time.monotonic() - t0) * 1000))
         if proc.returncode == 0:
             out = proc.stdout.strip() or f"ICMP Ping successful ({service_name})"
+            m = re.search(r'(\d+)\s+bytes\s+from', out, re.IGNORECASE)
+            byte_count = m.group(1) if m else "64"
+            if "bytes=" not in out.lower():
+                out = f"bytes={byte_count} | {out}"
             return True, latency_ms, out
         else:
             err = proc.stderr.strip() or proc.stdout.strip() or f"Ping failed with exit code {proc.returncode}"
@@ -781,6 +991,12 @@ def scan_service(
     protocol: str | None = None,
     **kwargs,
 ):
+    """Probe each port/protocol entry in `ports` and store results.
+
+    `ports` is now a list[dict] with keys {port, protocol}. Port may be None
+    for ICMP (portless) probes. Discovered protocols are written back to the
+    ports JSON for entries that had protocol = "" (auto-detect).
+    """
     service = get_service_by_id(service_id)
     if service is not None and service["paused"]:
         return {}
@@ -788,32 +1004,57 @@ def scan_service(
         use_proxy = bool(service["use_proxy"]) if service and "use_proxy" in service else False
     proxy_settings = get_settings() if use_proxy else None
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
+
+    # Normalise ports to list[dict]
     if not isinstance(ports, list):
         ports = parse_ports(ports)
+    elif ports and isinstance(ports[0], int):
+        ports = [{"port": p, "protocol": ""} for p in ports]
 
-    preferred_protocol = (
-        protocol if protocol is not None
-        else ((service.get("protocol") or "") if service else "")
-    ).strip().lower()
+    # Make a mutable copy so we can write discovered protocols back
+    ports = [dict(p) for p in ports]
 
-    discovered_protocol = None
-    port_statuses = {}
-    for port in ports:
+    port_statuses: dict = {}
+    for port_entry in ports:
+        port = port_entry.get("port")  # None for ICMP
+        # Per-port preferred protocol; fall back to legacy service-level protocol arg
+        per_port_pref = (port_entry.get("protocol") or "").strip().lower()
+        if not per_port_pref and protocol is not None:
+            per_port_pref = (protocol or "").strip().lower()
+        if not per_port_pref and service:
+            per_port_pref = (service.get("protocol") or "").strip().lower()
+
         start = time.monotonic()
         status = "offline"
         response_ms = None
-        protocol_used = preferred_protocol or "http"
+        protocol_used = per_port_pref or ("icmp-ping" if port is None else "http")
         match_bytes = match.lower().encode() if match else b""
 
-        if preferred_protocol == "udp":
+        # --- ICMP (portless) ---
+        if port is None or per_port_pref in ("icmp", "icmp-ping"):
+            try:
+                ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
+                response_ms = ping_lat
+                protocol_used = "icmp-ping"
+                if ping_ok and "bytes=" in (ping_output or "").lower():
+                    status = "online"
+                else:
+                    status = "offline"
+            except Exception:
+                status = "offline"
+            store_port_check(service_id, None, status, response_ms)
+            port_statuses["icmp"] = status
+            if not per_port_pref:
+                port_entry["protocol"] = protocol_used
+            continue
+
+        # --- UDP ---
+        if per_port_pref == "udp":
             try:
                 udp_resp = fetch_udp_response(service_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
-                    print(
-                        f"[DEBUG scan] protocol=udp service={service_name} port={port} "
-                        f"match={match!r} response={udp_resp[:16384]!r}"
-                    )
+                    print(f"[DEBUG scan] protocol=udp service={service_name} port={port} match={match!r} response={udp_resp[:16384]!r}")
                 if udp_resp and match_bytes and match_bytes in udp_resp.lower():
                     status = "online"
                 elif udp_resp and not match_bytes:
@@ -822,15 +1063,14 @@ def scan_service(
                     status = "degraded"
             except (socket.timeout, socket.gaierror, OSError):
                 status = "offline"
-        elif preferred_protocol in ("udp-ssl", "dtls"):
+
+        # --- UDP-SSL / DTLS ---
+        elif per_port_pref in ("udp-ssl", "dtls"):
             try:
                 udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
-                    print(
-                        f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} "
-                        f"match={match!r} response={udp_ssl_resp[:16384]!r}"
-                    )
+                    print(f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} match={match!r} response={udp_ssl_resp[:16384]!r}")
                 if udp_ssl_resp and match_bytes and match_bytes in udp_ssl_resp.lower():
                     status = "online"
                 elif udp_ssl_resp and not match_bytes:
@@ -839,23 +1079,9 @@ def scan_service(
                     status = "degraded"
             except (socket.timeout, socket.gaierror, OSError):
                 status = "offline"
-        elif preferred_protocol in ("icmp", "icmp-ping"):
-            try:
-                ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
-                response_ms = ping_lat
-                if ping_ok:
-                    ping_bytes = ping_output.encode("utf-8")
-                    if match_bytes and match_bytes in ping_bytes.lower():
-                        status = "online"
-                    elif not match_bytes:
-                        status = "online"
-                    else:
-                        status = "degraded"
-                else:
-                    status = "offline"
-            except Exception:
-                status = "offline"
-        elif preferred_protocol == "socket":
+
+        # --- SOCKET (plain TCP) ---
+        elif per_port_pref == "socket":
             try:
                 socket_response = fetch_socket_response(service_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
@@ -867,7 +1093,9 @@ def scan_service(
                     status = "degraded"
             except (socket.timeout, socket.gaierror, OSError):
                 status = "offline"
-        elif preferred_protocol == "socket-ssl":
+
+        # --- SOCKET-SSL ---
+        elif per_port_pref == "socket-ssl":
             try:
                 ssl_socket_response = fetch_socket_ssl_response(service_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
@@ -883,16 +1111,13 @@ def scan_service(
                     response_ms = int((time.monotonic() - start) * 1000)
                 else:
                     status = "offline"
-        elif preferred_protocol == "https":
+
+        # --- HTTPS (explicit) ---
+        elif per_port_pref == "https":
             try:
                 https_response, status_code, final_url = fetch_response(
-                    service_name,
-                    port,
-                    "https",
-                    url_path,
-                    explicit_debug=debug_enabled,
-                    use_proxy=use_proxy,
-                    proxy_settings=proxy_settings,
+                    service_name, port, "https", url_path,
+                    explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 if https_response and match_bytes and match_bytes in https_response.lower():
@@ -907,44 +1132,27 @@ def scan_service(
                     response_ms = int((time.monotonic() - start) * 1000)
                 else:
                     status = "offline"
+
         else:
-            # Auto-detect cascade (or preferred_protocol == "http")
+            # Auto-detect cascade (or per_port_pref == "http")
             response = b""
+            status_code = None
+            final_url = f"http://{service_name}:{port}{url_path or '/'}"
             try:
                 response, status_code, final_url = fetch_response(
-                    service_name,
-                    port,
-                    "http",
-                    url_path,
-                    explicit_debug=debug_enabled,
-                    use_proxy=use_proxy,
-                    proxy_settings=proxy_settings,
+                    service_name, port, "http", url_path,
+                    explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 protocol_used = "http"
                 if debug_enabled:
-                    print(
-                        f"[DEBUG scan] protocol=http service={service_name} port={port} "
-                        f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
-                        f"response={response[:16384]!r}"
-                    )
+                    print(f"[DEBUG scan] protocol=http service={service_name} port={port} status={status_code} url={final_url} match={match!r} proxy={use_proxy} response={response[:16384]!r}")
             except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     protocol_used = "http"
                     response_ms = int((time.monotonic() - start) * 1000)
-                    if debug_enabled:
-                        print(
-                            f"[DEBUG scan] protocol=http service={service_name} port={port} "
-                            f"ignoring SSL handshake failure (treated as online): {exc}"
-                        )
                 response = b""
-
-            if debug_enabled and response:
-                print(
-                    f"[DEBUG scan response] protocol=http service={service_name} port={port} "
-                    f"response={response[:16384]!r}"
-                )
 
             if response and match_bytes and match_bytes in response.lower():
                 status = "online"
@@ -955,24 +1163,14 @@ def scan_service(
             elif status == "online":
                 protocol_used = "http"
             elif port in HTTPS_PORTS:
-                # HTTPS check
                 try:
                     https_response, status_code, final_url = fetch_response(
-                        service_name,
-                        port,
-                        "https",
-                        url_path,
-                        explicit_debug=debug_enabled,
-                        use_proxy=use_proxy,
-                        proxy_settings=proxy_settings,
+                        service_name, port, "https", url_path,
+                        explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
                     )
                     response_ms = int((time.monotonic() - start) * 1000)
                     if debug_enabled:
-                        print(
-                            f"[DEBUG scan] protocol=https service={service_name} port={port} "
-                            f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
-                            f"response={https_response[:16384]!r}"
-                        )
+                        print(f"[DEBUG scan] protocol=https service={service_name} port={port} status={status_code} url={final_url} match={match!r} proxy={use_proxy} response={https_response[:16384]!r}")
                     if https_response and match_bytes and match_bytes in https_response.lower():
                         status = "online"
                         protocol_used = "https"
@@ -987,27 +1185,17 @@ def scan_service(
                         status = "online"
                         protocol_used = "https"
                         response_ms = int((time.monotonic() - start) * 1000)
-                        if debug_enabled:
-                            print(
-                                f"[DEBUG scan] protocol=https service={service_name} port={port} "
-                                f"ignoring SSL handshake failure (treated as online): {exc}"
-                            )
                 if status == "offline" and port in HTTPS_PORTS:
                     status = "degraded"
             elif response:
                 status = "degraded"
                 protocol_used = "http"
 
-            # Socket checks if not online and not using proxy
-            if not preferred_protocol and status != "online" and not use_proxy:
+            # Socket fallbacks if not online and not using proxy
+            if not per_port_pref and status != "online" and not use_proxy:
                 try:
                     socket_response = fetch_socket_response(service_name, port, url_path)
                     response_ms = int((time.monotonic() - start) * 1000)
-                    if debug_enabled:
-                        print(
-                            f"[DEBUG scan] protocol=socket service={service_name} port={port} "
-                            f"match={match!r} response={socket_response[:16384]!r}"
-                        )
                     if socket_response and match_bytes and match_bytes in socket_response.lower():
                         status = "online"
                         protocol_used = "socket"
@@ -1021,11 +1209,6 @@ def scan_service(
                     try:
                         ssl_socket_response = fetch_socket_ssl_response(service_name, port, url_path)
                         response_ms = int((time.monotonic() - start) * 1000)
-                        if debug_enabled:
-                            print(
-                                f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
-                                f"match={match!r} response={ssl_socket_response[:16384]!r}"
-                            )
                         if ssl_socket_response and match_bytes and match_bytes in ssl_socket_response.lower():
                             status = "online"
                             protocol_used = "socket-ssl"
@@ -1040,22 +1223,12 @@ def scan_service(
                             status = "online"
                             protocol_used = "socket-ssl"
                             response_ms = int((time.monotonic() - start) * 1000)
-                            if debug_enabled:
-                                print(
-                                    f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
-                                    f"ignoring SSL handshake failure (treated as online): {exc}"
-                                )
 
-            # UDP checks if not online and not using proxy
-            if not preferred_protocol and status != "online" and not use_proxy:
+            # UDP fallbacks if not online and not using proxy
+            if not per_port_pref and status != "online" and not use_proxy:
                 try:
                     udp_resp = fetch_udp_response(service_name, port, url_path)
                     response_ms = int((time.monotonic() - start) * 1000)
-                    if debug_enabled:
-                        print(
-                            f"[DEBUG scan] protocol=udp service={service_name} port={port} "
-                            f"match={match!r} response={udp_resp[:16384]!r}"
-                        )
                     if udp_resp and match_bytes and match_bytes in udp_resp.lower():
                         status = "online"
                         protocol_used = "udp"
@@ -1069,11 +1242,6 @@ def scan_service(
                     try:
                         udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
                         response_ms = int((time.monotonic() - start) * 1000)
-                        if debug_enabled:
-                            print(
-                                f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} "
-                                f"match={match!r} response={udp_ssl_resp[:16384]!r}"
-                            )
                         if udp_ssl_resp and match_bytes and match_bytes in udp_ssl_resp.lower():
                             status = "online"
                             protocol_used = "udp-ssl"
@@ -1084,45 +1252,25 @@ def scan_service(
                             status = "degraded"
                             protocol_used = "udp-ssl"
                     except (socket.timeout, socket.gaierror, OSError):
-                        try:
-                            ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
-                            if ping_ok:
-                                ping_bytes = ping_output.encode("utf-8")
-                                response_ms = ping_lat
-                                if debug_enabled:
-                                    print(
-                                        f"[DEBUG scan] protocol=icmp-ping service={service_name} port={port} "
-                                        f"latency={ping_lat}ms output={ping_output!r}"
-                                    )
-                                if match_bytes and match_bytes in ping_bytes.lower():
-                                    status = "online"
-                                    protocol_used = "icmp-ping"
-                                elif not match_bytes:
-                                    status = "online"
-                                    protocol_used = "icmp-ping"
-                                elif status == "offline":
-                                    status = "degraded"
-                                    protocol_used = "icmp-ping"
-                        except Exception:
-                            pass
+                        pass
 
-        if status == "online" and not discovered_protocol:
-            discovered_protocol = protocol_used
-        elif status == "degraded" and not discovered_protocol:
-            discovered_protocol = protocol_used
+        # Write discovered protocol back to this port entry (auto-detect only)
+        if not per_port_pref and protocol_used and status in ("online", "degraded"):
+            port_entry["protocol"] = protocol_used
 
         store_port_check(service_id, port, status, response_ms)
         port_statuses[port] = status
 
-    if not preferred_protocol and discovered_protocol:
-        try:
-            conn = get_db_connection()
-            conn.execute("UPDATE services SET protocol = ? WHERE id = ?", (discovered_protocol, service_id))
-            conn.commit()
-            conn.close()
-        except Exception as exc:
-            if debug_enabled:
-                print(f"[DEBUG scan] Failed saving discovered protocol {discovered_protocol}: {exc}")
+    # Persist updated port protocols back to DB
+    try:
+        conn = get_db_connection()
+        first_proto = next((p.get("protocol") for p in ports if p.get("protocol")), "")
+        conn.execute("UPDATE services SET ports = ?, protocol = COALESCE(NULLIF(protocol, ''), ?) WHERE id = ?", (ports_to_json(ports), first_proto, service_id))
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        if debug_enabled:
+            print(f"[DEBUG scan] Failed saving per-port protocols: {exc}")
 
     return port_statuses
 
@@ -1185,19 +1333,16 @@ def probe_single_port_diagnostics(
         protocol_used = "icmp-ping"
         try:
             ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
-            if ping_ok:
-                response_bytes = ping_output.encode("utf-8")
+            response_bytes = (ping_output or "").encode("utf-8")
+            if ping_ok and "bytes=" in (ping_output or "").lower():
+                status = "online"
                 status_text = f"ICMP Ping response ({ping_lat}ms)"
-                if match_bytes and match_bytes in response_bytes.lower():
-                    status = "online"
-                elif not match_bytes:
-                    status = "online"
-                else:
-                    status = "degraded"
             else:
-                error_message = ping_output
+                status = "offline"
+                error_message = ping_output or "Ping failed (no bytes= in response)"
                 status_text = error_message
         except Exception as exc:
+            status = "offline"
             error_message = str(exc) or exc.__class__.__name__
             status_text = error_message
     elif pref == "socket":
@@ -1408,28 +1553,7 @@ def probe_single_port_diagnostics(
                 if not error_message:
                     error_message = str(exc) or exc.__class__.__name__
 
-        # ICMP PING fallback
-        if not pref and status != "online" and not use_proxy:
-            try:
-                retries += 1
-                ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
-                if ping_ok:
-                    ping_bytes = ping_output.encode("utf-8")
-                    protocol_used = "icmp-ping"
-                    response_bytes = ping_bytes
-                    status_text = f"ICMP Ping response ({ping_lat}ms)"
-                    if match_bytes and match_bytes in ping_bytes.lower():
-                        status = "online"
-                    elif not match_bytes:
-                        status = "online"
-                    elif status == "offline":
-                        status = "degraded"
-                else:
-                    if not error_message:
-                        error_message = ping_output
-            except Exception as exc:
-                if not error_message:
-                    error_message = str(exc) or exc.__class__.__name__
+        # (ICMP is probed separately as a portless probe, so no port fallback)
 
     duration_ms = max(1, int((time.monotonic() - t0) * 1000))
 
@@ -1439,12 +1563,16 @@ def probe_single_port_diagnostics(
 
     match_found = False
     match_count = 0
-    if match_str and snippet_text:
-        lower_snip = snippet_text.lower()
-        lower_match = match_str.lower()
-        if lower_match in lower_snip:
-            match_found = True
-            match_count = lower_snip.count(lower_match)
+    if protocol_used == "icmp-ping":
+        match_token = ""
+    else:
+        match_token = match_str
+        if match_str and snippet_text:
+            lower_snip = snippet_text.lower()
+            lower_match = match_str.lower()
+            if lower_match in lower_snip:
+                match_found = True
+                match_count = lower_snip.count(lower_match)
 
     return {
         "port": port,
@@ -1455,7 +1583,7 @@ def probe_single_port_diagnostics(
         "final_url": final_url,
         "duration_ms": duration_ms,
         "retries": retries,
-        "match_token": match_str,
+        "match_token": match_token,
         "match_found": match_found,
         "match_count": match_count,
         "response_snippet": snippet_text,
@@ -1464,23 +1592,44 @@ def probe_single_port_diagnostics(
     }
 
 
-def parse_diagnostic_ports(ports_input) -> list[int]:
+def parse_diagnostic_ports(ports_input) -> list[dict]:
+    """Parse ports input into list[{port, protocol}] dicts.
+    Accepts:
+      - list[dict] with 'port' and 'protocol' keys
+      - list[int] (legacy, protocol defaults to '')
+      - JSON string: '[{"port":80,"protocol":"http"}]' or '[80,443]'
+      - comma/space separated string: '80, 443'
+      - 'icmp' or 'icmp-ping' as a token -> {port: None, protocol: 'icmp-ping'}
+    """
+    def _to_dict(val):
+        if isinstance(val, dict):
+            return {"port": val.get("port"), "protocol": (val.get("protocol") or "").strip().lower()}
+        if isinstance(val, int):
+            return {"port": val, "protocol": ""}
+        return None
+
     if isinstance(ports_input, (list, tuple, set)):
-        ports = []
+        result = []
+        seen_ports = set()
         for p in ports_input:
-            try:
-                val = int(p)
-                if 1 <= val <= 65535:
-                    ports.append(val)
-            except (ValueError, TypeError):
-                pass
-        return sorted(set(ports))
+            d = _to_dict(p)
+            if d is not None:
+                port_val = d["port"]
+                if port_val is None:
+                    if "icmp" not in seen_ports:
+                        seen_ports.add("icmp")
+                        result.append(d)
+                elif 1 <= int(port_val) <= 65535 and int(port_val) not in seen_ports:
+                    seen_ports.add(int(port_val))
+                    result.append(d)
+        return result
 
     if not ports_input:
         return []
 
     str_val = str(ports_input).strip()
-    if str_val.startswith("[") and str_val.endswith("]"):
+    # Try JSON decode first
+    if (str_val.startswith("[") and str_val.endswith("]")) or (str_val.startswith("{") and str_val.endswith("}")):
         try:
             loaded = json.loads(str_val)
             if isinstance(loaded, list):
@@ -1488,30 +1637,46 @@ def parse_diagnostic_ports(ports_input) -> list[int]:
         except json.JSONDecodeError:
             pass
 
+    # Comma/space separated string (may include 'icmp')
     parts = re.split(r"[,\s]+", str_val)
-    ports = []
+    result = []
+    seen_ports = set()
     for part in parts:
-        cleaned = part.strip()
+        cleaned = part.strip().lower()
         if not cleaned:
+            continue
+        if cleaned in ("icmp", "icmp-ping"):
+            if "icmp" not in seen_ports:
+                seen_ports.add("icmp")
+                result.append({"port": None, "protocol": "icmp-ping"})
             continue
         try:
             val = int(cleaned)
-            if 1 <= val <= 65535:
-                ports.append(val)
+            if 1 <= val <= 65535 and val not in seen_ports:
+                seen_ports.add(val)
+                result.append({"port": val, "protocol": ""})
         except ValueError:
             pass
-    return sorted(set(ports))
+    return result
 
 
 def diagnose_service_ports(
     service_name: str,
-    ports: list[int] | str,
+    ports: list | str,
     match: str = "",
     url_path: str = "",
     use_proxy: bool = False,
     explicit_debug: bool | None = None,
     preferred_protocol: str = "",
+    port_protocols: list[dict] | None = None,
 ) -> dict:
+    """Probe each port with its own protocol and return diagnostic results.
+
+    `ports` can be list[dict] (per-port protocol), list[int] (legacy), or a string.
+    `preferred_protocol` is a fallback for any port that has no per-port protocol set.
+    `port_protocols` is a list[{port, protocol}] that overrides individual port protocols
+     (used when calling from the test route with a fresh port table).
+    """
     parsed_ports = parse_diagnostic_ports(ports)
 
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
@@ -1519,7 +1684,11 @@ def diagnose_service_ports(
     now_str = get_current_local_time_str()
     match_str = (match or "").strip()
 
-    if not parsed_ports:
+    # Separate numeric ports from ICMP
+    tcp_udp_ports = [p for p in parsed_ports if p["port"] is not None]
+    icmp_entries = [p for p in parsed_ports if p["port"] is None]
+
+    if not tcp_udp_ports and not icmp_entries:
         return {
             "success": False,
             "error": "No valid ports specified to test.",
@@ -1529,30 +1698,86 @@ def diagnose_service_ports(
             "discovered_protocol": "",
         }
 
-    max_workers = min(len(parsed_ports), 8)
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(
-                probe_single_port_diagnostics,
-                service_name,
-                port,
-                match_str,
-                url_path,
-                use_proxy,
-                proxy_settings,
-                debug_enabled,
-                preferred_protocol,
-            ): port
-            for port in parsed_ports
-        }
-        results_by_port = {}
-        for future in futures:
-            res = future.result()
-            results_by_port[res["port"]] = res
+    # Helper to resolve per-port protocol
+    def resolve_proto(port_entry: dict) -> str:
+        p = port_entry.get("protocol") or ""
+        if not p and port_protocols:
+            for override in port_protocols:
+                if override.get("port") == port_entry.get("port"):
+                    p = override.get("protocol") or ""
+                    break
+        return p.strip().lower() if p else preferred_protocol.strip().lower()
 
-    port_diagnostics = [results_by_port[p] for p in parsed_ports if p in results_by_port]
+    # Submit TCP/UDP probes in parallel
+    port_diagnostics = []
+    results_by_port = {}
+    if tcp_udp_ports:
+        max_workers = min(len(tcp_udp_ports), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    probe_single_port_diagnostics,
+                    service_name,
+                    port_entry["port"],
+                    match_str,
+                    url_path,
+                    use_proxy,
+                    proxy_settings,
+                    debug_enabled,
+                    resolve_proto(port_entry),
+                ): port_entry["port"]
+                for port_entry in tcp_udp_ports
+            }
+            for future in futures:
+                res = future.result()
+                results_by_port[res["port"]] = res
 
-    statuses = [p["status"] for p in port_diagnostics]
+        port_diagnostics = [results_by_port[p["port"]] for p in tcp_udp_ports if p["port"] in results_by_port]
+
+    # ICMP probes (sequential, usually just one)
+    icmp_diagnostics = []
+    for _ in icmp_entries:
+        t0 = time.monotonic()
+        try:
+            ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
+            is_success = ping_ok and ("bytes=" in (ping_output or "").lower())
+            status = "online" if is_success else "offline"
+            icmp_diagnostics.append({
+                "port": None,
+                "status": status,
+                "status_code": None,
+                "status_text": f"ICMP Ping response ({ping_lat}ms)" if is_success else (ping_output or "Ping failed"),
+                "protocol": "icmp-ping",
+                "final_url": service_name,
+                "duration_ms": max(1, int((time.monotonic() - t0) * 1000)),
+                "retries": 0,
+                "match_token": "",
+                "match_found": False,
+                "match_count": 0,
+                "response_snippet": ping_output or "",
+                "error": None if is_success else (ping_output or "No bytes= in ping response"),
+                "timestamp": now_str,
+            })
+        except Exception as exc:
+            icmp_diagnostics.append({
+                "port": None,
+                "status": "offline",
+                "status_code": None,
+                "status_text": str(exc),
+                "protocol": "icmp-ping",
+                "final_url": service_name,
+                "duration_ms": max(1, int((time.monotonic() - t0) * 1000)),
+                "retries": 0,
+                "match_token": "",
+                "match_found": False,
+                "match_count": 0,
+                "response_snippet": "",
+                "error": str(exc),
+                "timestamp": now_str,
+            })
+
+    all_diagnostics = port_diagnostics + icmp_diagnostics
+    statuses = [p["status"] for p in all_diagnostics]
     if not statuses:
         overall_status = "offline"
     elif all(s == "online" for s in statuses):
@@ -1563,34 +1788,43 @@ def diagnose_service_ports(
         overall_status = "degraded"
 
     discovered_protocol = ""
-    for p in port_diagnostics:
+    for p in all_diagnostics:
         if p["status"] == "online" and p.get("protocol"):
             discovered_protocol = p["protocol"]
             break
     if not discovered_protocol:
-        for p in port_diagnostics:
+        for p in all_diagnostics:
             if p["status"] == "degraded" and p.get("protocol"):
                 discovered_protocol = p["protocol"]
                 break
-    if not discovered_protocol and port_diagnostics:
-        discovered_protocol = port_diagnostics[0].get("protocol", "")
+    if not discovered_protocol and all_diagnostics:
+        discovered_protocol = all_diagnostics[0].get("protocol", "")
 
     return {
         "success": True,
         "service_name": service_name,
         "overall_status": overall_status,
         "timestamp": now_str,
-        "ports": port_diagnostics,
+        "ports": all_diagnostics,
         "discovered_protocol": discovered_protocol,
     }
 
 
-def sync_service_ports(service_id: int, service_name: str, detected_ports: list[int] | None = None):
-    ports = detected_ports if detected_ports is not None else discover_ports(service_name)
+def sync_service_ports(service_id: int, service_name: str, detected_ports: list | None = None):
+    """Sync port list to DB (list[dict] or list[int]) and trigger a scan."""
+    if detected_ports is not None:
+        raw = detected_ports
+    else:
+        raw = discover_ports(service_name)
+    # Normalise to list[dict]
+    if raw and isinstance(raw[0], int):
+        ports = [{"port": p, "protocol": ""} for p in raw]
+    else:
+        ports = [dict(p) for p in raw]
     conn = get_db_connection()
     conn.execute(
         "UPDATE services SET ports = ? WHERE id = ?",
-        (json.dumps(sorted({int(port) for port in ports})), service_id),
+        (ports_to_json(ports), service_id),
     )
     conn.commit()
     conn.close()
@@ -1612,9 +1846,11 @@ def add_service(
     comment: str = "",
     use_proxy: bool = False,
     name: str | None = None,
-    ports: list[int] | str | None = None,
+    ports: list | str | None = None,
+    icmp_enabled: bool | None = None,
     protocol: str = "",
 ):
+    """Add a new service. `ports` may be a JSON string, a list[dict], or a list[int]."""
     target_name = service_name if service_name is not None else name
     if not target_name:
         raise ValueError("Service name cannot be empty.")
@@ -1623,22 +1859,39 @@ def add_service(
         return None
     service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
-    proto_val = (protocol or "").strip().lower()
-    detected = []
-    if ports is not None and str(ports).strip():
+    detected: list[dict] = []
+    if ports is not None and ports != "" and ports != []:
         detected = parse_diagnostic_ports(ports)
     elif not paused:
-        detected = discover_ports(normalized)
+        detected = parse_diagnostic_ports(discover_ports(normalized))
+    clean_proto = (protocol or "").strip().lower()
+    if clean_proto:
+        if clean_proto in ("icmp", "icmp-ping"):
+            if not detected:
+                icmp_enabled = True
+            else:
+                for p in detected:
+                    if p.get("port") is not None and not p.get("protocol"):
+                        p["protocol"] = clean_proto
+        else:
+            for p in detected:
+                if p.get("port") is not None and not p.get("protocol"):
+                    p["protocol"] = clean_proto
+    # Add / remove ICMP entry if requested
+    if icmp_enabled is not None:
+        detected = [p for p in detected if p.get("port") is not None]  # remove any stale ICMP
+        if icmp_enabled:
+            detected.append({"port": None, "protocol": "icmp-ping"})
     conn = get_db_connection()
     cursor = conn.execute(
         "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), proto_val, json.dumps(detected)),
+        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), clean_proto, ports_to_json(detected)),
     )
     conn.commit()
     service_id = cursor.lastrowid
     conn.close()
     if detected and not paused:
-        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy, protocol=proto_val)
+        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy)
     return service_id
 
 
@@ -1705,7 +1958,7 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
         conn = get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, 0, ?)",
-            (normalized, derive_match(normalized), "", json.dumps(detected)),
+            (normalized, derive_match(normalized), "", ports_to_json(detected)),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -1716,20 +1969,37 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
     return summary
 
 
-def parse_csv_ports(value: str) -> list[int] | None:
+def parse_csv_ports(value: str) -> list[dict] | None:
+    """Parse a CSV ports field into list[dict] with port+protocol keys.
+    Accepts positional protocols via parse_csv_port_protocols()."""
     clean = (value or "").strip().strip("[]()")
     if not clean:
         return None
-    ports = []
-    for part in re.split(r"[,;\s]+", clean):
-        if part.strip():
-            try:
-                p = int(part.strip())
-                if 1 <= p <= 65535:
-                    ports.append(p)
-            except ValueError:
-                pass
-    return sorted(set(ports)) if ports else None
+    result = []
+    for part in re.split(r"[,;]+", clean):
+        cleaned = part.strip().lower()
+        if not cleaned:
+            continue
+        if cleaned in ("icmp", "icmp-ping"):
+            result.append({"port": None, "protocol": "icmp-ping"})
+            continue
+        try:
+            p = int(cleaned)
+            if 1 <= p <= 65535:
+                result.append({"port": p, "protocol": ""})
+        except ValueError:
+            pass
+    return result or None
+
+
+def apply_csv_protocols(port_list: list[dict], protocols_str: str) -> list[dict]:
+    """Zip a port list with a comma-separated protocol string by position."""
+    proto_parts = [p.strip().lower() for p in re.split(r"[,;]+", protocols_str or "") if p.strip()]
+    result = [dict(p) for p in port_list]
+    for i, port_entry in enumerate(result):
+        if i < len(proto_parts) and proto_parts[i]:
+            result[i]["protocol"] = proto_parts[i]
+    return result
 
 
 def export_services_csv() -> tuple[str, int]:
@@ -1738,7 +2008,22 @@ def export_services_csv() -> tuple[str, int]:
     writer = csv.writer(output)
     writer.writerow(["Service", "Match", "URL path", "Comment", "Paused", "Proxy", "Protocol", "Ports"])
     for s in services:
-        ports_str = ", ".join(str(p) for p in s["ports"])
+        ports_list: list[dict] = s["ports"]  # list[dict] with port & protocol
+        # Separate ICMP from TCP/UDP ports
+        tcp_ports = [p for p in ports_list if p.get("port") is not None]
+        icmp_present = any(p.get("port") is None for p in ports_list)
+        port_nums = [str(p["port"]) for p in tcp_ports]
+        port_protos = [p.get("protocol") or "" for p in tcp_ports]
+        if icmp_present:
+            port_nums.append("icmp")
+            port_protos.append("icmp-ping")
+        distinct_protos = {pr for pr in port_protos if pr}
+        if len(distinct_protos) == 1:
+            proto_str = list(distinct_protos)[0]
+        elif len(distinct_protos) > 1:
+            proto_str = ", ".join(port_protos)
+        else:
+            proto_str = s.get("protocol") or ""
         writer.writerow([
             s["name"],
             s["match"],
@@ -1746,8 +2031,8 @@ def export_services_csv() -> tuple[str, int]:
             s.get("comment", "") or "",
             "1" if s["paused"] else "0",
             "1" if s.get("use_proxy") else "0",
-            s.get("protocol", "") or "",
-            ports_str,
+            proto_str,
+            ", ".join(port_nums),
         ])
     return output.getvalue(), len(services)
 
@@ -1792,9 +2077,11 @@ def import_services_from_csv(
             elif col in ("proxy", "use_proxy", "use proxy", "is_proxy", "proxy server", "proxy_server"):
                 col_map["proxy"] = idx
             elif col in ("protocol", "proto", "service protocol"):
-                col_map["protocol"] = idx
+                col_map["protocol"] = idx  # legacy: single protocol for all ports
             elif col in ("ports", "port", "monitored ports"):
                 col_map["ports"] = idx
+            elif col in ("port protocols", "port_protocols", "protocols", "port protocol"):
+                col_map["port_protocols"] = idx  # new: per-port protocol list
         data_rows = raw_rows[1:]
     else:
         first_len = len(raw_rows[0])
@@ -1874,10 +2161,20 @@ def import_services_from_csv(
         ports_raw = row[pts_idx].strip() if pts_idx != -1 and pts_idx < len(row) else ""
         ports_val = parse_csv_ports(ports_raw) or []
 
+        # Apply per-port protocols: prefer 'port_protocols' column, fall back to legacy 'protocol'
+        pproto_idx = col_map.get("port_protocols", -1)
+        if pproto_idx != -1 and pproto_idx < len(row) and row[pproto_idx].strip():
+            ports_val = apply_csv_protocols(ports_val, row[pproto_idx].strip())
+        elif protocol_val:
+            if "," in protocol_val or ";" in protocol_val:
+                ports_val = apply_csv_protocols(ports_val, protocol_val)
+            else:
+                ports_val = [{"port": p["port"], "protocol": protocol_val if p.get("port") is not None else "icmp-ping"} for p in ports_val]
+
         conn = get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), protocol_val, json.dumps(ports_val)),
+            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), protocol_val, ports_to_json(ports_val)),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -1885,14 +2182,15 @@ def import_services_from_csv(
 
         if not paused_val and ports_val:
             if progress_callback is not None:
+                port_nums_str = ", ".join(str(p["port"]) if p.get("port") is not None else "icmp" for p in ports_val)
                 progress_callback({
                     "index": index,
                     "total": total_records,
                     "service": normalized,
                     "status": "scanning",
-                    "message": f"Scanning ports for {normalized} ({', '.join(str(p) for p in ports_val)})",
+                    "message": f"Scanning ports for {normalized} ({port_nums_str})",
                 })
-            scan_service(service_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val, protocol=protocol_val)
+            scan_service(service_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val)
 
         summary["imported"] += 1
         summary["imported_services"].append(normalized)
@@ -1903,19 +2201,26 @@ def import_services_from_csv(
 def update_service(
     service_id: int,
     name: str,
-    ports_input: str,
+    ports_input,
     match: str | None = None,
     url_path: str | None = None,
     paused: bool | None = None,
     comment: str | None = None,
     use_proxy: bool | None = None,
+    icmp_enabled: bool | None = None,
     protocol: str | None = None,
 ):
+    """Update a service. `ports_input` can be:
+      - A JSON string from the new port table form: '[{"port":80,"protocol":"http"},...]'
+      - A plain comma-separated string: '80, 443' (legacy, protocol defaults to '')
+      - A list[dict] already parsed
+    `icmp_enabled` adds/removes the portless ICMP entry.
+    """
     normalized = normalize_service(name)
     service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     existing_service = None
-    if paused is None or comment is None or use_proxy is None or protocol is None:
+    if paused is None or comment is None or use_proxy is None:
         existing_service = get_service_by_id(service_id)
 
     if paused is None:
@@ -1931,22 +2236,45 @@ def update_service(
     else:
         comment_val = str(comment).strip()
 
-    if protocol is None:
-        protocol_val = existing_service["protocol"] if existing_service and "protocol" in existing_service.keys() else ""
-    else:
-        protocol_val = str(protocol).strip().lower()
+    # Parse incoming ports to list[dict]
+    parsed_ports = parse_diagnostic_ports(ports_input) if ports_input else []
+    had_icmp_in_input = any(p.get("port") is None for p in parsed_ports)
+    incoming_ports = [p for p in parsed_ports if p.get("port") is not None]
 
-    incoming_ports = []
-    if ports_input:
-        raw_parts = ports_input.replace(",", "\n").splitlines()
-        for part in raw_parts:
-            value = part.strip()
-            if not value:
-                continue
-            try:
-                incoming_ports.append(int(value))
-            except ValueError:
-                raise ValueError(f"Invalid port value '{value}'")
+    if protocol is not None:
+        clean_proto = (protocol or "").strip().lower()
+        if clean_proto in ("icmp", "icmp-ping"):
+            if not incoming_ports:
+                icmp_enabled = True
+            else:
+                for p in incoming_ports:
+                    if p.get("port") is not None and not p.get("protocol"):
+                        p["protocol"] = clean_proto
+        elif clean_proto:
+            for p in incoming_ports:
+                if p.get("port") is not None and not p.get("protocol"):
+                    p["protocol"] = clean_proto
+        proto_to_save = clean_proto
+    else:
+        proto_to_save = existing_service.get("protocol", "") if existing_service else ""
+
+    # Handle ICMP
+    if icmp_enabled is None:
+        if had_icmp_in_input:
+            icmp_enabled = True
+        else:
+            # Preserve existing ICMP setting
+            if existing_service is None:
+                existing_service = get_service_by_id(service_id)
+            if existing_service:
+                existing_ports = existing_service.get("ports") or []
+                icmp_enabled = any(p.get("port") is None for p in existing_ports)
+            else:
+                icmp_enabled = False
+
+    if icmp_enabled:
+        incoming_ports.append({"port": None, "protocol": "icmp-ping"})
+
     conn = get_db_connection()
     conn.execute(
         "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, protocol = ?, ports = ? WHERE id = ?",
@@ -1957,15 +2285,25 @@ def update_service(
             comment_val,
             int(paused),
             int(use_proxy_val),
-            protocol_val,
-            json.dumps(sorted({int(port) for port in incoming_ports})),
+            proto_to_save,
+            ports_to_json(incoming_ports),
             service_id,
         ),
     )
+    # Clean up obsolete port_checks for removed ports
+    configured_ports = {p.get("port") for p in incoming_ports}
+    if None not in configured_ports:
+        conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (service_id,))
+    numeric_ports = [p["port"] for p in incoming_ports if p.get("port") is not None]
+    if numeric_ports:
+        placeholders = ", ".join("?" for _ in numeric_ports)
+        conn.execute(f"DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({placeholders})", (service_id, *numeric_ports))
+    else:
+        conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL", (service_id,))
     conn.commit()
     conn.close()
     if incoming_ports and not paused:
-        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val, protocol=protocol_val)
+        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val)
 
 
 
@@ -1987,12 +2325,12 @@ def parse_port_values(ports_input: str):
 
 
 def bulk_update_ports(service_ids, action: str, ports_input: str):
-    ports = parse_port_values(ports_input)
+    new_port_nums = parse_port_values(ports_input)  # returns list[int]
     if not service_ids:
         raise ValueError("Select at least one service.")
     if action not in {"add", "remove"}:
         raise ValueError("Choose whether to add or remove ports.")
-    if not ports:
+    if not new_port_nums:
         raise ValueError("Enter at least one port.")
 
     conn = get_db_connection()
@@ -2007,20 +2345,24 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
         raise ValueError("One or more selected services no longer exists.")
 
     for row in rows:
-        current_ports = set(parse_ports(row["ports"]))
+        current_ports: list[dict] = parse_ports(row["ports"])  # list[dict]
+        current_port_nums = {p["port"] for p in current_ports if p.get("port") is not None}
         if action == "add":
-            updated_ports = current_ports.union(ports)
+            for pnum in new_port_nums:
+                if pnum not in current_port_nums:
+                    current_ports.append({"port": pnum, "protocol": ""})
+                    current_port_nums.add(pnum)
         else:
-            updated_ports = current_ports.difference(ports)
+            current_ports = [p for p in current_ports if p.get("port") not in set(new_port_nums)]
         conn.execute(
             "UPDATE services SET ports = ? WHERE id = ?",
-            (json.dumps(sorted(updated_ports)), row["id"]),
+            (ports_to_json(current_ports), row["id"]),
         )
         if action == "remove":
-            port_placeholders = ", ".join("?" for _ in ports)
+            port_placeholders = ", ".join("?" for _ in new_port_nums)
             conn.execute(
                 f"DELETE FROM port_checks WHERE service_id = ? AND port IN ({port_placeholders})",
-                (row["id"], *ports),
+                (row["id"], *new_port_nums),
             )
     conn.commit()
     conn.close()
@@ -2036,39 +2378,88 @@ def delete_service(service_id: int):
 
 def get_status_rows():
     conn = get_db_connection()
-    rows = conn.execute(
+    check_rows = conn.execute(
         """
         WITH latest AS (
             SELECT service_id, port, is_online, status, last_response_ms, checked_at,
                    ROW_NUMBER() OVER (PARTITION BY service_id, port ORDER BY checked_at DESC) AS rn
             FROM port_checks
         )
-         SELECT s.id, s.name, s.match, s.ports, s.use_proxy, s.protocol, latest.port, latest.is_online,
-             COALESCE(latest.status, CASE WHEN latest.is_online = 1 THEN 'online' ELSE 'offline' END) AS status,
-             latest.last_response_ms, latest.checked_at
-        FROM services s
-        LEFT JOIN latest ON latest.service_id = s.id AND latest.rn = 1 AND instr(s.ports, port) > 0
-        WHERE s.paused = 0
-        ORDER BY s.name, latest.port
+        SELECT service_id, port, is_online, status, last_response_ms, checked_at
+        FROM latest
+        WHERE rn = 1
+        """
+    ).fetchall()
+
+    latest_checks = {}
+    for c in check_rows:
+        latest_checks[(c["service_id"], c["port"])] = c
+
+    service_rows = conn.execute(
+        """
+        SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports
+        FROM services
+        WHERE paused = 0
+        ORDER BY name ASC
         """
     ).fetchall()
     conn.close()
+
     result = []
-    for row in rows:
-        result.append({
-            "id": row["id"],
-            "name": row["name"],
-            "match": row["match"],
-            "ports": parse_ports(row["ports"]),
-            "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
-            "protocol": row["protocol"] if "protocol" in row.keys() and row["protocol"] else "",
-            "port": row["port"],
-            "is_online": bool(row["is_online"]),
-            "status": row["status"],
-            "last_response_ms": row["last_response_ms"],
-            "checked_at": row["checked_at"],
-            "checked_at_local": format_local_time(row["checked_at"]),
-        })
+    for s in service_rows:
+        ports_list: list[dict] = parse_ports(s["ports"])
+        if not ports_list:
+            result.append({
+                "id": s["id"],
+                "name": s["name"],
+                "match": s["match"],
+                "ports": ports_list,
+                "use_proxy": bool(s["use_proxy"]) if "use_proxy" in s.keys() else False,
+                "protocol": s["protocol"] if "protocol" in s.keys() and s["protocol"] else "",
+                "port": None,
+                "is_online": False,
+                "status": None,
+                "last_response_ms": None,
+                "checked_at": None,
+                "checked_at_local": "",
+            })
+            continue
+
+        for p in ports_list:
+            port_val = p.get("port")  # int or None
+            check = latest_checks.get((s["id"], port_val))
+            if port_val is None:
+                port_protocol = "icmp-ping"
+            else:
+                port_protocol = p.get("protocol") or (s["protocol"] if "protocol" in s.keys() and s["protocol"] else "http")
+
+            if check:
+                is_online = bool(check["is_online"])
+                status = check["status"] or ("online" if is_online else "offline")
+                last_response_ms = check["last_response_ms"]
+                checked_at = check["checked_at"]
+                checked_at_local = format_local_time(checked_at)
+            else:
+                is_online = False
+                status = None
+                last_response_ms = None
+                checked_at = None
+                checked_at_local = ""
+
+            result.append({
+                "id": s["id"],
+                "name": s["name"],
+                "match": s["match"],
+                "ports": ports_list,
+                "use_proxy": bool(s["use_proxy"]) if "use_proxy" in s.keys() else False,
+                "protocol": port_protocol,
+                "port": port_val,
+                "is_online": is_online,
+                "status": status,
+                "last_response_ms": last_response_ms,
+                "checked_at": checked_at,
+                "checked_at_local": checked_at_local,
+            })
     return result
 
 
@@ -2499,8 +2890,11 @@ def add_service_route():
         match = request.form.get("match", "").strip()
         comment = request.form.get("comment", "").strip()
         url_path = request.form.get("url_path", "").strip()
-        ports_input = request.form.get("ports", "").strip()
-        protocol = request.form.get("protocol", "").strip()
+        # New: per-port protocol JSON from hidden field, or legacy plain text
+        ports_json_input = request.form.get("ports_json", "").strip()
+        ports_input = ports_json_input or request.form.get("ports", "").strip()
+        icmp_raw = request.form.get("icmp_enabled")
+        icmp_enabled = icmp_raw in ("on", "1", "true", "icmp-ping", "icmp")
         paused = request.form.get("paused") == "on" or request.form.get("paused") == "1"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         if not name:
@@ -2515,7 +2909,7 @@ def add_service_route():
                 paused=paused,
                 use_proxy=use_proxy,
                 ports=ports_input if ports_input else None,
-                protocol=protocol,
+                icmp_enabled=icmp_enabled,
             )
         except ValueError as exc:
             flash(str(exc))
@@ -2598,12 +2992,15 @@ def edit_service(service_id):
         match = request.form.get("match", "").strip()
         url_path = request.form.get("url_path", "")
         comment = request.form.get("comment", "").strip()
-        ports_input = request.form.get("ports", "")
-        protocol = request.form.get("protocol", "").strip()
+        # New: per-port protocol JSON from hidden field, or legacy plain text
+        ports_json_input = request.form.get("ports_json", "").strip()
+        ports_input = ports_json_input or request.form.get("ports", "")
+        icmp_raw = request.form.get("icmp_enabled")
+        icmp_enabled = icmp_raw in ("on", "1", "true", "icmp-ping", "icmp")
         paused = request.form.get("paused") == "on"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         try:
-            update_service(service_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy, protocol=protocol)
+            update_service(service_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy, icmp_enabled=icmp_enabled)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_service", service_id=service_id, return_to=return_to))
@@ -2631,15 +3028,19 @@ def test_service_edit_route(service_id):
     else:
         use_proxy = bool(service.get("use_proxy"))
 
+    # Accept ports as per-port protocol list (new format) or legacy
     ports_input = data.get("ports")
+    icmp_raw = data.get("icmp_enabled")
+    icmp_enabled = icmp_raw is True or str(icmp_raw).lower() in ("true", "1", "on", "icmp-ping", "icmp") if icmp_raw is not None else False
+
     if ports_input is None:
-        ports = service["ports"]
+        ports = list(service["ports"])  # list[dict] from DB
     else:
         ports = parse_diagnostic_ports(ports_input)
 
-    protocol = (data.get("protocol") or "").strip().lower()
-    if not protocol and service.get("protocol"):
-        protocol = service.get("protocol", "").strip().lower()
+    # Append ICMP entry if requested
+    if icmp_enabled and not any(p.get("port") is None for p in ports):
+        ports.append({"port": None, "protocol": "icmp-ping"})
 
     if not service_name:
         return jsonify({"success": False, "error": "Service name cannot be empty."}), 400
@@ -2652,7 +3053,6 @@ def test_service_edit_route(service_id):
         match=match or "",
         url_path=url_path or "",
         use_proxy=use_proxy,
-        preferred_protocol=protocol,
     )
     return jsonify(results)
 
@@ -2667,7 +3067,11 @@ def test_service_generic_route():
     use_proxy = raw_proxy is True or str(raw_proxy).lower() in ("true", "1", "on")
     ports_input = data.get("ports") or ""
     ports = parse_diagnostic_ports(ports_input)
-    protocol = (data.get("protocol") or "").strip().lower()
+    icmp_raw = data.get("icmp_enabled")
+    icmp_enabled = icmp_raw is True or str(icmp_raw).lower() in ("true", "1", "on", "icmp-ping", "icmp") if icmp_raw is not None else False
+    if icmp_enabled:
+        if not any(p.get("port") is None for p in ports):
+            ports.append({"port": None, "protocol": "icmp-ping"})
 
     if not service_name:
         return jsonify({"success": False, "error": "Service name cannot be empty."}), 400
@@ -2681,7 +3085,6 @@ def test_service_generic_route():
         match=match_to_use,
         url_path=url_path,
         use_proxy=use_proxy,
-        preferred_protocol=protocol,
     )
     return jsonify(results)
 
@@ -2714,7 +3117,6 @@ def rescan_service_route(service_id):
         service["match"],
         url_path=service["url_path"],
         use_proxy=service.get("use_proxy", False),
-        protocol=service.get("protocol", ""),
     )
     flash(f"Rescanned {service['name']}.")
     return redirect(url_for("status"))
@@ -2805,7 +3207,7 @@ def compute_system_overall_status(status_rows: list[dict] | None = None) -> dict
         if not ports_list:
             continue
 
-        valid_ports = [entry for entry in entries if entry.get("port") is not None]
+        valid_ports = [entry for entry in entries if entry.get("status") is not None and (entry.get("port") is not None or any(p.get("port") is None for p in ports_list))]
         if not valid_ports:
             # Ports listed, but no scan records exist yet
             offline_services += 1

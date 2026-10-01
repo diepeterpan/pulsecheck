@@ -67,7 +67,7 @@
           <tbody>
             {% for service_name, entries in grouped.items() %}
               {% set first_entry = entries[0] %}
-              {% set valid_ports = entries | selectattr('port') | list %}
+              {% set valid_ports = entries | selectattr('status', 'defined') | list %}
               {% set checked_entries = entries | selectattr('checked_at') | list %}
               {% if checked_entries %}
                 {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
@@ -103,12 +103,9 @@
                     {% if first_entry.use_proxy %}
                       <span class="badge badge-proxy" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                     {% endif %}
-                    {% if first_entry.protocol %}
-                      <span class="badge badge-protocol" style="background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600; text-transform: uppercase;" title="Monitored via {{ first_entry.protocol | protocol_label }} protocol">{{ first_entry.protocol | protocol_label }}</span>
-                    {% endif %}
                     <span class="cell-hover-box" role="tooltip">
                       <span class="hover-box-label">Service</span>
-                      <span class="hover-box-value">{{ service_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}{% if first_entry.protocol %} &bull; Protocol: {{ first_entry.protocol | protocol_label }}{% endif %}</span>
+                      <span class="hover-box-value">{{ service_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}</span>
                     </span>
                   </div>
                 </td>
@@ -131,11 +128,18 @@
                 <td class="col-ports">
                   {% if valid_ports %}
                     <div class="cell-truncate-wrapper cell-ports-wrapper" tabindex="0">
-                      <div class="status-ports-inline truncate-text" title="{% for p in valid_ports %}{{ p.port }} ({{ p.status }}){% if not loop.last %}, {% endif %}{% endfor %}">
+                      <div class="status-ports-inline truncate-text" title="{% for p in valid_ports %}{% if p.port is none %}ICMP{% else %}{{ p.port }}{% endif %} ({{ p.status }}){% if not loop.last %}, {% endif %}{% endfor %}">
                         {% for entry in valid_ports %}
-                          <span class="status-item {{ entry.status }}" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
-                            <strong class="status-port">{{ entry.port }}</strong>
-                          </span>
+                          {% if entry.port is none %}
+                            <span class="status-item {{ entry.status }}" aria-label="ICMP: {{ entry.status|upper }}" title="ICMP Ping">
+                              <strong class="status-port">ICMP</strong>
+                            </span>
+                          {% else %}
+                            <span class="status-item {{ entry.status }}" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
+                              <strong class="status-port">{{ entry.port }}</strong>
+                              {% if entry.protocol %}<span class="badge badge-protocol" style="background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; font-weight: 600; margin-left: 2px;">{{ entry.protocol | protocol_label }}</span>{% endif %}
+                            </span>
+                          {% endif %}
                         {% endfor %}
                       </div>
                       <span class="cell-hover-box cell-hover-box-ports" role="tooltip">
@@ -143,10 +147,19 @@
                         <div class="hover-box-ports-list">
                           {% for entry in valid_ports %}
                             <div class="hover-box-port-row">
-                              <span class="status-item {{ entry.status }} status-item-sm">
-                                <strong class="status-port">{{ entry.port }}</strong>
-                              </span>
+                              {% if entry.port is none %}
+                                <span class="status-item {{ entry.status }} status-item-sm">
+                                  <strong class="status-port">ICMP</strong>
+                                </span>
+                              {% else %}
+                                <span class="status-item {{ entry.status }} status-item-sm">
+                                  <strong class="status-port">{{ entry.port }}</strong>
+                                </span>
+                              {% endif %}
                               <span class="hover-port-status {{ entry.status }}">{{ entry.status|upper }}</span>
+                              {% if entry.protocol %}
+                                <span class="hover-port-proto" style="color:#7c3aed;font-size:0.7rem;font-weight:600;">{{ entry.protocol | protocol_label }}</span>
+                              {% endif %}
                               <span class="hover-port-meta">
                                 {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}&mdash;{% endif %}
                                 &bull;

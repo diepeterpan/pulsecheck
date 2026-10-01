@@ -31,6 +31,10 @@
           <input type="hidden" name="return_to" value="{{ return_to }}">
         {% endif %}
 
+        <!-- Hidden field that carries the serialised per-port protocol JSON to the server -->
+        <input type="hidden" name="ports_json" id="ports-json-hidden">
+        <input type="hidden" name="ports" id="ports" value="{{ (item.ports | map(attribute='port') | select('ne', none) | map('string') | join(', ')) if item.ports else '80, 443' }}">
+
         <div style="margin-bottom: 16px;">
           <label for="name" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Service name</label>
           <input type="text" id="name" name="name" value="{{ item.name }}" placeholder="example.com" required style="width: 100%; box-sizing: border-box;">
@@ -65,28 +69,67 @@
           </label>
         </div>
 
-        <div style="margin-bottom: 22px;">
-          <label for="ports" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports</label>
-          <input type="text" id="ports" name="ports" value="{% if item.ports is string %}{{ item.ports }}{% elif item.ports %}{{ item.ports | join(', ') }}{% else %}80, 443{% endif %}" placeholder="80, 443, 8443" style="width: 100%; box-sizing: border-box;">
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Comma-separated TCP/UDP ports to probe.</span>
+        <!-- ===== Port Configuration Table ===== -->
+        <div style="margin-bottom: 8px;">
+          <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports &amp; Protocols</label>
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem;">
+              <thead>
+                <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                  <th style="padding: 8px 12px; text-align: left; font-weight: 600; color: #475569; width: 38%;">Port</th>
+                  <th style="padding: 8px 12px; text-align: left; font-weight: 600; color: #475569;">Protocol</th>
+                  <th style="padding: 8px 6px; width: 36px;"></th>
+                </tr>
+              </thead>
+              <tbody id="port-rows">
+                {% set tcp_ports = item.ports | selectattr('port', 'defined') | selectattr('port', 'ne', none) | list if item.ports else [] %}
+                {% if not tcp_ports and is_add %}
+                  {% set tcp_ports = [{'port': 80, 'protocol': ''}, {'port': 443, 'protocol': ''}] %}
+                {% endif %}
+                {% for p in tcp_ports %}
+                  <tr class="port-config-row" style="border-bottom: 1px solid #f1f5f9;">
+                    <td style="padding: 6px 12px;">
+                      <input type="number" class="port-row-num" min="1" max="65535" placeholder="e.g. 80" value="{{ p.port }}" required style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
+                    </td>
+                    <td style="padding: 6px 12px;">
+                      <select class="port-row-proto" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; font-size: 0.84rem;">
+                        <option value="" {% if not p.protocol %}selected{% endif %}>Auto-detect</option>
+                        <option value="http" {% if p.protocol == 'http' %}selected{% endif %}>HTTP</option>
+                        <option value="https" {% if p.protocol == 'https' %}selected{% endif %}>HTTPS</option>
+                        <option value="socket" {% if p.protocol == 'socket' %}selected{% endif %}>SOCKET</option>
+                        <option value="socket-ssl" {% if p.protocol == 'socket-ssl' %}selected{% endif %}>SOCKET SSL</option>
+                        <option value="udp" {% if p.protocol == 'udp' %}selected{% endif %}>UDP</option>
+                        <option value="udp-ssl" {% if p.protocol == 'udp-ssl' %}selected{% endif %}>UDP SSL</option>
+                      </select>
+                    </td>
+                    <td style="padding: 6px 6px; text-align: center;">
+                      <button type="button" class="btn-remove-port" title="Remove port" style="background: none; border: none; cursor: pointer; color: #94a3b8; padding: 3px; border-radius: 4px; display: flex; align-items: center;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" id="btn-add-port" class="button secondary" style="font-size: 0.82rem; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Port
+          </button>
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 6px;">Each port can use a separate protocol. Leave protocol as Auto-detect to have PulseCheck discover it.</span>
         </div>
 
-        <div style="margin-bottom: 22px;">
-          <label for="protocol" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Protocol</label>
-          <div style="display: flex; gap: 8px; align-items: center;">
-            <select id="protocol" name="protocol" style="flex: 1; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; font-size: 0.88rem;">
-              <option value="" {% if not item.protocol %}selected{% endif %}>Auto-detect (Discover on test / scan)</option>
-              <option value="http" {% if item.protocol == 'http' %}selected{% endif %}>HTTP</option>
-              <option value="https" {% if item.protocol == 'https' %}selected{% endif %}>HTTPS</option>
-              <option value="socket" {% if item.protocol == 'socket' %}selected{% endif %}>SOCKET</option>
-              <option value="socket-ssl" {% if item.protocol == 'socket-ssl' %}selected{% endif %}>SOCKET SSL</option>
-              <option value="udp" {% if item.protocol == 'udp' %}selected{% endif %}>UDP</option>
-              <option value="udp-ssl" {% if item.protocol == 'udp-ssl' %}selected{% endif %}>UDP SSL</option>
-              <option value="icmp-ping" {% if item.protocol in ('icmp-ping', 'icmp') %}selected{% endif %}>ICMP PING</option>
-            </select>
-            <span id="discovered-proto-pill" class="badge" style="display: none; background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.76rem; padding: 4px 8px; border-radius: 4px; font-weight: 600;"></span>
-          </div>
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Protocol used for service checks. Auto-detected during tests or on the next scheduled check.</span>
+        <!-- ===== ICMP Toggle ===== -->
+        <div style="margin: 16px 0 22px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: flex-start; gap: 10px;">
+          <label for="icmp-enabled" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500; flex: 1;">
+            <input type="checkbox" id="icmp-enabled" name="icmp_enabled" value="icmp-ping"
+              {% if item.ports and (item.ports | selectattr('port', 'equalto', none) | list or item.ports | selectattr('protocol', 'equalto', 'icmp-ping') | list) %}checked{% endif %}>
+            <span>
+              <strong>ICMP Ping probe</strong>
+              <span style="font-weight: 400; color: #64748b; font-size: 0.82rem; margin-left: 4px;">— no port required</span>
+            </span>
+          </label>
+          <span style="font-size: 0.75rem; color: #94a3b8; line-height: 1.4; max-width: 220px;">Sends an ICMP ping after all TCP/UDP ports are probed. Stored without a port number.</span>
         </div>
 
         <div style="display: flex; gap: 10px; margin-top: 24px; align-items: center; flex-wrap: wrap;">
@@ -161,6 +204,154 @@
 
 <script>
   (function() {
+    // ===== Port Table Management =====
+    const PROTO_OPTIONS = [
+      { value: "", label: "Auto-detect" },
+      { value: "http", label: "HTTP" },
+      { value: "https", label: "HTTPS" },
+      { value: "socket", label: "SOCKET" },
+      { value: "socket-ssl", label: "SOCKET SSL" },
+      { value: "udp", label: "UDP" },
+      { value: "udp-ssl", label: "UDP SSL" },
+    ];
+
+    // Seed data from server
+    const serverPorts = {{ item.ports | tojson if item.ports else '[]' }};
+
+    const portRowsEl = document.getElementById("port-rows");
+    const portJsonHidden = document.getElementById("ports-json-hidden");
+    const btnAddPort = document.getElementById("btn-add-port");
+    const form = document.getElementById("service-form");
+
+    function makeProtoSelect(selectedVal) {
+      const sel = document.createElement("select");
+      sel.className = "port-row-proto";
+      sel.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; font-size: 0.84rem;";
+      PROTO_OPTIONS.forEach(opt => {
+        const o = document.createElement("option");
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === (selectedVal || "")) o.selected = true;
+        sel.appendChild(o);
+      });
+      return sel;
+    }
+
+    function wireRowEvents(tr) {
+      const delBtn = tr.querySelector("button");
+      if (delBtn) {
+        delBtn.addEventListener("click", () => {
+          tr.remove();
+          updatePortsHidden();
+        });
+        delBtn.addEventListener("mouseenter", () => { delBtn.style.color = "#dc2626"; });
+        delBtn.addEventListener("mouseleave", () => { delBtn.style.color = "#94a3b8"; });
+      }
+    }
+
+    function addPortRow(portNum, proto) {
+      const tr = document.createElement("tr");
+      tr.className = "port-config-row";
+      tr.style.cssText = "border-bottom: 1px solid #f1f5f9;";
+
+      const tdPort = document.createElement("td");
+      tdPort.style.padding = "6px 12px";
+      const portInput = document.createElement("input");
+      portInput.type = "number";
+      portInput.className = "port-row-num";
+      portInput.min = "1";
+      portInput.max = "65535";
+      portInput.placeholder = "e.g. 80";
+      portInput.value = portNum != null ? portNum : "";
+      portInput.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;";
+      portInput.required = true;
+      tdPort.appendChild(portInput);
+
+      const tdProto = document.createElement("td");
+      tdProto.style.padding = "6px 12px";
+      tdProto.appendChild(makeProtoSelect(proto || ""));
+
+      const tdDel = document.createElement("td");
+      tdDel.style.cssText = "padding: 6px 6px; text-align: center;";
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.title = "Remove port";
+      delBtn.style.cssText = "background: none; border: none; cursor: pointer; color: #94a3b8; padding: 3px; border-radius: 4px; display: flex; align-items: center;";
+      delBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+      tdDel.appendChild(delBtn);
+
+      tr.appendChild(tdPort);
+      tr.appendChild(tdProto);
+      tr.appendChild(tdDel);
+      portRowsEl.appendChild(tr);
+
+      wireRowEvents(tr);
+      updatePortsHidden();
+    }
+
+    function updatePortsHidden() {
+      const rows = portRowsEl.querySelectorAll(".port-config-row");
+      const result = [];
+      const numList = [];
+      rows.forEach(row => {
+        const portInput = row.querySelector(".port-row-num");
+        const protoSel = row.querySelector(".port-row-proto");
+        const portVal = parseInt(portInput.value);
+        if (portVal >= 1 && portVal <= 65535) {
+          result.push({ port: portVal, protocol: protoSel.value });
+          numList.push(portVal);
+        }
+      });
+      portJsonHidden.value = JSON.stringify(result);
+      const fallbackPorts = document.getElementById("ports");
+      if (fallbackPorts) {
+        fallbackPorts.value = numList.join(", ");
+      }
+    }
+
+    // Attach listeners to server-rendered rows
+    portRowsEl.querySelectorAll(".port-config-row").forEach(wireRowEvents);
+
+    const isAdd = {{ 'true' if is_add else 'false' }};
+
+    // Ensure ICMP checkbox reflects server state
+    const hasServerIcmp = serverPorts.some(p => p.port == null || p.protocol === 'icmp-ping' || p.protocol === 'icmp');
+    if (hasServerIcmp) {
+      const icmpCb = document.getElementById("icmp-enabled");
+      if (icmpCb) icmpCb.checked = true;
+    }
+
+    // If no server rows, seed rows only when creating a new service
+    if (portRowsEl.querySelectorAll(".port-config-row").length === 0) {
+      const tcpPorts = serverPorts.filter(p => p.port != null);
+      if (tcpPorts.length > 0) {
+        tcpPorts.forEach(p => addPortRow(p.port, p.protocol || ""));
+      } else if (isAdd) {
+        addPortRow(80, "");
+        addPortRow(443, "");
+      }
+    }
+
+    btnAddPort.addEventListener("click", () => addPortRow(null, ""));
+
+    // Validate and serialize before submit
+    form.addEventListener("submit", (e) => {
+      updatePortsHidden();
+      const rows = portRowsEl.querySelectorAll(".port-config-row");
+      const icmpChecked = document.getElementById("icmp-enabled") ? document.getElementById("icmp-enabled").checked : false;
+      if (rows.length === 0 && !icmpChecked) {
+        e.preventDefault();
+        alert("Please add at least one port or enable ICMP Ping before saving.");
+        return;
+      }
+    });
+
+    // Update hidden field whenever a port input changes (used by diagnostics JS)
+    portRowsEl.addEventListener("change", updatePortsHidden);
+    portRowsEl.addEventListener("input", updatePortsHidden);
+    updatePortsHidden(); // Initial serialise
+
+    // ===== Diagnostics =====
     const testUrl = "{{ test_url }}";
     const btnLiveTest = document.getElementById("btn-live-test");
     const btnLiveTestText = document.getElementById("btn-live-test-text");
@@ -230,7 +421,7 @@
     }
 
     function formatProtocolLabel(protocol) {
-      if (!protocol) return "";
+      if (!protocol) return "Auto";
       const map = {
         "http": "HTTP",
         "https": "HTTPS",
@@ -245,34 +436,54 @@
       return map[protocol.toLowerCase()] || protocol.toUpperCase();
     }
 
+    function getPortsFromTable() {
+      updatePortsHidden();
+      const rows = portRowsEl.querySelectorAll(".port-config-row");
+      const result = [];
+      rows.forEach(row => {
+        const portInput = row.querySelector(".port-row-num");
+        const protoSel = row.querySelector(".port-row-proto");
+        const portVal = parseInt(portInput.value);
+        if (portVal >= 1 && portVal <= 65535) {
+          result.push({ port: portVal, protocol: protoSel.value });
+        }
+      });
+      return result;
+    }
+
     async function runDiagnostics() {
       const nameVal = document.getElementById("name").value.trim();
       const matchVal = document.getElementById("match").value.trim();
       const urlPathVal = document.getElementById("url_path").value.trim();
       const useProxyVal = document.getElementById("use_proxy").checked;
-      const portsVal = document.getElementById("ports").value.trim();
-      const protoVal = document.getElementById("protocol") ? document.getElementById("protocol").value.trim() : "";
+      const icmpEnabled = document.getElementById("icmp-enabled").checked;
+      const portsData = getPortsFromTable();
 
       if (!nameVal) {
         alert("Please enter a service name before testing.");
         document.getElementById("name").focus();
         return;
       }
-      if (!portsVal) {
-        alert("Please enter at least one port number before testing.");
-        document.getElementById("ports").focus();
+      if (portsData.length === 0 && !icmpEnabled) {
+        alert("Please add at least one port or enable ICMP Ping before testing.");
         return;
       }
 
       setTestLoading(true);
+
+      // Include ICMP as a portless entry if toggle is on
+      const portsToSend = [...portsData];
+      if (icmpEnabled) {
+        portsToSend.push({ port: null, protocol: "icmp-ping" });
+      }
 
       const payload = {
         name: nameVal,
         match: matchVal,
         url_path: urlPathVal,
         use_proxy: useProxyVal,
-        ports: portsVal,
-        protocol: protoVal,
+        ports: portsToSend,
+        icmp_enabled: icmpEnabled,
       };
 
       try {
@@ -288,6 +499,27 @@
 
         if (!response.ok || !data.success) {
           throw new Error(data.error || ("Server returned status " + response.status));
+        }
+
+        // Write back auto-discovered protocols to table rows
+        if (data.ports) {
+          data.ports.forEach(portResult => {
+            if (portResult.port == null) return; // ICMP: no row to update
+            if (!portResult.protocol) return;
+            // Find matching row
+            const rows = portRowsEl.querySelectorAll(".port-config-row");
+            rows.forEach(row => {
+              const inp = row.querySelector(".port-row-num");
+              const sel = row.querySelector(".port-row-proto");
+              if (inp && parseInt(inp.value) === portResult.port) {
+                // Only update if currently on auto-detect
+                if (!sel.value && portResult.protocol) {
+                  sel.value = portResult.protocol;
+                  updatePortsHidden();
+                }
+              }
+            });
+          });
         }
 
         renderResults(data);
@@ -311,18 +543,6 @@
       diagOverallPill.style.display = "inline-flex";
       btnDiagRetest.style.display = "inline-flex";
 
-      if (data.discovered_protocol) {
-        const protoSelect = document.getElementById("protocol");
-        const discoveredPill = document.getElementById("discovered-proto-pill");
-        if (protoSelect) {
-          protoSelect.value = data.discovered_protocol;
-        }
-        if (discoveredPill) {
-          discoveredPill.textContent = "Discovered: " + formatProtocolLabel(data.discovered_protocol);
-          discoveredPill.style.display = "inline-block";
-        }
-      }
-
       diagTabsNav.innerHTML = "";
       diagTabsContent.innerHTML = "";
 
@@ -345,13 +565,17 @@
       let summaryRowsHtml = "";
       data.ports.forEach((p) => {
         const pStatus = (p.status || "offline").toLowerCase();
-        const matchLabel = p.match_found
-          ? `<span style="color: #16a34a; font-weight: 600;">✓ Found (${p.match_count}x)</span>`
-          : `<span style="color: #94a3b8;">${escapeHtml(p.match_token ? "✗ Not found" : "No token")}</span>`;
+        const portLabel = p.port != null ? `Port ${p.port}` : "ICMP";
+        const isIcmp = p.protocol === 'icmp-ping' || p.port == null;
+        const matchLabel = isIcmp
+          ? `<span style="color: #94a3b8;">N/A (ICMP)</span>`
+          : (p.match_found
+              ? `<span style="color: #16a34a; font-weight: 600;">✓ Found (${p.match_count}x)</span>`
+              : `<span style="color: #94a3b8;">${escapeHtml(p.match_token ? "✗ Not found" : "No token")}</span>`);
 
         summaryRowsHtml += `
           <tr>
-            <td><strong style="color: #0f172a;">Port ${p.port}</strong></td>
+            <td><strong style="color: #0f172a;">${portLabel}</strong></td>
             <td><span style="text-transform: uppercase; font-size: 0.76rem; font-weight: 600; color: #475569;">${escapeHtml(formatProtocolLabel(p.protocol))}</span></td>
             <td><span class="diag-status-pill ${pStatus}">${pStatus.toUpperCase()}</span></td>
             <td style="font-family: ui-monospace, monospace; font-size: 0.8rem;">${escapeHtml(p.status_text)}</td>
@@ -390,7 +614,9 @@
       // Per-Port Tabs & Panels
       data.ports.forEach((p) => {
         const pStatus = (p.status || "offline").toLowerCase();
-        const panelId = `tab-panel-port-${p.port}`;
+        const isIcmp = p.port == null;
+        const panelId = isIcmp ? `tab-panel-icmp` : `tab-panel-port-${p.port}`;
+        const portLabel = isIcmp ? "ICMP" : `Port ${p.port}`;
 
         const tabBtn = document.createElement("button");
         tabBtn.type = "button";
@@ -398,7 +624,7 @@
         tabBtn.setAttribute("data-target", panelId);
         tabBtn.innerHTML = `
           <span class="diag-tab-dot ${pStatus}"></span>
-          <span>Port ${p.port}</span>
+          <span>${portLabel}</span>
         `;
         diagTabsNav.appendChild(tabBtn);
 
@@ -408,7 +634,27 @@
         portPanel.style.display = "none";
 
         let bannerHtml = "";
-        if (p.match_found) {
+        if (isIcmp) {
+          if (pStatus === "online") {
+            bannerHtml = `
+              <div class="diag-match-banner found">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <div>
+                  <strong>ICMP Echo Reply received:</strong> Response contains <code>bytes=</code>. Protocol is online.
+                </div>
+              </div>
+            `;
+          } else {
+            bannerHtml = `
+              <div class="diag-match-banner error">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                <div>
+                  <strong>ICMP probe offline:</strong> ${escapeHtml(p.error || p.status_text || "No response or missing bytes=")}.
+                </div>
+              </div>
+            `;
+          }
+        } else if (p.match_found) {
           bannerHtml = `
             <div class="diag-match-banner found">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -431,7 +677,7 @@
             <div class="diag-match-banner error">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
               <div>
-                <strong>Port unreachable:</strong> ${escapeHtml(p.error || p.status_text || "Connection failed")}.
+                <strong>${isIcmp ? "ICMP probe result" : "Port unreachable"}:</strong> ${escapeHtml(p.error || p.status_text || "Connection failed")}.
               </div>
             </div>
           `;

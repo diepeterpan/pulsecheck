@@ -369,8 +369,13 @@ invalid service host,,,,,
         edit_resp = self.client.get(f"/services/{service_id}/edit")
         self.assertEqual(edit_resp.status_code, 200)
         self.assertIn(b'value="udp-ssl" selected', edit_resp.data)
-        self.assertIn(b'value="udp"', edit_resp.data)
         self.assertIn(b'value="icmp-ping"', edit_resp.data)
+        self.assertNotIn(b'<option value="icmp-ping"', edit_resp.data)
+
+        add_resp = self.client.get("/services/add")
+        self.assertEqual(add_resp.status_code, 200)
+        self.assertNotIn(b'<option value="icmp-ping"', add_resp.data)
+        self.assertIn(b'id="icmp-enabled"', add_resp.data)
 
         # 4. Status rows include protocol and status page renders distinct badge
         conn = pulsecheck_app.get_db_connection()
@@ -425,7 +430,7 @@ invalid service host,,,,,
         self.assertEqual(res_dtls["discovered_protocol"], "udp-ssl")
 
         # 3. Preferred protocol ICMP Ping
-        mock_icmp.return_value = (True, 12, "64 bytes from router.example: icmp_seq=1 ttl=64 time=12 ms")
+        mock_icmp.return_value = (True, 12, "64 bytes from router.example: bytes=64 icmp_seq=1 ttl=64 time=12 ms")
         res_icmp = pulsecheck_app.diagnose_service_ports(
             service_name="router.example",
             ports=[1],
@@ -513,6 +518,218 @@ invalid service host,,,,,
         self.assertEqual(services["dns-server.local"]["protocol"], "udp")
         self.assertEqual(services["vpn-gateway.local"]["protocol"], "udp-ssl")
         self.assertEqual(services["core-router.local"]["protocol"], "icmp-ping")
+
+    @patch("app.fetch_icmp_ping_response")
+    def test_icmp_probe_matches_bytes_equals_only(self, mock_icmp):
+        """ICMP Ping does not do a user captured Match on the result; if the result contains 'bytes=' the protocol is considered online; if not, it's offline."""
+        service_id = pulsecheck_app.add_service(
+            name="router.ping.test",
+            ports=[None],
+            match="DO_NOT_MATCH_ME",
+            protocol="icmp-ping",
+        )
+
+        # 1. Output contains 'bytes=' -> status is online despite mismatching user token
+        mock_icmp.return_value = (True, 15, "Reply from 192.168.1.1: bytes=32 time=15ms TTL=64")
+        pulsecheck_app.scan_service(
+            service_id=service_id,
+            service_name="router.ping.test",
+            ports=[{"port": None, "protocol": "icmp-ping"}],
+            match="DO_NOT_MATCH_ME",
+        )
+        conn = pulsecheck_app.get_db_connection()
+        row = conn.execute("SELECT status FROM port_checks WHERE service_id = ? AND port IS NULL ORDER BY id DESC LIMIT 1", (service_id,)).fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "online")
+
+        # In diagnose_service_ports: status is online, match_token is ignored/empty, match_found is False
+        diag = pulsecheck_app.diagnose_service_ports(
+            service_name="router.ping.test",
+            ports=[{"port": None, "protocol": "icmp-ping"}],
+            match="DO_NOT_MATCH_ME",
+        )
+        self.assertEqual(diag["overall_status"], "online")
+        self.assertFalse(diag["ports"][0]["match_found"])
+        self.assertEqual(diag["ports"][0]["match_token"], "")
+
+        # 2. Output does NOT contain 'bytes=' -> status is offline even if user match string matches error text
+        mock_icmp.return_value = (False, 2000, "Request timed out for router.ping.test")
+        pulsecheck_app.scan_service(
+            service_id=service_id,
+            service_name="router.ping.test",
+            ports=[{"port": None, "protocol": "icmp-ping"}],
+            match="timed out",
+        )
+        conn = pulsecheck_app.get_db_connection()
+        row = conn.execute("SELECT status FROM port_checks WHERE service_id = ? AND port IS NULL ORDER BY id DESC LIMIT 1", (service_id,)).fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["status"], "offline")
+
+        diag_fail = pulsecheck_app.diagnose_service_ports(
+            service_name="router.ping.test",
+            ports=[{"port": None, "protocol": "icmp-ping"}],
+            match="timed out",
+        )
+        self.assertEqual(diag_fail["overall_status"], "offline")
+        self.assertFalse(diag_fail["ports"][0]["match_found"])
+
+    @patch("app.scan_service")
+    def test_edit_service_without_ports_does_not_default_80_443_and_saves_icmp(self, mock_scan):
+        """When editing a service with no TCP/UDP ports, it should not default to 80/443, and ICMP checkbox should save and load correctly."""
+        import json
+        # 1. Add service via web form with ICMP enabled and empty ports
+        add_resp = self.client.post("/services/add", data={
+            "name": "switch.local",
+            "ports_json": "[]",
+            "icmp_enabled": "icmp-ping",
+        }, follow_redirects=True)
+        self.assertEqual(add_resp.status_code, 200)
+
+        services = {s["name"]: s for s in pulsecheck_app.service_list()}
+        self.assertIn("switch.local", services)
+        srv = services["switch.local"]
+        # Should have exactly 1 port entry: the portless ICMP entry
+        self.assertEqual(len(srv["ports"]), 1)
+        self.assertIsNone(srv["ports"][0]["port"])
+        self.assertEqual(srv["ports"][0]["protocol"], "icmp-ping")
+
+        # 2. GET edit page: verify ICMP checkbox is checked and NO 80/443 default rows
+        edit_resp = self.client.get(f"/services/{srv['id']}/edit")
+        self.assertEqual(edit_resp.status_code, 200)
+        edit_html = edit_resp.data.decode("utf-8")
+        # Checkbox should be checked
+        self.assertIn('id="icmp-enabled"', edit_html)
+        self.assertIn('checked', edit_html)
+        # Should NOT contain port 80 or 443 rows in the table
+        self.assertNotIn('value="80"', edit_html)
+        self.assertNotIn('value="443"', edit_html)
+
+        # 3. Save edit with ICMP checked and no ports
+        save_resp = self.client.post(f"/services/{srv['id']}/edit", data={
+            "name": "switch.local",
+            "ports_json": "[]",
+            "icmp_enabled": "icmp-ping",
+        }, follow_redirects=True)
+        self.assertEqual(save_resp.status_code, 200)
+
+        srv_after = pulsecheck_app.get_service_by_id(srv["id"])
+        self.assertEqual(len(srv_after["ports"]), 1)
+        self.assertIsNone(srv_after["ports"][0]["port"])
+        self.assertEqual(srv_after["ports"][0]["protocol"], "icmp-ping")
+
+        # 4. Load edit page again: still checked, still no 80/443
+        edit_resp2 = self.client.get(f"/services/{srv['id']}/edit")
+        edit_html2 = edit_resp2.data.decode("utf-8")
+        self.assertIn('id="icmp-enabled"', edit_html2)
+        self.assertIn('checked', edit_html2)
+        self.assertNotIn('value="80"', edit_html2)
+        self.assertNotIn('value="443"', edit_html2)
+
+        # 5. Edit and uncheck ICMP, add port 8080
+        uncheck_resp = self.client.post(f"/services/{srv['id']}/edit", data={
+            "name": "switch.local",
+            "ports_json": json.dumps([{"port": 8080, "protocol": "http"}]),
+            # icmp_enabled omitted (unchecked in browser)
+        }, follow_redirects=True)
+        self.assertEqual(uncheck_resp.status_code, 200)
+
+        srv_unchecked = pulsecheck_app.get_service_by_id(srv["id"])
+        self.assertEqual(len(srv_unchecked["ports"]), 1)
+        self.assertEqual(srv_unchecked["ports"][0]["port"], 8080)
+
+        # 6. Load edit page again: ICMP checkbox is now unchecked, 8080 is present
+        edit_resp3 = self.client.get(f"/services/{srv['id']}/edit")
+        edit_html3 = edit_resp3.data.decode("utf-8")
+        self.assertIn('value="8080"', edit_html3)
+        # Checkbox should NOT be checked
+        self.assertNotIn('id="icmp-enabled" name="icmp_enabled" value="icmp-ping"\n              checked', edit_html3)
+
+    @patch("app.scan_service")
+    def test_services_table_port_protocol_format_and_status_icmp_isolation(self, mock_scan):
+        """1) On /services, protocol badge next to service name is removed.
+        2) PORTS column shows PORT:PROTOCOL in black with single space, ICMP has no PORT: prefix.
+        3) On /status, when only ICMP is selected, only ICMP is displayed in MONITORED PORTS,
+           even if historical checks exist for ports 80 and 443.
+        """
+        # Service 1: ICMP only, with historical checks on 80 and 443 in DB
+        s1_id = pulsecheck_app.add_service(
+            name="cam.icmp.only",
+            ports=[None],
+            match="cam",
+            protocol="icmp-ping",
+        )
+        # Service 2: Multi-port HTTP, HTTPS, and ICMP
+        s2_id = pulsecheck_app.add_service(
+            name="web.multi.port",
+            ports=[
+                {"port": 80, "protocol": "http"},
+                {"port": 443, "protocol": "https"},
+                {"port": None, "protocol": "icmp-ping"},
+            ],
+            match="web",
+        )
+
+        # Insert historical checks for s1: ports 80, 443, and NULL
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (s1_id, 80, 1, "online", 10, "2026-10-01 10:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (s1_id, 443, 1, "online", 15, "2026-10-01 10:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (s1_id, None, 1, "online", 5, "2026-10-01 10:00:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        # Check get_status_rows() for s1: must ONLY have 1 row for ICMP (port=None), no rows for 80 or 443
+        status_rows = pulsecheck_app.get_status_rows()
+        s1_rows = [r for r in status_rows if r["id"] == s1_id]
+        self.assertEqual(len(s1_rows), 1)
+        self.assertIsNone(s1_rows[0]["port"])
+        self.assertEqual(s1_rows[0]["protocol"], "icmp-ping")
+
+        # Check /status page HTML: Monitored Ports must NOT show 80 or 443 for cam.icmp.only
+        status_resp = self.client.get("/status")
+        self.assertEqual(status_resp.status_code, 200)
+        status_html = status_resp.data.decode("utf-8")
+        self.assertIn("cam.icmp.only", status_html)
+
+        # Check /services page HTML:
+        services_resp = self.client.get("/services")
+        self.assertEqual(services_resp.status_code, 200)
+        services_html = services_resp.data.decode("utf-8")
+
+        # 1. No protocol badge next to service names on /services
+        self.assertNotIn('class="badge badge-protocol"', services_html)
+
+        # 2. PORTS column formatting:
+        # ICMP only: 'ICMP' without 'PORT:' or prefix, using strong and aligned font (no ellipsis for single port)
+        self.assertIn('>ICMP</strong>', services_html)
+        # Multi-port: displays first port with ellipsis '80:HTTP ...'
+        self.assertIn('>80:HTTP ...</strong>', services_html)
+        self.assertIn('service-ports-text', services_html)
+        # Hover box displays full list and count
+        self.assertIn('Configured Ports (3)', services_html)
+        self.assertIn('cell-hover-box-ports', services_html)
+        self.assertIn('80:HTTP 443:HTTPS ICMP', services_html)
+
+        # Test helper directly
+        self.assertEqual(pulsecheck_app.format_ports_column([{"port": None, "protocol": "icmp-ping"}]), "ICMP")
+        self.assertEqual(
+            pulsecheck_app.format_ports_column([
+                {"port": 80, "protocol": "http"},
+                {"port": 443, "protocol": "https"},
+                {"port": None, "protocol": "icmp-ping"},
+            ]),
+            "80:HTTP 443:HTTPS ICMP",
+        )
 
 
 if __name__ == "__main__":
