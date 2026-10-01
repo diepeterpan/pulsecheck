@@ -67,18 +67,20 @@
           <tbody>
             {% for service_name, entries in grouped.items() %}
               {% set first_entry = entries[0] %}
-              {% set valid_ports = entries | selectattr('status', 'defined') | list %}
-              {% set checked_entries = entries | selectattr('checked_at') | list %}
-              {% if checked_entries %}
-                {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
-                {% set service_checked_at = latest_entry.checked_at_local %}
-              {% else %}
-                {% set service_checked_at = first_entry.checked_at_local %}
-              {% endif %}
-              {% if not valid_ports %}
+              {% if not first_entry.has_ports %}
+                {% set valid_ports = [] %}
                 {% set overall_status = 'none' %}
-                {% set status_label = 'No Ports' %}
+                {% set status_label = '' %}
+                {% set service_checked_at = '' %}
               {% else %}
+                {% set valid_ports = entries %}
+                {% set checked_entries = entries | selectattr('checked_at') | list %}
+                {% if checked_entries %}
+                  {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
+                  {% set service_checked_at = latest_entry.checked_at_local %}
+                {% else %}
+                  {% set service_checked_at = first_entry.checked_at_local %}
+                {% endif %}
                 {% set online_count = valid_ports | selectattr('status', 'equalto', 'online') | list | length %}
                 {% set degraded_count = valid_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
                 {% set offline_count = valid_ports | selectattr('status', 'equalto', 'offline') | list | length %}
@@ -123,43 +125,41 @@
                   {% endif %}
                 </td>
                 <td class="col-status">
-                  <span class="badge status-badge {{ overall_status }}">{{ status_label }}</span>
+                  {% if status_label %}
+                    <span class="badge status-badge {{ overall_status }}">{{ status_label }}</span>
+                  {% endif %}
                 </td>
                 <td class="col-ports">
                   {% if valid_ports %}
                     <div class="cell-truncate-wrapper cell-ports-wrapper" tabindex="0">
-                      <div class="status-ports-inline truncate-text" title="{% for p in valid_ports %}{% if p.port is none %}ICMP{% else %}{{ p.port }}{% endif %} ({{ p.status }}){% if not loop.last %}, {% endif %}{% endfor %}">
+                      <div class="status-ports-inline truncate-text" title="{% for p in valid_ports %}{% if p.port is none %}ICMP{% else %}{{ p.port }}{% if p.protocol %}:{{ ((p.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}{% endif %} ({{ p.status or 'unscanned' }}){% if not loop.last %}, {% endif %}{% endfor %}">
                         {% for entry in valid_ports %}
                           {% if entry.port is none %}
-                            <span class="status-item {{ entry.status }}" aria-label="ICMP: {{ entry.status|upper }}" title="ICMP Ping">
+                            <span class="status-item {{ entry.status or 'offline' }}" aria-label="ICMP: {{ (entry.status or 'unscanned')|upper }}" title="ICMP Ping">
                               <strong class="status-port">ICMP</strong>
                             </span>
                           {% else %}
-                            <span class="status-item {{ entry.status }}" aria-label="Port {{ entry.port }}: {{ entry.status|upper }}">
-                              <strong class="status-port">{{ entry.port }}</strong>
-                              {% if entry.protocol %}<span class="badge badge-protocol" style="background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; font-weight: 600; margin-left: 2px;">{{ entry.protocol | protocol_label }}</span>{% endif %}
+                            <span class="status-item {{ entry.status or 'offline' }}" aria-label="Port {{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}: {{ (entry.status or 'unscanned')|upper }}">
+                              <strong class="status-port">{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}</strong>
                             </span>
                           {% endif %}
                         {% endfor %}
                       </div>
-                      <span class="cell-hover-box cell-hover-box-ports" role="tooltip">
+                      <span class="cell-hover-box cell-hover-box-ports status-hover-box-ports" role="tooltip">
                         <span class="hover-box-label">Monitored Ports ({{ valid_ports|length }})</span>
                         <div class="hover-box-ports-list">
                           {% for entry in valid_ports %}
                             <div class="hover-box-port-row">
                               {% if entry.port is none %}
-                                <span class="status-item {{ entry.status }} status-item-sm">
+                                <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
                                   <strong class="status-port">ICMP</strong>
                                 </span>
                               {% else %}
-                                <span class="status-item {{ entry.status }} status-item-sm">
-                                  <strong class="status-port">{{ entry.port }}</strong>
+                                <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
+                                  <strong class="status-port">{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}</strong>
                                 </span>
                               {% endif %}
-                              <span class="hover-port-status {{ entry.status }}">{{ entry.status|upper }}</span>
-                              {% if entry.protocol %}
-                                <span class="hover-port-proto" style="color:#7c3aed;font-size:0.7rem;font-weight:600;">{{ entry.protocol | protocol_label }}</span>
-                              {% endif %}
+                              <span class="hover-port-status {{ entry.status or 'offline' }}">{{ (entry.status or 'unscanned')|upper }}</span>
                               <span class="hover-port-meta">
                                 {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}&mdash;{% endif %}
                                 &bull;
@@ -171,7 +171,7 @@
                       </span>
                     </div>
                   {% else %}
-                    <span class="no-ports">None detected</span>
+                    <span class="no-ports" style="font-weight: 500;">NONE</span>
                   {% endif %}
                 </td>
                 <td class="col-latency">
@@ -183,7 +183,7 @@
                   {% endif %}
                 </td>
                 <td class="col-time">
-                  <span class="scan-time">{{ service_checked_at or 'Never' }}</span>
+                  <span class="scan-time">{{ service_checked_at or '&mdash;'|safe }}</span>
                 </td>
                 <td class="col-actions">
                   <div class="row-actions">

@@ -42,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.2 beta")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.3 beta")
 __version__ = APP_VERSION
 
 
@@ -1857,12 +1857,12 @@ def add_service(
     normalized = normalize_service(target_name)
     if service_exists(normalized):
         return None
-    service_match = (match or derive_match(normalized)).strip().lower()
+    service_match = (match if match is not None else derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     detected: list[dict] = []
     if ports is not None and ports != "" and ports != []:
         detected = parse_diagnostic_ports(ports)
-    elif not paused:
+    elif ports is None and not paused:
         detected = parse_diagnostic_ports(discover_ports(normalized))
     clean_proto = (protocol or "").strip().lower()
     if clean_proto:
@@ -2217,7 +2217,7 @@ def update_service(
     `icmp_enabled` adds/removes the portless ICMP entry.
     """
     normalized = normalize_service(name)
-    service_match = (match or derive_match(normalized)).strip().lower()
+    service_match = (match if match is not None else derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     existing_service = None
     if paused is None or comment is None or use_proxy is None:
@@ -2414,8 +2414,9 @@ def get_status_rows():
                 "name": s["name"],
                 "match": s["match"],
                 "ports": ports_list,
+                "has_ports": False,
                 "use_proxy": bool(s["use_proxy"]) if "use_proxy" in s.keys() else False,
-                "protocol": s["protocol"] if "protocol" in s.keys() and s["protocol"] else "",
+                "protocol": "",
                 "port": None,
                 "is_online": False,
                 "status": None,
@@ -2451,6 +2452,7 @@ def get_status_rows():
                 "name": s["name"],
                 "match": s["match"],
                 "ports": ports_list,
+                "has_ports": True,
                 "use_proxy": bool(s["use_proxy"]) if "use_proxy" in s.keys() else False,
                 "protocol": port_protocol,
                 "port": port_val,
@@ -2903,12 +2905,12 @@ def add_service_route():
         try:
             result = add_service(
                 name=name,
-                match=match or None,
+                match=match,
                 url_path=url_path,
                 comment=comment,
                 paused=paused,
                 use_proxy=use_proxy,
-                ports=ports_input if ports_input else None,
+                ports=ports_input if ports_input else [],
                 icmp_enabled=icmp_enabled,
             )
         except ValueError as exc:
@@ -3000,7 +3002,7 @@ def edit_service(service_id):
         paused = request.form.get("paused") == "on"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         try:
-            update_service(service_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy, icmp_enabled=icmp_enabled)
+            update_service(service_id, name, ports_input, match, url_path, paused, comment=comment, use_proxy=use_proxy, icmp_enabled=icmp_enabled)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_service", service_id=service_id, return_to=return_to))

@@ -1480,7 +1480,7 @@ direct.example,direct,,Direct site,0,0,8080
         # Verify all 10 ports appear in the hover list
         self.assertIn("Monitored Ports (10)", html)
         for p in ports_list:
-            self.assertIn(f">{p}</strong>", html)
+            self.assertIn(f">{p}:", html)
 
     def test_import_and_export_tabbed_page_rendering(self):
         resp = self.client.get("/import")

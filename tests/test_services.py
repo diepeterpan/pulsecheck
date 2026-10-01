@@ -296,7 +296,8 @@ invalid service host,,,,,
         self.assertIn("edit-service-layout", html)
         self.assertIn("tab-main-card", html)
         self.assertIn("edit-test-card", html)
-        self.assertIn('value="80, 443"', html)  # Pre-filled default ports
+        self.assertIn('id="ports-json-hidden"', html)
+        self.assertIn('id="btn-add-port"', html)
         self.assertIn('id="btn-live-test"', html)
         self.assertIn("Test Probes", html)
         self.assertIn('id="diag-placeholder"', html)
@@ -391,12 +392,13 @@ invalid service host,,,,,
         self.assertIsNotNone(dns_row)
         self.assertEqual(dns_row["protocol"], "udp-ssl")
 
-        # GET /status renders badge-protocol with distinct purple style and uppercase label
+        # GET /status renders PORT:PROTOCOL pill in status-item, status-hover-box-ports, without purple badge
         status_page_resp = self.client.get("/status")
         self.assertEqual(status_page_resp.status_code, 200)
-        self.assertIn(b"badge-protocol", status_page_resp.data)
-        self.assertIn(b"UDP SSL", status_page_resp.data)
-        self.assertIn(b"#7c3aed", status_page_resp.data)
+        self.assertIn(b"53:UDPSSL", status_page_resp.data)
+        self.assertIn(b"status-hover-box-ports", status_page_resp.data)
+        self.assertNotIn(b"badge-protocol", status_page_resp.data)
+        self.assertNotIn(b"#7c3aed", status_page_resp.data)
 
     @patch("app.fetch_udp_response")
     @patch("app.fetch_udp_ssl_response")
@@ -688,18 +690,35 @@ invalid service host,,,,,
         conn.commit()
         conn.close()
 
+        # Service 3: No ports and no ICMP
+        s3_id = pulsecheck_app.add_service(
+            name="dummy.no.ports",
+            ports=[],
+            match="none",
+        )
+
         # Check get_status_rows() for s1: must ONLY have 1 row for ICMP (port=None), no rows for 80 or 443
         status_rows = pulsecheck_app.get_status_rows()
         s1_rows = [r for r in status_rows if r["id"] == s1_id]
         self.assertEqual(len(s1_rows), 1)
         self.assertIsNone(s1_rows[0]["port"])
         self.assertEqual(s1_rows[0]["protocol"], "icmp-ping")
+        self.assertTrue(s1_rows[0]["has_ports"])
+
+        # Check get_status_rows() for s3: has_ports is False
+        s3_rows = [r for r in status_rows if r["id"] == s3_id]
+        self.assertEqual(len(s3_rows), 1)
+        self.assertFalse(s3_rows[0]["has_ports"])
 
         # Check /status page HTML: Monitored Ports must NOT show 80 or 443 for cam.icmp.only
         status_resp = self.client.get("/status")
         self.assertEqual(status_resp.status_code, 200)
         status_html = status_resp.data.decode("utf-8")
         self.assertIn("cam.icmp.only", status_html)
+
+        # Service with no ports must have data-status="none", NONE in monitored ports, and blank status
+        self.assertIn('data-service="dummy.no.ports"  data-status="none"', status_html)
+        self.assertIn('>NONE</span>', status_html)
 
         # Check /services page HTML:
         services_resp = self.client.get("/services")
@@ -710,15 +729,19 @@ invalid service host,,,,,
         self.assertNotIn('class="badge badge-protocol"', services_html)
 
         # 2. PORTS column formatting:
-        # ICMP only: 'ICMP' without 'PORT:' or prefix, using strong and aligned font (no ellipsis for single port)
-        self.assertIn('>ICMP</strong>', services_html)
+        # ICMP only: 'ICMP' without 'PORT:' or prefix, using non-bold service-ports-text
+        self.assertIn('>ICMP</span>', services_html)
         # Multi-port: displays first port with ellipsis '80:HTTP ...'
-        self.assertIn('>80:HTTP ...</strong>', services_html)
+        self.assertIn('>80:HTTP ...</span>', services_html)
         self.assertIn('service-ports-text', services_html)
-        # Hover box displays full list and count
+        # Hover box displays full list and count, but NO extra bottom row
         self.assertIn('Configured Ports (3)', services_html)
         self.assertIn('cell-hover-box-ports', services_html)
-        self.assertIn('80:HTTP 443:HTTPS ICMP', services_html)
+        self.assertIn('services-hover-box-ports', services_html)
+        self.assertIn('port-proto-pill', services_html)
+        self.assertIn('>80:HTTP</span>', services_html)
+        self.assertIn('>443:HTTPS</span>', services_html)
+        self.assertNotIn('hover-port-meta', services_html)
 
         # Test helper directly
         self.assertEqual(pulsecheck_app.format_ports_column([{"port": None, "protocol": "icmp-ping"}]), "ICMP")
@@ -730,6 +753,57 @@ invalid service host,,,,,
             ]),
             "80:HTTP 443:HTTPS ICMP",
         )
+
+    def test_service_without_match_ports_or_icmp(self):
+        # 1. Add service via web route with empty match, no ports, no ICMP
+        resp = self.client.post(
+            "/services/add",
+            data={
+                "name": "barebones.example.com",
+                "match": "",
+                "url_path": "",
+                "comment": "Empty test service",
+                "ports_json": "[]",
+                "ports": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        # Retrieve and verify database record
+        conn = pulsecheck_app.get_db_connection()
+        row = conn.execute("SELECT * FROM services WHERE name = 'barebones.example.com'").fetchone()
+        conn.close()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["match"], "")
+        parsed = pulsecheck_app.parse_ports(row["ports"])
+        self.assertEqual(parsed, [])
+
+        # 2. Verify on /services list page
+        services_resp = self.client.get("/services")
+        self.assertEqual(services_resp.status_code, 200)
+        services_html = services_resp.data.decode("utf-8")
+        self.assertIn("barebones.example.com", services_html)
+        self.assertIn("None detected", services_html)
+
+        # 3. Edit service to change name/comment but still keep empty match, empty ports, no ICMP
+        edit_resp = self.client.post(
+            f"/services/{row['id']}/edit",
+            data={
+                "name": "barebones-updated.example.com",
+                "match": "",
+                "url_path": "",
+                "comment": "Still empty",
+                "ports_json": "[]",
+                "ports": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(edit_resp.status_code, 200)
+        updated = pulsecheck_app.get_service_by_id(row["id"])
+        self.assertEqual(updated["name"], "barebones-updated.example.com")
+        self.assertEqual(updated["match"], "")
+        self.assertEqual(updated["ports"], [])
 
 
 if __name__ == "__main__":

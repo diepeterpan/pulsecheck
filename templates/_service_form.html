@@ -33,7 +33,7 @@
 
         <!-- Hidden field that carries the serialised per-port protocol JSON to the server -->
         <input type="hidden" name="ports_json" id="ports-json-hidden">
-        <input type="hidden" name="ports" id="ports" value="{{ (item.ports | map(attribute='port') | select('ne', none) | map('string') | join(', ')) if item.ports else '80, 443' }}">
+        <input type="hidden" name="ports" id="ports" value="{{ (item.ports | map(attribute='port') | select('ne', none) | map('string') | join(', ')) if item.ports else '' }}">
 
         <div style="margin-bottom: 16px;">
           <label for="name" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Service name</label>
@@ -42,9 +42,9 @@
         </div>
 
         <div style="margin-bottom: 16px;">
-          <label for="match" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Match</label>
-          <input type="text" id="match" name="match" value="{{ item.match }}" placeholder="Defaults to first word of service name" style="width: 100%; box-sizing: border-box;">
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Expected token in response body or headers for ONLINE status (case-insensitive).</span>
+          <label for="match" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Match (optional)</label>
+          <input type="text" id="match" name="match" value="{{ item.match }}" placeholder="Optional token to verify" style="width: 100%; box-sizing: border-box;">
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Expected token in response body or headers for ONLINE status (case-insensitive). Leave blank if none.</span>
         </div>
 
         <div style="margin-bottom: 16px;">
@@ -71,7 +71,7 @@
 
         <!-- ===== Port Configuration Table ===== -->
         <div style="margin-bottom: 8px;">
-          <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports &amp; Protocols</label>
+          <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports &amp; Protocols (optional)</label>
           <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 8px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem;">
               <thead>
@@ -83,9 +83,6 @@
               </thead>
               <tbody id="port-rows">
                 {% set tcp_ports = item.ports | selectattr('port', 'defined') | selectattr('port', 'ne', none) | list if item.ports else [] %}
-                {% if not tcp_ports and is_add %}
-                  {% set tcp_ports = [{'port': 80, 'protocol': ''}, {'port': 443, 'protocol': ''}] %}
-                {% endif %}
                 {% for p in tcp_ports %}
                   <tr class="port-config-row" style="border-bottom: 1px solid #f1f5f9;">
                     <td style="padding: 6px 12px;">
@@ -321,29 +318,19 @@
       if (icmpCb) icmpCb.checked = true;
     }
 
-    // If no server rows, seed rows only when creating a new service
+    // If no server rows, seed rows only from existing server ports
     if (portRowsEl.querySelectorAll(".port-config-row").length === 0) {
       const tcpPorts = serverPorts.filter(p => p.port != null);
       if (tcpPorts.length > 0) {
         tcpPorts.forEach(p => addPortRow(p.port, p.protocol || ""));
-      } else if (isAdd) {
-        addPortRow(80, "");
-        addPortRow(443, "");
       }
     }
 
     btnAddPort.addEventListener("click", () => addPortRow(null, ""));
 
-    // Validate and serialize before submit
-    form.addEventListener("submit", (e) => {
+    // Serialize before submit
+    form.addEventListener("submit", () => {
       updatePortsHidden();
-      const rows = portRowsEl.querySelectorAll(".port-config-row");
-      const icmpChecked = document.getElementById("icmp-enabled") ? document.getElementById("icmp-enabled").checked : false;
-      if (rows.length === 0 && !icmpChecked) {
-        e.preventDefault();
-        alert("Please add at least one port or enable ICMP Ping before saving.");
-        return;
-      }
     });
 
     // Update hidden field whenever a port input changes (used by diagnostics JS)

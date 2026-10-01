@@ -109,32 +109,21 @@
                 {% if service.ports and (service.ports | format_ports_column) %}
                   <div class="cell-truncate-wrapper cell-ports-wrapper" tabindex="0">
                     <div class="services-ports-inline truncate-text" title="{{ service.ports | format_ports_column }}">
-                      <strong class="service-name-text service-ports-text" style="color: #000;">{% if service.ports|length > 1 %}{{ (service.ports[0:1] | format_ports_column) }} ...{% else %}{{ service.ports | format_ports_column }}{% endif %}</strong>
+                      <span class="service-ports-text" style="color: #475569;">{% if service.ports|length > 1 %}{{ (service.ports[0:1] | format_ports_column) }} ...{% else %}{{ service.ports | format_ports_column }}{% endif %}</span>
                     </div>
-                    <span class="cell-hover-box cell-hover-box-ports" role="tooltip">
+                    <span class="cell-hover-box cell-hover-box-ports services-hover-box-ports" role="tooltip">
                       <span class="hover-box-label">Configured Ports ({{ service.ports|length }})</span>
                       <div class="hover-box-ports-list">
                         {% for p in service.ports %}
                           <div class="hover-box-port-row">
                             {% if p.port is none or (p.protocol or '')|upper in ('ICMP', 'ICMP-PING') %}
-                              <span class="status-item status-item-sm" style="background: rgba(255, 255, 255, 0.12); color: #ffffff; padding: 2px 6px; border-radius: 4px;">
-                                <strong class="status-port" style="color: #ffffff;">ICMP</strong>
-                              </span>
-                              <span class="hover-port-proto" style="color: #a78bfa; font-size: 0.72rem; font-weight: 600; margin-left: auto;">PING</span>
+                              <span class="port-proto-pill">ICMP</span>
                             {% else %}
-                              <span class="status-item status-item-sm" style="background: rgba(255, 255, 255, 0.12); color: #ffffff; padding: 2px 6px; border-radius: 4px;">
-                                <strong class="status-port" style="color: #ffffff;">{{ p.port }}</strong>
-                              </span>
-                              <span class="hover-port-proto" style="color: #a78bfa; font-size: 0.72rem; font-weight: 600; margin-left: auto;">{{ (p.protocol or 'HTTP') | protocol_label }}</span>
+                              <span class="port-proto-pill">{{ p.port }}:{{ ((p.protocol or 'HTTP') | protocol_label)|replace(' ', '') }}</span>
                             {% endif %}
                           </div>
                         {% endfor %}
                       </div>
-                      {% if service.ports|length > 1 %}
-                        <span class="hover-port-meta" style="margin-top: 6px; display: block; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 5px; font-size: 0.72rem; color: #94a3b8;">
-                          {{ service.ports | format_ports_column }}
-                        </span>
-                      {% endif %}
                     </span>
                   </div>
                 {% else %}
