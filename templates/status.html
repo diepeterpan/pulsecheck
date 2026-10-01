@@ -103,9 +103,12 @@
                     {% if first_entry.use_proxy %}
                       <span class="badge badge-proxy" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                     {% endif %}
+                    {% if first_entry.protocol %}
+                      <span class="badge badge-protocol" style="background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600; text-transform: uppercase;" title="Monitored via {{ first_entry.protocol | protocol_label }} protocol">{{ first_entry.protocol | protocol_label }}</span>
+                    {% endif %}
                     <span class="cell-hover-box" role="tooltip">
                       <span class="hover-box-label">Service</span>
-                      <span class="hover-box-value">{{ service_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}</span>
+                      <span class="hover-box-value">{{ service_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}{% if first_entry.protocol %} &bull; Protocol: {{ first_entry.protocol | protocol_label }}{% endif %}</span>
                     </span>
                   </div>
                 </td>

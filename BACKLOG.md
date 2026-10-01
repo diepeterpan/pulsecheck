@@ -94,4 +94,6 @@ Use this format for new entries:
     - RED = OFFLINE
 - Status: completed
 
-
+- Menu function: Services / Port Configuration
+- Required future change: Allow each port to have its own protocol instead of treating all ports on a service to use the same protocol.
+- Status: pending

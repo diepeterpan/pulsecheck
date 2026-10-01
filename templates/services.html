@@ -94,6 +94,9 @@
                   {% if service.use_proxy %}
                     <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                   {% endif %}
+                  {% if service.protocol %}
+                    <span class="badge badge-protocol" style="background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600; text-transform: uppercase;" title="Monitored via {{ service.protocol | protocol_label }} protocol">{{ service.protocol | protocol_label }}</span>
+                  {% endif %}
                   {% if service.comment %}
                     <span class="service-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
                       <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>

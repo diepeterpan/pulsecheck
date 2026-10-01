@@ -12,6 +12,8 @@ import sqlite3
 import socket
 import smtplib
 import ssl
+import struct
+import subprocess
 import sys
 import threading
 import time
@@ -40,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.0")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.1")
 __version__ = APP_VERSION
 
 
@@ -101,6 +103,7 @@ def init_db():
             comment TEXT NOT NULL DEFAULT '',
             paused INTEGER NOT NULL DEFAULT 0,
             use_proxy INTEGER NOT NULL DEFAULT 0,
+            protocol TEXT NOT NULL DEFAULT '',
             ports TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -140,6 +143,8 @@ def init_db():
         conn.execute("ALTER TABLE services ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
     if "use_proxy" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
+    if "protocol" not in service_columns:
+        conn.execute("ALTER TABLE services ADD COLUMN protocol TEXT NOT NULL DEFAULT ''")
 
     conn.commit()
     conn.close()
@@ -246,7 +251,7 @@ def parse_ports(value):
 def service_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services ORDER BY name ASC"
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports, created_at FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
     return [
@@ -258,6 +263,7 @@ def service_list():
             "comment": row["comment"] if "comment" in row.keys() else "",
             "paused": bool(row["paused"]),
             "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
+            "protocol": row["protocol"] if "protocol" in row.keys() and row["protocol"] else "",
             "ports": parse_ports(row["ports"]),
             "created_at": row["created_at"],
         }
@@ -268,7 +274,7 @@ def service_list():
 def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services WHERE id = ?",
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports, created_at FROM services WHERE id = ?",
         (service_id,),
     ).fetchone()
     conn.close()
@@ -282,6 +288,7 @@ def get_service_by_id(service_id):
         "comment": row["comment"] if "comment" in row.keys() else "",
         "paused": bool(row["paused"]),
         "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
+        "protocol": row["protocol"] if "protocol" in row.keys() and row["protocol"] else "",
         "ports": parse_ports(row["ports"]),
         "created_at": row["created_at"],
     }
@@ -645,6 +652,124 @@ def fetch_socket_ssl_response(service_name: str, port: int, url_path: str = "", 
         raise
 
 
+def format_protocol_label(protocol: str | None) -> str:
+    if not protocol:
+        return ""
+    p = str(protocol).strip().lower()
+    mapping = {
+        "http": "HTTP",
+        "https": "HTTPS",
+        "socket": "SOCKET",
+        "socket-ssl": "SOCKET SSL",
+        "udp": "UDP",
+        "udp-ssl": "UDP SSL",
+        "icmp": "ICMP PING",
+        "icmp-ping": "ICMP PING",
+        "ssl-handshake": "SSL HANDSHAKE",
+    }
+    return mapping.get(p, p.upper())
+
+
+app.jinja_env.filters["protocol_label"] = format_protocol_label
+app.jinja_env.globals["format_protocol_label"] = format_protocol_label
+
+
+def fetch_udp_response(service_name: str, port: int, url_path: str = "", timeout: float = 2.0) -> bytes:
+    addr_info = socket.getaddrinfo(service_name, port, socket.AF_UNSPEC, socket.SOCK_DGRAM)
+    if not addr_info:
+        raise OSError(f"Could not resolve {service_name}")
+    family, socktype, proto, canonname, sockaddr = addr_info[0]
+    with socket.socket(family, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(timeout)
+        sock.connect(sockaddr)
+        probe = f"GET {url_path or '/'} HTTP/1.0\r\nHost: {service_name}\r\n\r\n".encode()
+        sock.send(probe)
+        data = sock.recv(16384)
+        return decompress_socket_response_if_gzip(data)
+
+
+def build_dtls_client_hello(service_name: str = "") -> bytes:
+    dtls_ver = b"\xfe\xfd"  # DTLS 1.2
+    body = dtls_ver
+    body += struct.pack("!I", int(time.time())) + os.urandom(28)
+    body += b"\x00"  # session id len 0
+    body += b"\x00"  # cookie len 0
+    ciphers = b"\xc0\x2f\xc0\x30\xc0\x2b\xc0\x2c\x00\x9c\x00\x9d\x00\x2f\x00\x35\x00\x0a"
+    body += struct.pack("!H", len(ciphers)) + ciphers
+    body += b"\x01\x00"  # compression: 1 (null)
+
+    exts = b""
+    if service_name and not service_name.replace(".", "").isdigit():
+        host_bytes = service_name.encode("utf-8")
+        sni_entry = b"\x00" + struct.pack("!H", len(host_bytes)) + host_bytes
+        sni_data = struct.pack("!H", len(sni_entry)) + sni_entry
+        exts += struct.pack("!H", 0) + struct.pack("!H", len(sni_data)) + sni_data
+
+    groups = b"\x00\x1d\x00\x17\x00\x18"
+    exts += struct.pack("!H", 10) + struct.pack("!H", len(groups) + 2) + struct.pack("!H", len(groups)) + groups
+
+    if exts:
+        body += struct.pack("!H", len(exts)) + exts
+
+    hs_len = len(body)
+    hs_hdr = bytes([1]) + struct.pack("!I", hs_len)[1:] + struct.pack("!H", 0) + struct.pack("!I", 0)[1:] + struct.pack("!I", hs_len)[1:]
+    hs_msg = hs_hdr + body
+
+    rec_hdr = bytes([22]) + dtls_ver + struct.pack("!H", 0) + struct.pack("!Q", 0)[2:] + struct.pack("!H", len(hs_msg))
+    return rec_hdr + hs_msg
+
+
+def fetch_udp_ssl_response(service_name: str, port: int, url_path: str = "", timeout: float = 2.0) -> bytes:
+    addr_info = socket.getaddrinfo(service_name, port, socket.AF_UNSPEC, socket.SOCK_DGRAM)
+    if not addr_info:
+        raise OSError(f"Could not resolve {service_name}")
+    family, socktype, proto, canonname, sockaddr = addr_info[0]
+    packet = build_dtls_client_hello(service_name)
+    with socket.socket(family, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(timeout)
+        sock.connect(sockaddr)
+        sock.send(packet)
+        data = sock.recv(16384)
+        return data
+
+
+def fetch_icmp_ping_response(service_name: str, timeout: float = 2.0) -> tuple[bool, int, str]:
+    t0 = time.monotonic()
+    # Method 1: unprivileged DGRAM ICMP socket (RFC 4987 / macOS & Linux)
+    try:
+        addr_info = socket.getaddrinfo(service_name, None, socket.AF_INET, socket.SOCK_DGRAM)
+        if addr_info:
+            target_ip = addr_info[0][4][0]
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_ICMP) as s:
+                s.settimeout(timeout)
+                ident = os.getpid() & 0xFFFF
+                packet = struct.pack("!BBHHH", 8, 0, 0, ident, 1) + b"PulseCheckPing"
+                s.sendto(packet, (target_ip, 0))
+                resp, _ = s.recvfrom(1024)
+                latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+                snippet = f"ICMP Echo Reply from {target_ip}: bytes={len(resp)} time={latency_ms}ms"
+                return True, latency_ms, snippet
+    except Exception:
+        pass
+
+    # Method 2: System ping CLI fallback (macOS, Linux, etc.)
+    try:
+        is_mac = sys.platform == "darwin"
+        timeout_arg = ["-W", str(int(timeout * 1000))] if is_mac else ["-W", str(max(1, int(timeout)))]
+        cmd = ["ping", "-c", "1", *timeout_arg, service_name]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 1.0)
+        latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+        if proc.returncode == 0:
+            out = proc.stdout.strip() or f"ICMP Ping successful ({service_name})"
+            return True, latency_ms, out
+        else:
+            err = proc.stderr.strip() or proc.stdout.strip() or f"Ping failed with exit code {proc.returncode}"
+            return False, latency_ms, err
+    except Exception as exc:
+        latency_ms = max(1, int((time.monotonic() - t0) * 1000))
+        return False, latency_ms, str(exc)
+
+
 def scan_service(
     service_id: int,
     service_name: str,
@@ -653,6 +778,7 @@ def scan_service(
     explicit_debug: bool | None = None,
     url_path: str = "",
     use_proxy: bool | None = None,
+    protocol: str | None = None,
     **kwargs,
 ):
     service = get_service_by_id(service_id)
@@ -664,52 +790,100 @@ def scan_service(
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
     if not isinstance(ports, list):
         ports = parse_ports(ports)
+
+    preferred_protocol = (
+        protocol if protocol is not None
+        else ((service.get("protocol") or "") if service else "")
+    ).strip().lower()
+
+    discovered_protocol = None
     port_statuses = {}
     for port in ports:
         start = time.monotonic()
         status = "offline"
         response_ms = None
-        response = b""
-        try:
-            response, status_code, final_url = fetch_response(
-                service_name,
-                port,
-                "http",
-                url_path,
-                explicit_debug=debug_enabled,
-                use_proxy=use_proxy,
-                proxy_settings=proxy_settings,
-            )
-            response_ms = int((time.monotonic() - start) * 1000)
-            if debug_enabled:
-                print(
-                    f"[DEBUG scan] protocol=http service={service_name} port={port} "
-                    f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
-                    f"response={response[:16384]!r}"
-                )
-        except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
-            if is_ssl_handshake_failure(exc):
-                status = "online"
+        protocol_used = preferred_protocol or "http"
+        match_bytes = match.lower().encode() if match else b""
+
+        if preferred_protocol == "udp":
+            try:
+                udp_resp = fetch_udp_response(service_name, port, url_path)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if debug_enabled:
                     print(
-                        f"[DEBUG scan] protocol=http service={service_name} port={port} "
-                        f"ignoring SSL handshake failure (treated as online): {exc}"
+                        f"[DEBUG scan] protocol=udp service={service_name} port={port} "
+                        f"match={match!r} response={udp_resp[:16384]!r}"
                     )
-            response = b""
-
-        if debug_enabled and response:
-            print(
-                f"[DEBUG scan response] protocol=http service={service_name} port={port} "
-                f"response={response[:16384]!r}"
-            )
-
-        match_bytes = match.lower().encode()
-        if response and match_bytes in response.lower():
-            status = "online"
-        elif status == "online":
-            pass
-        elif port in HTTPS_PORTS:
+                if udp_resp and match_bytes and match_bytes in udp_resp.lower():
+                    status = "online"
+                elif udp_resp and not match_bytes:
+                    status = "online"
+                elif udp_resp:
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError):
+                status = "offline"
+        elif preferred_protocol in ("udp-ssl", "dtls"):
+            try:
+                udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
+                response_ms = int((time.monotonic() - start) * 1000)
+                if debug_enabled:
+                    print(
+                        f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} "
+                        f"match={match!r} response={udp_ssl_resp[:16384]!r}"
+                    )
+                if udp_ssl_resp and match_bytes and match_bytes in udp_ssl_resp.lower():
+                    status = "online"
+                elif udp_ssl_resp and not match_bytes:
+                    status = "online"
+                elif udp_ssl_resp:
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError):
+                status = "offline"
+        elif preferred_protocol in ("icmp", "icmp-ping"):
+            try:
+                ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
+                response_ms = ping_lat
+                if ping_ok:
+                    ping_bytes = ping_output.encode("utf-8")
+                    if match_bytes and match_bytes in ping_bytes.lower():
+                        status = "online"
+                    elif not match_bytes:
+                        status = "online"
+                    else:
+                        status = "degraded"
+                else:
+                    status = "offline"
+            except Exception:
+                status = "offline"
+        elif preferred_protocol == "socket":
+            try:
+                socket_response = fetch_socket_response(service_name, port, url_path)
+                response_ms = int((time.monotonic() - start) * 1000)
+                if socket_response and match_bytes and match_bytes in socket_response.lower():
+                    status = "online"
+                elif socket_response and not match_bytes:
+                    status = "online"
+                elif socket_response:
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError):
+                status = "offline"
+        elif preferred_protocol == "socket-ssl":
+            try:
+                ssl_socket_response = fetch_socket_ssl_response(service_name, port, url_path)
+                response_ms = int((time.monotonic() - start) * 1000)
+                if ssl_socket_response and match_bytes and match_bytes in ssl_socket_response.lower():
+                    status = "online"
+                elif ssl_socket_response and not match_bytes:
+                    status = "online"
+                elif ssl_socket_response:
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+                if is_ssl_handshake_failure(exc):
+                    status = "online"
+                    response_ms = int((time.monotonic() - start) * 1000)
+                else:
+                    status = "offline"
+        elif preferred_protocol == "https":
             try:
                 https_response, status_code, final_url = fetch_response(
                     service_name,
@@ -721,13 +895,9 @@ def scan_service(
                     proxy_settings=proxy_settings,
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
-                if debug_enabled:
-                    print(
-                        f"[DEBUG scan] protocol=https service={service_name} port={port} "
-                        f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
-                        f"response={https_response[:16384]!r}"
-                    )
-                if https_response and match_bytes in https_response.lower():
+                if https_response and match_bytes and match_bytes in https_response.lower():
+                    status = "online"
+                elif https_response and not match_bytes and status_code and 200 <= status_code < 400:
                     status = "online"
                 elif https_response:
                     status = "degraded"
@@ -735,53 +905,225 @@ def scan_service(
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     response_ms = int((time.monotonic() - start) * 1000)
-                    if debug_enabled:
-                        print(
-                            f"[DEBUG scan] protocol=https service={service_name} port={port} "
-                            f"ignoring SSL handshake failure (treated as online): {exc}"
-                        )
-            if status == "offline":
-                status = "degraded"
-        elif response:
-            status = "degraded"
-
-        if status != "online" and not use_proxy:
+                else:
+                    status = "offline"
+        else:
+            # Auto-detect cascade (or preferred_protocol == "http")
+            response = b""
             try:
-                socket_response = fetch_socket_response(service_name, port, url_path)
+                response, status_code, final_url = fetch_response(
+                    service_name,
+                    port,
+                    "http",
+                    url_path,
+                    explicit_debug=debug_enabled,
+                    use_proxy=use_proxy,
+                    proxy_settings=proxy_settings,
+                )
                 response_ms = int((time.monotonic() - start) * 1000)
+                protocol_used = "http"
                 if debug_enabled:
                     print(
-                        f"[DEBUG scan] protocol=socket service={service_name} port={port} "
-                        f"match={match!r} response={socket_response[:16384]!r}"
+                        f"[DEBUG scan] protocol=http service={service_name} port={port} "
+                        f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
+                        f"response={response[:16384]!r}"
                     )
-                if socket_response and match_bytes in socket_response.lower():
+            except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
+                if is_ssl_handshake_failure(exc):
                     status = "online"
-                elif socket_response and status == "offline":
-                    status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError):
-                try:
-                    ssl_socket_response = fetch_socket_ssl_response(service_name, port, url_path)
+                    protocol_used = "http"
                     response_ms = int((time.monotonic() - start) * 1000)
                     if debug_enabled:
                         print(
-                            f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
-                            f"match={match!r} response={ssl_socket_response[:16384]!r}"
+                            f"[DEBUG scan] protocol=http service={service_name} port={port} "
+                            f"ignoring SSL handshake failure (treated as online): {exc}"
                         )
-                    if ssl_socket_response and match_bytes in ssl_socket_response.lower():
+                response = b""
+
+            if debug_enabled and response:
+                print(
+                    f"[DEBUG scan response] protocol=http service={service_name} port={port} "
+                    f"response={response[:16384]!r}"
+                )
+
+            if response and match_bytes and match_bytes in response.lower():
+                status = "online"
+                protocol_used = "http"
+            elif response and not match_bytes and status_code and 200 <= status_code < 400:
+                status = "online"
+                protocol_used = "http"
+            elif status == "online":
+                protocol_used = "http"
+            elif port in HTTPS_PORTS:
+                # HTTPS check
+                try:
+                    https_response, status_code, final_url = fetch_response(
+                        service_name,
+                        port,
+                        "https",
+                        url_path,
+                        explicit_debug=debug_enabled,
+                        use_proxy=use_proxy,
+                        proxy_settings=proxy_settings,
+                    )
+                    response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(
+                            f"[DEBUG scan] protocol=https service={service_name} port={port} "
+                            f"status={status_code} url={final_url} match={match!r} proxy={use_proxy} "
+                            f"response={https_response[:16384]!r}"
+                        )
+                    if https_response and match_bytes and match_bytes in https_response.lower():
                         status = "online"
-                    elif ssl_socket_response and status == "offline":
+                        protocol_used = "https"
+                    elif https_response and not match_bytes:
+                        status = "online"
+                        protocol_used = "https"
+                    elif https_response:
                         status = "degraded"
-                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+                        protocol_used = "https"
+                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
                     if is_ssl_handshake_failure(exc):
                         status = "online"
+                        protocol_used = "https"
+                        response_ms = int((time.monotonic() - start) * 1000)
+                        if debug_enabled:
+                            print(
+                                f"[DEBUG scan] protocol=https service={service_name} port={port} "
+                                f"ignoring SSL handshake failure (treated as online): {exc}"
+                            )
+                if status == "offline" and port in HTTPS_PORTS:
+                    status = "degraded"
+            elif response:
+                status = "degraded"
+                protocol_used = "http"
+
+            # Socket checks if not online and not using proxy
+            if not preferred_protocol and status != "online" and not use_proxy:
+                try:
+                    socket_response = fetch_socket_response(service_name, port, url_path)
+                    response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(
+                            f"[DEBUG scan] protocol=socket service={service_name} port={port} "
+                            f"match={match!r} response={socket_response[:16384]!r}"
+                        )
+                    if socket_response and match_bytes and match_bytes in socket_response.lower():
+                        status = "online"
+                        protocol_used = "socket"
+                    elif socket_response and not match_bytes:
+                        status = "online"
+                        protocol_used = "socket"
+                    elif socket_response and status == "offline":
+                        status = "degraded"
+                        protocol_used = "socket"
+                except (socket.timeout, socket.gaierror, OSError):
+                    try:
+                        ssl_socket_response = fetch_socket_ssl_response(service_name, port, url_path)
                         response_ms = int((time.monotonic() - start) * 1000)
                         if debug_enabled:
                             print(
                                 f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
-                                f"ignoring SSL handshake failure (treated as online): {exc}"
+                                f"match={match!r} response={ssl_socket_response[:16384]!r}"
                             )
+                        if ssl_socket_response and match_bytes and match_bytes in ssl_socket_response.lower():
+                            status = "online"
+                            protocol_used = "socket-ssl"
+                        elif ssl_socket_response and not match_bytes:
+                            status = "online"
+                            protocol_used = "socket-ssl"
+                        elif ssl_socket_response and status == "offline":
+                            status = "degraded"
+                            protocol_used = "socket-ssl"
+                    except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+                        if is_ssl_handshake_failure(exc):
+                            status = "online"
+                            protocol_used = "socket-ssl"
+                            response_ms = int((time.monotonic() - start) * 1000)
+                            if debug_enabled:
+                                print(
+                                    f"[DEBUG scan] protocol=socket-ssl service={service_name} port={port} "
+                                    f"ignoring SSL handshake failure (treated as online): {exc}"
+                                )
+
+            # UDP checks if not online and not using proxy
+            if not preferred_protocol and status != "online" and not use_proxy:
+                try:
+                    udp_resp = fetch_udp_response(service_name, port, url_path)
+                    response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(
+                            f"[DEBUG scan] protocol=udp service={service_name} port={port} "
+                            f"match={match!r} response={udp_resp[:16384]!r}"
+                        )
+                    if udp_resp and match_bytes and match_bytes in udp_resp.lower():
+                        status = "online"
+                        protocol_used = "udp"
+                    elif udp_resp and not match_bytes:
+                        status = "online"
+                        protocol_used = "udp"
+                    elif udp_resp and status == "offline":
+                        status = "degraded"
+                        protocol_used = "udp"
+                except (socket.timeout, socket.gaierror, OSError):
+                    try:
+                        udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
+                        response_ms = int((time.monotonic() - start) * 1000)
+                        if debug_enabled:
+                            print(
+                                f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} "
+                                f"match={match!r} response={udp_ssl_resp[:16384]!r}"
+                            )
+                        if udp_ssl_resp and match_bytes and match_bytes in udp_ssl_resp.lower():
+                            status = "online"
+                            protocol_used = "udp-ssl"
+                        elif udp_ssl_resp and not match_bytes:
+                            status = "online"
+                            protocol_used = "udp-ssl"
+                        elif udp_ssl_resp and status == "offline":
+                            status = "degraded"
+                            protocol_used = "udp-ssl"
+                    except (socket.timeout, socket.gaierror, OSError):
+                        try:
+                            ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
+                            if ping_ok:
+                                ping_bytes = ping_output.encode("utf-8")
+                                response_ms = ping_lat
+                                if debug_enabled:
+                                    print(
+                                        f"[DEBUG scan] protocol=icmp-ping service={service_name} port={port} "
+                                        f"latency={ping_lat}ms output={ping_output!r}"
+                                    )
+                                if match_bytes and match_bytes in ping_bytes.lower():
+                                    status = "online"
+                                    protocol_used = "icmp-ping"
+                                elif not match_bytes:
+                                    status = "online"
+                                    protocol_used = "icmp-ping"
+                                elif status == "offline":
+                                    status = "degraded"
+                                    protocol_used = "icmp-ping"
+                        except Exception:
+                            pass
+
+        if status == "online" and not discovered_protocol:
+            discovered_protocol = protocol_used
+        elif status == "degraded" and not discovered_protocol:
+            discovered_protocol = protocol_used
+
         store_port_check(service_id, port, status, response_ms)
         port_statuses[port] = status
+
+    if not preferred_protocol and discovered_protocol:
+        try:
+            conn = get_db_connection()
+            conn.execute("UPDATE services SET protocol = ? WHERE id = ?", (discovered_protocol, service_id))
+            conn.commit()
+            conn.close()
+        except Exception as exc:
+            if debug_enabled:
+                print(f"[DEBUG scan] Failed saving discovered protocol {discovered_protocol}: {exc}")
+
     return port_statuses
 
 
@@ -793,12 +1135,13 @@ def probe_single_port_diagnostics(
     use_proxy: bool = False,
     proxy_settings: dict[str, str] | None = None,
     debug_enabled: bool = False,
+    preferred_protocol: str = "",
 ) -> dict:
     t0 = time.monotonic()
     status = "offline"
     status_code = None
     status_text = ""
-    protocol_used = "http"
+    protocol_used = preferred_protocol or "http"
     response_bytes = b""
     error_message = None
     retries = 0
@@ -806,40 +1149,93 @@ def probe_single_port_diagnostics(
     now_str = get_current_local_time_str()
     match_bytes = match_str.lower().encode() if match_str else b""
 
-    # Attempt 1: Standard HTTP probe
-    try:
-        response_bytes, status_code, final_url = fetch_response(
-            service_name,
-            port,
-            "http",
-            url_path,
-            explicit_debug=debug_enabled,
-            use_proxy=use_proxy,
-            proxy_settings=proxy_settings,
-        )
-        protocol_used = "http"
-        status_text = f"HTTP {status_code}"
-    except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
-        if is_ssl_handshake_failure(exc):
-            status = "online"
-            status_text = "SSL Handshake detected (treated as online)"
-            protocol_used = "ssl-handshake"
-        elif isinstance(exc, socket.gaierror):
-            error_message = f"DNS resolution failed: {exc}"
-        elif isinstance(exc, socket.timeout):
-            error_message = "Connection timed out (2.0s limit reached)"
-        elif isinstance(exc, ConnectionRefusedError):
-            error_message = f"Connection refused on port {port}"
-        else:
-            error_message = str(exc) or exc.__class__.__name__
+    pref = (preferred_protocol or "").strip().lower()
 
-    # Match evaluation on HTTP response
-    if response_bytes and match_bytes and match_bytes in response_bytes.lower():
-        status = "online"
-    elif status == "online":
-        pass
-    elif port in HTTPS_PORTS:
-        retries += 1
+    if pref == "udp":
+        protocol_used = "udp"
+        try:
+            udp_resp = fetch_udp_response(service_name, port, url_path)
+            response_bytes = udp_resp
+            status_text = "UDP datagram response"
+            if udp_resp and match_bytes and match_bytes in udp_resp.lower():
+                status = "online"
+            elif udp_resp and not match_bytes:
+                status = "online"
+            elif udp_resp:
+                status = "degraded"
+        except (socket.timeout, socket.gaierror, OSError) as exc:
+            error_message = str(exc) or exc.__class__.__name__
+            status_text = error_message
+    elif pref in ("udp-ssl", "dtls"):
+        protocol_used = "udp-ssl"
+        try:
+            udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
+            response_bytes = udp_ssl_resp
+            status_text = "UDP SSL (DTLS) response"
+            if udp_ssl_resp and match_bytes and match_bytes in udp_ssl_resp.lower():
+                status = "online"
+            elif udp_ssl_resp and not match_bytes:
+                status = "online"
+            elif udp_ssl_resp:
+                status = "degraded"
+        except (socket.timeout, socket.gaierror, OSError) as exc:
+            error_message = str(exc) or exc.__class__.__name__
+            status_text = error_message
+    elif pref in ("icmp", "icmp-ping"):
+        protocol_used = "icmp-ping"
+        try:
+            ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
+            if ping_ok:
+                response_bytes = ping_output.encode("utf-8")
+                status_text = f"ICMP Ping response ({ping_lat}ms)"
+                if match_bytes and match_bytes in response_bytes.lower():
+                    status = "online"
+                elif not match_bytes:
+                    status = "online"
+                else:
+                    status = "degraded"
+            else:
+                error_message = ping_output
+                status_text = error_message
+        except Exception as exc:
+            error_message = str(exc) or exc.__class__.__name__
+            status_text = error_message
+    elif pref == "socket":
+        protocol_used = "socket"
+        try:
+            sock_resp = fetch_socket_response(service_name, port, url_path)
+            response_bytes = sock_resp
+            status_text = "Socket HTTP/1.0 response"
+            if sock_resp and match_bytes and match_bytes in sock_resp.lower():
+                status = "online"
+            elif sock_resp and not match_bytes:
+                status = "online"
+            elif sock_resp:
+                status = "degraded"
+        except (socket.timeout, socket.gaierror, OSError) as exc:
+            error_message = str(exc) or exc.__class__.__name__
+            status_text = error_message
+    elif pref == "socket-ssl":
+        protocol_used = "socket-ssl"
+        try:
+            ssl_sock_resp = fetch_socket_ssl_response(service_name, port, url_path)
+            response_bytes = ssl_sock_resp
+            status_text = "Socket SSL HTTP/1.0 response"
+            if ssl_sock_resp and match_bytes and match_bytes in ssl_sock_resp.lower():
+                status = "online"
+            elif ssl_sock_resp and not match_bytes:
+                status = "online"
+            elif ssl_sock_resp:
+                status = "degraded"
+        except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+            if is_ssl_handshake_failure(exc):
+                status = "online"
+                status_text = "SSL Handshake (treated as online)"
+            else:
+                error_message = str(exc) or exc.__class__.__name__
+                status_text = error_message
+    elif pref == "https":
+        protocol_used = "https"
         try:
             https_response, https_code, https_url = fetch_response(
                 service_name,
@@ -850,12 +1246,13 @@ def probe_single_port_diagnostics(
                 use_proxy=use_proxy,
                 proxy_settings=proxy_settings,
             )
-            protocol_used = "https"
             status_code = https_code
             status_text = f"HTTPS {https_code}"
             final_url = https_url
             response_bytes = https_response
             if https_response and match_bytes and match_bytes in https_response.lower():
+                status = "online"
+            elif https_response and not match_bytes and 200 <= https_code < 400:
                 status = "online"
             elif https_response:
                 status = "degraded"
@@ -869,41 +1266,170 @@ def probe_single_port_diagnostics(
                 error_message = f"HTTPS connection refused on port {port}"
             else:
                 error_message = str(exc) or exc.__class__.__name__
-        if status == "offline":
-            status = "degraded"
-    elif response_bytes:
-        status = "degraded"
-
-    # Socket fallbacks if not online and not using proxy
-    if status != "online" and not use_proxy:
+            status_text = error_message
+    else:
+        # Default / cascade: either pref == "http" or pref is empty ("auto-detect")
         try:
-            retries += 1
-            sock_resp = fetch_socket_response(service_name, port, url_path)
-            protocol_used = "socket"
-            response_bytes = sock_resp
-            status_text = "Socket HTTP/1.0 response"
-            if sock_resp and match_bytes and match_bytes in sock_resp.lower():
+            response_bytes, status_code, final_url = fetch_response(
+                service_name,
+                port,
+                "http",
+                url_path,
+                explicit_debug=debug_enabled,
+                use_proxy=use_proxy,
+                proxy_settings=proxy_settings,
+            )
+            protocol_used = "http"
+            status_text = f"HTTP {status_code}"
+        except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
+            if is_ssl_handshake_failure(exc):
                 status = "online"
-            elif sock_resp and status == "offline":
-                status = "degraded"
-        except (socket.timeout, socket.gaierror, OSError):
+                status_text = "SSL Handshake detected (treated as online)"
+                protocol_used = "ssl-handshake"
+            elif isinstance(exc, socket.gaierror):
+                error_message = f"DNS resolution failed: {exc}"
+            elif isinstance(exc, socket.timeout):
+                error_message = "Connection timed out (2.0s limit reached)"
+            elif isinstance(exc, ConnectionRefusedError):
+                error_message = f"Connection refused on port {port}"
+            else:
+                error_message = str(exc) or exc.__class__.__name__
+
+        # Match evaluation on HTTP response
+        if response_bytes and match_bytes and match_bytes in response_bytes.lower():
+            status = "online"
+        elif response_bytes and not match_bytes and status_code and 200 <= status_code < 400:
+            status = "online"
+        elif status == "online":
+            pass
+        elif port in HTTPS_PORTS:
+            retries += 1
             try:
-                retries += 1
-                ssl_sock_resp = fetch_socket_ssl_response(service_name, port, url_path)
-                protocol_used = "socket-ssl"
-                response_bytes = ssl_sock_resp
-                status_text = "Socket SSL HTTP/1.0 response"
-                if ssl_sock_resp and match_bytes and match_bytes in ssl_sock_resp.lower():
+                https_response, https_code, https_url = fetch_response(
+                    service_name,
+                    port,
+                    "https",
+                    url_path,
+                    explicit_debug=debug_enabled,
+                    use_proxy=use_proxy,
+                    proxy_settings=proxy_settings,
+                )
+                protocol_used = "https"
+                status_code = https_code
+                status_text = f"HTTPS {https_code}"
+                final_url = https_url
+                response_bytes = https_response
+                if https_response and match_bytes and match_bytes in https_response.lower():
                     status = "online"
-                elif ssl_sock_resp and status == "offline":
+                elif https_response and not match_bytes:
+                    status = "online"
+                elif https_response:
                     status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     status_text = "SSL Handshake (treated as online)"
+                    protocol_used = "https"
+                elif not error_message:
+                    error_message = str(exc) or exc.__class__.__name__
+            if status == "offline" and port in HTTPS_PORTS:
+                status = "degraded"
+        elif response_bytes:
+            status = "degraded"
+
+        # Socket fallbacks if not online and not using proxy
+        if not pref and status != "online" and not use_proxy:
+            try:
+                retries += 1
+                sock_resp = fetch_socket_response(service_name, port, url_path)
+                protocol_used = "socket"
+                response_bytes = sock_resp
+                status_text = "Socket HTTP/1.0 response"
+                if sock_resp and match_bytes and match_bytes in sock_resp.lower():
+                    status = "online"
+                elif sock_resp and not match_bytes:
+                    status = "online"
+                elif sock_resp and status == "offline":
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError):
+                try:
+                    retries += 1
+                    ssl_sock_resp = fetch_socket_ssl_response(service_name, port, url_path)
+                    protocol_used = "socket-ssl"
+                    response_bytes = ssl_sock_resp
+                    status_text = "Socket SSL HTTP/1.0 response"
+                    if ssl_sock_resp and match_bytes and match_bytes in ssl_sock_resp.lower():
+                        status = "online"
+                    elif ssl_sock_resp and not match_bytes:
+                        status = "online"
+                    elif ssl_sock_resp and status == "offline":
+                        status = "degraded"
+                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError) as exc:
+                    if is_ssl_handshake_failure(exc):
+                        status = "online"
+                        status_text = "SSL Handshake (treated as online)"
+                        protocol_used = "socket-ssl"
+                    elif not error_message:
+                        error_message = str(exc) or exc.__class__.__name__
+
+        # UDP fallback
+        if not pref and status != "online" and not use_proxy:
+            try:
+                retries += 1
+                udp_resp = fetch_udp_response(service_name, port, url_path)
+                protocol_used = "udp"
+                response_bytes = udp_resp
+                status_text = "UDP datagram response"
+                if udp_resp and match_bytes and match_bytes in udp_resp.lower():
+                    status = "online"
+                elif udp_resp and not match_bytes:
+                    status = "online"
+                elif udp_resp and status == "offline":
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError) as exc:
+                if not error_message:
+                    error_message = str(exc) or exc.__class__.__name__
+
+        # UDP SSL (DTLS) fallback
+        if not pref and status != "online" and not use_proxy:
+            try:
+                retries += 1
+                udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
+                protocol_used = "udp-ssl"
+                response_bytes = udp_ssl_resp
+                status_text = "UDP SSL (DTLS) response"
+                if udp_ssl_resp and match_bytes and match_bytes in udp_ssl_resp.lower():
+                    status = "online"
+                elif udp_ssl_resp and not match_bytes:
+                    status = "online"
+                elif udp_ssl_resp and status == "offline":
+                    status = "degraded"
+            except (socket.timeout, socket.gaierror, OSError) as exc:
+                if not error_message:
+                    error_message = str(exc) or exc.__class__.__name__
+
+        # ICMP PING fallback
+        if not pref and status != "online" and not use_proxy:
+            try:
+                retries += 1
+                ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
+                if ping_ok:
+                    ping_bytes = ping_output.encode("utf-8")
+                    protocol_used = "icmp-ping"
+                    response_bytes = ping_bytes
+                    status_text = f"ICMP Ping response ({ping_lat}ms)"
+                    if match_bytes and match_bytes in ping_bytes.lower():
+                        status = "online"
+                    elif not match_bytes:
+                        status = "online"
+                    elif status == "offline":
+                        status = "degraded"
                 else:
                     if not error_message:
-                        error_message = str(exc) or exc.__class__.__name__
+                        error_message = ping_output
+            except Exception as exc:
+                if not error_message:
+                    error_message = str(exc) or exc.__class__.__name__
 
     duration_ms = max(1, int((time.monotonic() - t0) * 1000))
 
@@ -984,6 +1510,7 @@ def diagnose_service_ports(
     url_path: str = "",
     use_proxy: bool = False,
     explicit_debug: bool | None = None,
+    preferred_protocol: str = "",
 ) -> dict:
     parsed_ports = parse_diagnostic_ports(ports)
 
@@ -999,6 +1526,7 @@ def diagnose_service_ports(
             "ports": [],
             "overall_status": "offline",
             "timestamp": now_str,
+            "discovered_protocol": "",
         }
 
     max_workers = min(len(parsed_ports), 8)
@@ -1013,6 +1541,7 @@ def diagnose_service_ports(
                 use_proxy,
                 proxy_settings,
                 debug_enabled,
+                preferred_protocol,
             ): port
             for port in parsed_ports
         }
@@ -1033,12 +1562,26 @@ def diagnose_service_ports(
     else:
         overall_status = "degraded"
 
+    discovered_protocol = ""
+    for p in port_diagnostics:
+        if p["status"] == "online" and p.get("protocol"):
+            discovered_protocol = p["protocol"]
+            break
+    if not discovered_protocol:
+        for p in port_diagnostics:
+            if p["status"] == "degraded" and p.get("protocol"):
+                discovered_protocol = p["protocol"]
+                break
+    if not discovered_protocol and port_diagnostics:
+        discovered_protocol = port_diagnostics[0].get("protocol", "")
+
     return {
         "success": True,
         "service_name": service_name,
         "overall_status": overall_status,
         "timestamp": now_str,
         "ports": port_diagnostics,
+        "discovered_protocol": discovered_protocol,
     }
 
 
@@ -1070,6 +1613,7 @@ def add_service(
     use_proxy: bool = False,
     name: str | None = None,
     ports: list[int] | str | None = None,
+    protocol: str = "",
 ):
     target_name = service_name if service_name is not None else name
     if not target_name:
@@ -1079,6 +1623,7 @@ def add_service(
         return None
     service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
+    proto_val = (protocol or "").strip().lower()
     detected = []
     if ports is not None and str(ports).strip():
         detected = parse_diagnostic_ports(ports)
@@ -1086,15 +1631,16 @@ def add_service(
         detected = discover_ports(normalized)
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), json.dumps(detected)),
+        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), proto_val, json.dumps(detected)),
     )
     conn.commit()
     service_id = cursor.lastrowid
     conn.close()
     if detected and not paused:
-        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy)
+        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy, protocol=proto_val)
     return service_id
+
 
 
 def import_service_names(service_names, progress_callback=None, cancelled_check=None):
@@ -1190,7 +1736,7 @@ def export_services_csv() -> tuple[str, int]:
     services = service_list()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Service", "Match", "URL path", "Comment", "Paused", "Proxy", "Ports"])
+    writer.writerow(["Service", "Match", "URL path", "Comment", "Paused", "Proxy", "Protocol", "Ports"])
     for s in services:
         ports_str = ", ".join(str(p) for p in s["ports"])
         writer.writerow([
@@ -1200,6 +1746,7 @@ def export_services_csv() -> tuple[str, int]:
             s.get("comment", "") or "",
             "1" if s["paused"] else "0",
             "1" if s.get("use_proxy") else "0",
+            s.get("protocol", "") or "",
             ports_str,
         ])
     return output.getvalue(), len(services)
@@ -1244,12 +1791,16 @@ def import_services_from_csv(
                 col_map["paused"] = idx
             elif col in ("proxy", "use_proxy", "use proxy", "is_proxy", "proxy server", "proxy_server"):
                 col_map["proxy"] = idx
+            elif col in ("protocol", "proto", "service protocol"):
+                col_map["protocol"] = idx
             elif col in ("ports", "port", "monitored ports"):
                 col_map["ports"] = idx
         data_rows = raw_rows[1:]
     else:
         first_len = len(raw_rows[0])
-        if first_len >= 7:
+        if first_len >= 8:
+            col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "protocol": 6, "ports": 7}
+        elif first_len == 7:
             col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "ports": 6}
         elif first_len == 6:
             col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "ports": 5}
@@ -1316,14 +1867,17 @@ def import_services_from_csv(
         proxy_raw = row[prx_idx].strip().lower() if prx_idx != -1 and prx_idx < len(row) else "0"
         proxy_val = proxy_raw in ("1", "true", "yes", "t", "y")
 
+        prto_idx = col_map.get("protocol", -1)
+        protocol_val = row[prto_idx].strip().lower() if prto_idx != -1 and prto_idx < len(row) else ""
+
         pts_idx = col_map.get("ports", -1)
         ports_raw = row[pts_idx].strip() if pts_idx != -1 and pts_idx < len(row) else ""
         ports_val = parse_csv_ports(ports_raw) or []
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), json.dumps(ports_val)),
+            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), protocol_val, json.dumps(ports_val)),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -1338,7 +1892,7 @@ def import_services_from_csv(
                     "status": "scanning",
                     "message": f"Scanning ports for {normalized} ({', '.join(str(p) for p in ports_val)})",
                 })
-            scan_service(service_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val)
+            scan_service(service_id, normalized, ports_val, match_val, url_path=url_path_val, use_proxy=proxy_val, protocol=protocol_val)
 
         summary["imported"] += 1
         summary["imported_services"].append(normalized)
@@ -1355,12 +1909,13 @@ def update_service(
     paused: bool | None = None,
     comment: str | None = None,
     use_proxy: bool | None = None,
+    protocol: str | None = None,
 ):
     normalized = normalize_service(name)
     service_match = (match or derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     existing_service = None
-    if paused is None or comment is None or use_proxy is None:
+    if paused is None or comment is None or use_proxy is None or protocol is None:
         existing_service = get_service_by_id(service_id)
 
     if paused is None:
@@ -1376,6 +1931,11 @@ def update_service(
     else:
         comment_val = str(comment).strip()
 
+    if protocol is None:
+        protocol_val = existing_service["protocol"] if existing_service and "protocol" in existing_service.keys() else ""
+    else:
+        protocol_val = str(protocol).strip().lower()
+
     incoming_ports = []
     if ports_input:
         raw_parts = ports_input.replace(",", "\n").splitlines()
@@ -1389,7 +1949,7 @@ def update_service(
                 raise ValueError(f"Invalid port value '{value}'")
     conn = get_db_connection()
     conn.execute(
-        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, ports = ? WHERE id = ?",
+        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, protocol = ?, ports = ? WHERE id = ?",
         (
             normalized,
             service_match,
@@ -1397,6 +1957,7 @@ def update_service(
             comment_val,
             int(paused),
             int(use_proxy_val),
+            protocol_val,
             json.dumps(sorted({int(port) for port in incoming_ports})),
             service_id,
         ),
@@ -1404,7 +1965,8 @@ def update_service(
     conn.commit()
     conn.close()
     if incoming_ports and not paused:
-        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val)
+        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val, protocol=protocol_val)
+
 
 
 def parse_port_values(ports_input: str):
@@ -1481,7 +2043,7 @@ def get_status_rows():
                    ROW_NUMBER() OVER (PARTITION BY service_id, port ORDER BY checked_at DESC) AS rn
             FROM port_checks
         )
-         SELECT s.id, s.name, s.match, s.ports, s.use_proxy, latest.port, latest.is_online,
+         SELECT s.id, s.name, s.match, s.ports, s.use_proxy, s.protocol, latest.port, latest.is_online,
              COALESCE(latest.status, CASE WHEN latest.is_online = 1 THEN 'online' ELSE 'offline' END) AS status,
              latest.last_response_ms, latest.checked_at
         FROM services s
@@ -1499,6 +2061,7 @@ def get_status_rows():
             "match": row["match"],
             "ports": parse_ports(row["ports"]),
             "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
+            "protocol": row["protocol"] if "protocol" in row.keys() and row["protocol"] else "",
             "port": row["port"],
             "is_online": bool(row["is_online"]),
             "status": row["status"],
@@ -1507,6 +2070,7 @@ def get_status_rows():
             "checked_at_local": format_local_time(row["checked_at"]),
         })
     return result
+
 
 
 DEFAULT_SETTINGS = {
@@ -1936,6 +2500,7 @@ def add_service_route():
         comment = request.form.get("comment", "").strip()
         url_path = request.form.get("url_path", "").strip()
         ports_input = request.form.get("ports", "").strip()
+        protocol = request.form.get("protocol", "").strip()
         paused = request.form.get("paused") == "on" or request.form.get("paused") == "1"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         if not name:
@@ -1950,6 +2515,7 @@ def add_service_route():
                 paused=paused,
                 use_proxy=use_proxy,
                 ports=ports_input if ports_input else None,
+                protocol=protocol,
             )
         except ValueError as exc:
             flash(str(exc))
@@ -2033,10 +2599,11 @@ def edit_service(service_id):
         url_path = request.form.get("url_path", "")
         comment = request.form.get("comment", "").strip()
         ports_input = request.form.get("ports", "")
+        protocol = request.form.get("protocol", "").strip()
         paused = request.form.get("paused") == "on"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         try:
-            update_service(service_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy)
+            update_service(service_id, name, ports_input, match or None, url_path, paused, comment=comment, use_proxy=use_proxy, protocol=protocol)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_service", service_id=service_id, return_to=return_to))
@@ -2070,6 +2637,10 @@ def test_service_edit_route(service_id):
     else:
         ports = parse_diagnostic_ports(ports_input)
 
+    protocol = (data.get("protocol") or "").strip().lower()
+    if not protocol and service.get("protocol"):
+        protocol = service.get("protocol", "").strip().lower()
+
     if not service_name:
         return jsonify({"success": False, "error": "Service name cannot be empty."}), 400
     if not ports:
@@ -2081,6 +2652,7 @@ def test_service_edit_route(service_id):
         match=match or "",
         url_path=url_path or "",
         use_proxy=use_proxy,
+        preferred_protocol=protocol,
     )
     return jsonify(results)
 
@@ -2095,6 +2667,7 @@ def test_service_generic_route():
     use_proxy = raw_proxy is True or str(raw_proxy).lower() in ("true", "1", "on")
     ports_input = data.get("ports") or ""
     ports = parse_diagnostic_ports(ports_input)
+    protocol = (data.get("protocol") or "").strip().lower()
 
     if not service_name:
         return jsonify({"success": False, "error": "Service name cannot be empty."}), 400
@@ -2108,6 +2681,7 @@ def test_service_generic_route():
         match=match_to_use,
         url_path=url_path,
         use_proxy=use_proxy,
+        preferred_protocol=protocol,
     )
     return jsonify(results)
 
@@ -2133,7 +2707,15 @@ def rescan_service_route(service_id):
     if service is None:
         flash("Service not found.")
         return redirect(url_for("services"))
-    scan_service(service_id, service["name"], service["ports"], service["match"], url_path=service["url_path"], use_proxy=service.get("use_proxy", False))
+    scan_service(
+        service_id,
+        service["name"],
+        service["ports"],
+        service["match"],
+        url_path=service["url_path"],
+        use_proxy=service.get("use_proxy", False),
+        protocol=service.get("protocol", ""),
+    )
     flash(f"Rescanned {service['name']}.")
     return redirect(url_for("status"))
 
@@ -2600,6 +3182,7 @@ def scan_service_with_retries(
                 explicit_debug=debug_enabled,
                 url_path=service.get("url_path", ""),
                 use_proxy=service.get("use_proxy", False),
+                protocol=service.get("protocol", ""),
             )
             port_statuses = res if isinstance(res, dict) else {}
             overall = compute_overall_status(port_statuses)

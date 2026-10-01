@@ -197,18 +197,19 @@ PulseCheck menu
 PulseCheck supports importing and exporting services via CSV.
 
 ### Columns
-`Service, Match, URL path, Comment, Paused, Proxy, Ports`
+`Service, Match, URL path, Comment, Paused, Proxy, Protocol, Ports`
 
 ### Example
 ```csv
-Service,Match,URL path,Comment,Paused,Proxy,Ports
-internal.corp.local,internal,/health,Main API Gateway,0,1,"80, 443"
-api.example.com,api,,Production API,0,0,"443, 8443"
-backup-portal.example,backup,/login,DR Site,1,0,"80"
+Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports
+internal.corp.local,internal,/health,Main API Gateway,0,1,https,"80, 443"
+api.example.com,api,,Production API,0,0,http,"443, 8443"
+backup-portal.example,backup,/login,DR Site,1,0,udp-ssl,"80"
 ```
 
 - **Paused**: `1` (or `true`) to pause, `0` (or `false`) to monitor actively.
 - **Proxy**: `1` (or `true`) to route requests through the configured HTTP proxy, `0` (or `false`) for direct access.
+- **Protocol**: Optional preferred protocol (`http`, `https`, `socket`, `socket-ssl`, `udp`, `udp-ssl`, `icmp-ping`). Auto-detected if empty.
 - **Ports**: Comma-separated list of numeric ports (enclosed in quotes if containing spaces).
 
 ---

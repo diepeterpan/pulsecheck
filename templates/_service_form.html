@@ -68,7 +68,25 @@
         <div style="margin-bottom: 22px;">
           <label for="ports" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports</label>
           <input type="text" id="ports" name="ports" value="{% if item.ports is string %}{{ item.ports }}{% elif item.ports %}{{ item.ports | join(', ') }}{% else %}80, 443{% endif %}" placeholder="80, 443, 8443" style="width: 100%; box-sizing: border-box;">
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Comma-separated TCP ports to probe.</span>
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Comma-separated TCP/UDP ports to probe.</span>
+        </div>
+
+        <div style="margin-bottom: 22px;">
+          <label for="protocol" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Protocol</label>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <select id="protocol" name="protocol" style="flex: 1; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; font-size: 0.88rem;">
+              <option value="" {% if not item.protocol %}selected{% endif %}>Auto-detect (Discover on test / scan)</option>
+              <option value="http" {% if item.protocol == 'http' %}selected{% endif %}>HTTP</option>
+              <option value="https" {% if item.protocol == 'https' %}selected{% endif %}>HTTPS</option>
+              <option value="socket" {% if item.protocol == 'socket' %}selected{% endif %}>SOCKET</option>
+              <option value="socket-ssl" {% if item.protocol == 'socket-ssl' %}selected{% endif %}>SOCKET SSL</option>
+              <option value="udp" {% if item.protocol == 'udp' %}selected{% endif %}>UDP</option>
+              <option value="udp-ssl" {% if item.protocol == 'udp-ssl' %}selected{% endif %}>UDP SSL</option>
+              <option value="icmp-ping" {% if item.protocol in ('icmp-ping', 'icmp') %}selected{% endif %}>ICMP PING</option>
+            </select>
+            <span id="discovered-proto-pill" class="badge" style="display: none; background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.76rem; padding: 4px 8px; border-radius: 4px; font-weight: 600;"></span>
+          </div>
+          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Protocol used for service checks. Auto-detected during tests or on the next scheduled check.</span>
         </div>
 
         <div style="display: flex; gap: 10px; margin-top: 24px; align-items: center; flex-wrap: wrap;">
@@ -104,7 +122,7 @@
         </div>
         <div class="diag-empty-title">Test Port Probes Live</div>
         <div class="diag-empty-desc">
-          Verify connectivity, HTTP response codes, latency, and match string highlighting across all ports before saving.
+          Verify connectivity across HTTP, HTTPS, Socket, UDP, and ICMP protocols with latency and match string highlighting before saving.
         </div>
         <button type="button" id="btn-placeholder-test" class="button primary" style="display: inline-flex; align-items: center; gap: 8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -116,7 +134,7 @@
       <div id="diag-loading" class="diag-loading-state" style="display: none;">
         <div class="diag-spinner"></div>
         <div class="diag-loading-title">Probing configured ports...</div>
-        <div class="diag-loading-hint">Testing HTTP/HTTPS connections and evaluating match string.</div>
+        <div class="diag-loading-hint">Testing HTTP, HTTPS, Socket, UDP, and ICMP protocols and evaluating match string.</div>
       </div>
 
       <!-- State 3: Error State -->
@@ -211,12 +229,29 @@
       }
     }
 
+    function formatProtocolLabel(protocol) {
+      if (!protocol) return "";
+      const map = {
+        "http": "HTTP",
+        "https": "HTTPS",
+        "socket": "SOCKET",
+        "socket-ssl": "SOCKET SSL",
+        "udp": "UDP",
+        "udp-ssl": "UDP SSL",
+        "icmp": "ICMP PING",
+        "icmp-ping": "ICMP PING",
+        "ssl-handshake": "SSL HANDSHAKE",
+      };
+      return map[protocol.toLowerCase()] || protocol.toUpperCase();
+    }
+
     async function runDiagnostics() {
       const nameVal = document.getElementById("name").value.trim();
       const matchVal = document.getElementById("match").value.trim();
       const urlPathVal = document.getElementById("url_path").value.trim();
       const useProxyVal = document.getElementById("use_proxy").checked;
       const portsVal = document.getElementById("ports").value.trim();
+      const protoVal = document.getElementById("protocol") ? document.getElementById("protocol").value.trim() : "";
 
       if (!nameVal) {
         alert("Please enter a service name before testing.");
@@ -237,6 +272,7 @@
         url_path: urlPathVal,
         use_proxy: useProxyVal,
         ports: portsVal,
+        protocol: protoVal,
       };
 
       try {
@@ -275,6 +311,18 @@
       diagOverallPill.style.display = "inline-flex";
       btnDiagRetest.style.display = "inline-flex";
 
+      if (data.discovered_protocol) {
+        const protoSelect = document.getElementById("protocol");
+        const discoveredPill = document.getElementById("discovered-proto-pill");
+        if (protoSelect) {
+          protoSelect.value = data.discovered_protocol;
+        }
+        if (discoveredPill) {
+          discoveredPill.textContent = "Discovered: " + formatProtocolLabel(data.discovered_protocol);
+          discoveredPill.style.display = "inline-block";
+        }
+      }
+
       diagTabsNav.innerHTML = "";
       diagTabsContent.innerHTML = "";
 
@@ -304,7 +352,7 @@
         summaryRowsHtml += `
           <tr>
             <td><strong style="color: #0f172a;">Port ${p.port}</strong></td>
-            <td><span style="text-transform: uppercase; font-size: 0.76rem; font-weight: 600; color: #475569;">${escapeHtml(p.protocol)}</span></td>
+            <td><span style="text-transform: uppercase; font-size: 0.76rem; font-weight: 600; color: #475569;">${escapeHtml(formatProtocolLabel(p.protocol))}</span></td>
             <td><span class="diag-status-pill ${pStatus}">${pStatus.toUpperCase()}</span></td>
             <td style="font-family: ui-monospace, monospace; font-size: 0.8rem;">${escapeHtml(p.status_text)}</td>
             <td><strong>${p.duration_ms}</strong> <span style="font-size: 0.75rem; color: #64748b;">ms</span></td>
@@ -399,6 +447,10 @@
               <div class="diag-metric-val"><span class="diag-status-pill ${pStatus}">${pStatus.toUpperCase()}</span></div>
             </div>
             <div class="diag-metric-card">
+              <div class="diag-metric-label">Protocol</div>
+              <div class="diag-metric-val"><span class="badge" style="background: rgba(139, 92, 246, 0.15); color: #7c3aed; font-size: 0.78rem; padding: 2px 6px; border-radius: 4px; font-weight: 600;">${escapeHtml(formatProtocolLabel(p.protocol))}</span></div>
+            </div>
+            <div class="diag-metric-card">
               <div class="diag-metric-label">Result Code</div>
               <div class="diag-metric-val" style="font-size: 0.85rem; font-family: ui-monospace, monospace;">${escapeHtml(p.status_text)}</div>
             </div>
@@ -422,7 +474,7 @@
             <div class="diag-snippet-header">
               <span>
                 <strong style="color: #e2e8f0;">Response Snippet</strong>
-                <span style="margin-left: 8px; font-size: 0.72rem; color: #94a3b8;">(${snippetLength} chars via ${escapeHtml(p.protocol)})</span>
+                <span style="margin-left: 8px; font-size: 0.72rem; color: #94a3b8;">(${snippetLength} chars via ${escapeHtml(formatProtocolLabel(p.protocol))})</span>
               </span>
               <button type="button" class="diag-btn-copy" data-snippet="${encodeURIComponent(p.response_snippet || "")}">
                 Copy Snippet

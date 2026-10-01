@@ -1,10 +1,12 @@
 import io
 import os
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import app as pulsecheck_app
+
 
 
 class ServiceTests(unittest.TestCase):
@@ -139,7 +141,7 @@ class ServiceTests(unittest.TestCase):
         export_resp = self.client.get("/services/export.csv")
         self.assertEqual(export_resp.status_code, 200)
         self.assertIn("attachment; filename=pulsecheck_services.csv", export_resp.headers["Content-Disposition"])
-        self.assertIn(b"Service,Match,URL path,Comment,Paused,Proxy,Ports", export_resp.data)
+        self.assertIn(b"Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports", export_resp.data)
         self.assertIn(b"portal.service.local", export_resp.data)
 
         # POST /services/<id>/delete
@@ -340,6 +342,180 @@ invalid service host,,,,,
         self.assertEqual(created["match"], "fresh")
         self.assertEqual(created["comment"], "New microservice entry")
 
+    @patch("app.scan_service")
+    def test_service_protocol_crud_and_status_badge(self, mock_scan):
+        # 1. Add service with UDP protocol
+        service_id = pulsecheck_app.add_service(
+            name="dns.service.local",
+            ports=[53],
+            match="dns",
+            protocol="udp",
+        )
+        self.assertIsNotNone(service_id)
+        srv = pulsecheck_app.get_service_by_id(service_id)
+        self.assertEqual(srv["protocol"], "udp")
+
+        # 2. Update service with UDP SSL (DTLS) protocol
+        pulsecheck_app.update_service(
+            service_id=service_id,
+            name="dns.service.local",
+            ports_input="53, 853",
+            protocol="udp-ssl",
+        )
+        srv = pulsecheck_app.get_service_by_id(service_id)
+        self.assertEqual(srv["protocol"], "udp-ssl")
+
+        # 3. Verify protocol selection in edit page
+        edit_resp = self.client.get(f"/services/{service_id}/edit")
+        self.assertEqual(edit_resp.status_code, 200)
+        self.assertIn(b'value="udp-ssl" selected', edit_resp.data)
+        self.assertIn(b'value="udp"', edit_resp.data)
+        self.assertIn(b'value="icmp-ping"', edit_resp.data)
+
+        # 4. Status rows include protocol and status page renders distinct badge
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (service_id, 53, 1, "online", 5, "2026-10-01 12:00:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        status_rows = pulsecheck_app.get_status_rows()
+        dns_row = next((r for r in status_rows if r["id"] == service_id), None)
+        self.assertIsNotNone(dns_row)
+        self.assertEqual(dns_row["protocol"], "udp-ssl")
+
+        # GET /status renders badge-protocol with distinct purple style and uppercase label
+        status_page_resp = self.client.get("/status")
+        self.assertEqual(status_page_resp.status_code, 200)
+        self.assertIn(b"badge-protocol", status_page_resp.data)
+        self.assertIn(b"UDP SSL", status_page_resp.data)
+        self.assertIn(b"#7c3aed", status_page_resp.data)
+
+    @patch("app.fetch_udp_response")
+    @patch("app.fetch_udp_ssl_response")
+    @patch("app.fetch_icmp_ping_response")
+    def test_diagnostic_probing_additional_protocols(self, mock_icmp, mock_udp_ssl, mock_udp):
+        # 1. Preferred protocol UDP
+        mock_udp.return_value = b"UDP-DNS-OK"
+        res_udp = pulsecheck_app.diagnose_service_ports(
+            service_name="dns.example",
+            ports=[53],
+            match="DNS",
+            preferred_protocol="udp",
+        )
+        self.assertTrue(res_udp["success"])
+        self.assertEqual(res_udp["overall_status"], "online")
+        self.assertEqual(res_udp["ports"][0]["protocol"], "udp")
+        self.assertEqual(res_udp["discovered_protocol"], "udp")
+        self.assertTrue(res_udp["ports"][0]["match_found"])
+
+        # 2. Preferred protocol UDP SSL (DTLS)
+        mock_udp_ssl.return_value = b"DTLS-HANDSHAKE-OK"
+        res_dtls = pulsecheck_app.diagnose_service_ports(
+            service_name="vpn.example",
+            ports=[4433],
+            match="HANDSHAKE",
+            preferred_protocol="udp-ssl",
+        )
+        self.assertTrue(res_dtls["success"])
+        self.assertEqual(res_dtls["overall_status"], "online")
+        self.assertEqual(res_dtls["ports"][0]["protocol"], "udp-ssl")
+        self.assertEqual(res_dtls["discovered_protocol"], "udp-ssl")
+
+        # 3. Preferred protocol ICMP Ping
+        mock_icmp.return_value = (True, 12, "64 bytes from router.example: icmp_seq=1 ttl=64 time=12 ms")
+        res_icmp = pulsecheck_app.diagnose_service_ports(
+            service_name="router.example",
+            ports=[1],
+            match="ttl=64",
+            preferred_protocol="icmp-ping",
+        )
+        self.assertTrue(res_icmp["success"])
+        self.assertEqual(res_icmp["overall_status"], "online")
+        self.assertEqual(res_icmp["ports"][0]["protocol"], "icmp-ping")
+        self.assertEqual(res_icmp["discovered_protocol"], "icmp-ping")
+
+    @patch("app.fetch_response", side_effect=socket.timeout("HTTP timeout"))
+    @patch("app.fetch_socket_response", side_effect=socket.timeout("Socket timeout"))
+    @patch("app.fetch_socket_ssl_response", side_effect=socket.timeout("Socket SSL timeout"))
+    @patch("app.fetch_udp_response")
+    def test_scan_service_auto_discovers_and_persists_protocol(self, mock_udp, mock_ssl, mock_sock, mock_http):
+        import socket
+        mock_udp.return_value = b"UDP-SERVICE-PAYLOAD"
+        # Service created without protocol
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.execute(
+            "INSERT INTO services (name, match, ports, protocol) VALUES (?, ?, ?, ?)",
+            ("udp.service.local", "payload", "[5000]", ""),
+        )
+        conn.commit()
+        service_id = cur.lastrowid
+        conn.close()
+
+        # Run scan_service with protocol="" (auto-detect)
+        statuses = pulsecheck_app.scan_service(service_id, "udp.service.local", [5000], "payload")
+        self.assertEqual(statuses.get(5000), "online")
+
+        # Verify that discovered protocol was written to services table
+        srv = pulsecheck_app.get_service_by_id(service_id)
+        self.assertEqual(srv["protocol"], "udp")
+
+        # Next check uses stored protocol (fast path directly to udp)
+        with patch("app.fetch_udp_response", return_value=b"UDP-SERVICE-PAYLOAD") as fast_udp, \
+             patch("app.fetch_response") as http_check:
+            pulsecheck_app.scan_service(service_id, "udp.service.local", [5000], "payload")
+            fast_udp.assert_called_once()
+            http_check.assert_not_called()
+
+    @patch("app.scan_service")
+    def test_csv_export_and_import_with_protocol(self, mock_scan):
+        # 1. Add services with various protocols
+        pulsecheck_app.add_service(
+            name="dns-server.local",
+            ports=[53],
+            match="dns",
+            protocol="udp",
+        )
+        pulsecheck_app.add_service(
+            name="vpn-gateway.local",
+            ports=[4433],
+            match="vpn",
+            protocol="udp-ssl",
+        )
+        pulsecheck_app.add_service(
+            name="core-router.local",
+            ports=[1],
+            match="router",
+            protocol="icmp-ping",
+        )
+
+        # 2. Export CSV and check Protocol column
+        csv_text, count = pulsecheck_app.export_services_csv()
+        self.assertEqual(count, 3)
+        lines = [line.strip() for line in csv_text.strip().splitlines()]
+        self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports")
+        self.assertIn("dns-server.local,dns,,,0,0,udp,53", lines)
+        self.assertIn("vpn-gateway.local,vpn,,,0,0,udp-ssl,4433", lines)
+        self.assertIn("core-router.local,router,,,0,0,icmp-ping,1", lines)
+
+        # 3. Clean DB and import the CSV
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services")
+        conn.commit()
+        conn.close()
+
+        summary = pulsecheck_app.import_services_from_csv(csv_text)
+        self.assertEqual(summary["imported"], 3)
+
+        services = {s["name"]: s for s in pulsecheck_app.service_list()}
+        self.assertEqual(services["dns-server.local"]["protocol"], "udp")
+        self.assertEqual(services["vpn-gateway.local"]["protocol"], "udp-ssl")
+        self.assertEqual(services["core-router.local"]["protocol"], "icmp-ping")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
