@@ -42,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.4 beta")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.5 beta")
 __version__ = APP_VERSION
 
 
@@ -103,7 +103,7 @@ def init_db():
             comment TEXT NOT NULL DEFAULT '',
             paused INTEGER NOT NULL DEFAULT 0,
             use_proxy INTEGER NOT NULL DEFAULT 0,
-            ports TEXT NOT NULL DEFAULT '[]',
+            port_protocol TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -169,7 +169,34 @@ def init_db():
     if "use_proxy" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
 
+    # Rename ports column to port_protocol if present
+    if "ports" in service_columns and "port_protocol" not in service_columns:
+        try:
+            conn.execute("ALTER TABLE services RENAME COLUMN ports TO port_protocol")
+        except Exception:
+            # Fallback rebuild for older SQLite versions
+            conn.executescript("""
+                PRAGMA foreign_keys = OFF;
+                CREATE TABLE services_rename_port_proto_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    match TEXT NOT NULL DEFAULT '',
+                    url_path TEXT NOT NULL DEFAULT '',
+                    comment TEXT NOT NULL DEFAULT '',
+                    paused INTEGER NOT NULL DEFAULT 0,
+                    use_proxy INTEGER NOT NULL DEFAULT 0,
+                    port_protocol TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO services_rename_port_proto_new (id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at)
+                    SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services;
+                DROP TABLE services;
+                ALTER TABLE services_rename_port_proto_new RENAME TO services;
+                PRAGMA foreign_keys = ON;
+            """)
+
     # Drop legacy protocol column from services if present
+    service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)").fetchall()}
     if "protocol" in service_columns:
         try:
             conn.execute("ALTER TABLE services DROP COLUMN protocol")
@@ -185,35 +212,35 @@ def init_db():
                     comment TEXT NOT NULL DEFAULT '',
                     paused INTEGER NOT NULL DEFAULT 0,
                     use_proxy INTEGER NOT NULL DEFAULT 0,
-                    ports TEXT NOT NULL DEFAULT '[]',
+                    port_protocol TEXT NOT NULL DEFAULT '[]',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
-                INSERT INTO services_drop_protocol_new (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
-                    SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services;
+                INSERT INTO services_drop_protocol_new (id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at)
+                    SELECT id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at FROM services;
                 DROP TABLE services;
                 ALTER TABLE services_drop_protocol_new RENAME TO services;
                 PRAGMA foreign_keys = ON;
             """)
 
-    # Migrate legacy plain int list ports [80, 443] to per-port-protocol objects
-    rows_to_migrate = conn.execute("SELECT id, ports FROM services").fetchall()
+    # Migrate legacy plain int list port_protocol [80, 443] to per-port-protocol objects
+    rows_to_migrate = conn.execute("SELECT id, port_protocol FROM services").fetchall()
     for row in rows_to_migrate:
         try:
-            raw = json.loads(row["ports"] or "[]")
+            raw = json.loads(row["port_protocol"] or "[]")
         except (json.JSONDecodeError, TypeError):
             raw = []
         if raw and isinstance(raw[0], int):
             migrated = [{"port": int(p), "protocol": ""} for p in raw]
             conn.execute(
-                "UPDATE services SET ports = ? WHERE id = ?",
+                "UPDATE services SET port_protocol = ? WHERE id = ?",
                 (json.dumps(migrated), row["id"]),
             )
 
     # Clean up obsolete port_checks rows for ports no longer configured on services
     try:
-        service_rows = conn.execute("SELECT id, ports FROM services").fetchall()
+        service_rows = conn.execute("SELECT id, port_protocol FROM services").fetchall()
         for s in service_rows:
-            p_list = parse_ports(s["ports"])
+            p_list = parse_port_protocol(s["port_protocol"])
             cfg_ports = {p.get("port") for p in p_list}
             if None not in cfg_ports:
                 conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (s["id"],))
@@ -369,8 +396,8 @@ class PortEntry(dict):
         return f"PortEntry(port={self.get('port')!r}, protocol={self.get('protocol')!r})"
 
 
-def parse_ports(value) -> list[PortEntry]:
-    """Parse the ports column from the DB into a list of PortEntry dicts.
+def parse_port_protocol(value) -> list[PortEntry]:
+    """Parse the port_protocol column from the DB into a list of PortEntry dicts.
     Handles both the new object format and legacy plain-integer format gracefully."""
     if isinstance(value, list):
         raw = value
@@ -413,7 +440,7 @@ def get_port_protocol(ports: list[dict], port_num: int) -> str:
     return ""
 
 
-def ports_to_json(ports) -> str:
+def port_protocol_to_json(ports) -> str:
     """Serialise a list of {port, protocol} dicts back to JSON for DB storage.
     Handles list[dict], list[int], or strings gracefully."""
     normalized = []
@@ -435,16 +462,15 @@ def ports_to_json(ports) -> str:
     return json.dumps(normalized)
 
 
-
 def service_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services ORDER BY name ASC"
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
     services = []
     for row in rows:
-        parsed_ports = parse_ports(row["ports"])
+        parsed_ports = parse_port_protocol(row["port_protocol"])
         protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
         proto = protos[0] if protos else ""
         services.append({
@@ -456,6 +482,7 @@ def service_list():
             "paused": bool(row["paused"]),
             "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
             "protocol": proto,
+            "port_protocol": parsed_ports,
             "ports": parsed_ports,
             "created_at": row["created_at"],
         })
@@ -465,13 +492,13 @@ def service_list():
 def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services WHERE id = ?",
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at FROM services WHERE id = ?",
         (service_id,),
     ).fetchone()
     conn.close()
     if row is None:
         return None
-    parsed_ports = parse_ports(row["ports"])
+    parsed_ports = parse_port_protocol(row["port_protocol"])
     protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
     proto = protos[0] if protos else ""
     return {
@@ -483,6 +510,7 @@ def get_service_by_id(service_id):
         "paused": bool(row["paused"]),
         "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
         "protocol": proto,
+        "port_protocol": parsed_ports,
         "ports": parsed_ports,
         "created_at": row["created_at"],
     }
@@ -1017,7 +1045,7 @@ def scan_service(
 
     # Normalise ports to list[dict]
     if not isinstance(ports, list):
-        ports = parse_ports(ports)
+        ports = parse_port_protocol(ports)
     elif ports and isinstance(ports[0], int):
         ports = [{"port": p, "protocol": ""} for p in ports]
 
@@ -1274,7 +1302,7 @@ def scan_service(
     # Persist updated port protocols back to DB
     try:
         conn = get_db_connection()
-        conn.execute("UPDATE services SET ports = ? WHERE id = ?", (ports_to_json(ports), service_id))
+        conn.execute("UPDATE services SET port_protocol = ? WHERE id = ?", (port_protocol_to_json(ports), service_id))
         conn.commit()
         conn.close()
     except Exception as exc:
@@ -1827,8 +1855,8 @@ def sync_service_ports(service_id: int, service_name: str, detected_ports: list 
         ports = [dict(p) for p in raw]
     conn = get_db_connection()
     conn.execute(
-        "UPDATE services SET ports = ? WHERE id = ?",
-        (ports_to_json(ports), service_id),
+        "UPDATE services SET port_protocol = ? WHERE id = ?",
+        (port_protocol_to_json(ports), service_id),
     )
     conn.commit()
     conn.close()
@@ -1853,8 +1881,9 @@ def add_service(
     ports: list | str | None = None,
     icmp_enabled: bool | None = None,
     protocol: str = "",
+    port_protocol: list | str | None = None,
 ):
-    """Add a new service. `ports` may be a JSON string, a list[dict], or a list[int]."""
+    """Add a new service. `ports` or `port_protocol` may be a JSON string, a list[dict], or a list[int]."""
     target_name = service_name if service_name is not None else name
     if not target_name:
         raise ValueError("Service name cannot be empty.")
@@ -1863,10 +1892,11 @@ def add_service(
         return None
     service_match = (match if match is not None else derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
+    target_ports = port_protocol if port_protocol is not None else ports
     detected: list[dict] = []
-    if ports is not None and ports != "" and ports != []:
-        detected = parse_diagnostic_ports(ports)
-    elif ports is None and not paused:
+    if target_ports is not None and target_ports != "" and target_ports != []:
+        detected = parse_diagnostic_ports(target_ports)
+    elif target_ports is None and not paused:
         detected = parse_diagnostic_ports(discover_ports(normalized))
     clean_proto = (protocol or "").strip().lower()
     if clean_proto:
@@ -1888,8 +1918,8 @@ def add_service(
             detected.append({"port": None, "protocol": "icmp-ping"})
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), ports_to_json(detected)),
+        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, port_protocol) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), port_protocol_to_json(detected)),
     )
     conn.commit()
     service_id = cursor.lastrowid
@@ -1961,8 +1991,8 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, 0, ?)",
-            (normalized, derive_match(normalized), "", ports_to_json(detected)),
+            "INSERT INTO services (name, match, url_path, paused, port_protocol) VALUES (?, ?, ?, 0, ?)",
+            (normalized, derive_match(normalized), "", port_protocol_to_json(detected)),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -2177,8 +2207,8 @@ def import_services_from_csv(
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), ports_to_json(ports_val)),
+            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, port_protocol) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), port_protocol_to_json(ports_val)),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -2278,7 +2308,7 @@ def update_service(
 
     conn = get_db_connection()
     conn.execute(
-        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, ports = ? WHERE id = ?",
+        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, port_protocol = ? WHERE id = ?",
         (
             normalized,
             service_match,
@@ -2286,7 +2316,7 @@ def update_service(
             comment_val,
             int(paused),
             int(use_proxy_val),
-            ports_to_json(incoming_ports),
+            port_protocol_to_json(incoming_ports),
             service_id,
         ),
     )
@@ -2340,7 +2370,7 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
     conn = get_db_connection()
     placeholders = ", ".join("?" for _ in service_ids)
     rows = conn.execute(
-        f"SELECT id, ports FROM services WHERE id IN ({placeholders})",
+        f"SELECT id, port_protocol FROM services WHERE id IN ({placeholders})",
         tuple(service_ids),
     ).fetchall()
     found_ids = {row["id"] for row in rows}
@@ -2349,7 +2379,7 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
         raise ValueError("One or more selected services no longer exists.")
 
     for row in rows:
-        current_ports: list[dict] = parse_ports(row["ports"])  # list[dict]
+        current_ports: list[dict] = parse_port_protocol(row["port_protocol"])  # list[dict]
         current_port_nums = {p["port"] for p in current_ports if p.get("port") is not None}
         if action == "add":
             for pnum in new_port_nums:
@@ -2361,8 +2391,8 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
             # When deleting a port, preserve the protocols and configuration of all remaining ports
             current_ports = [p for p in current_ports if p.get("port") not in set(new_port_nums)]
         conn.execute(
-            "UPDATE services SET ports = ? WHERE id = ?",
-            (ports_to_json(current_ports), row["id"]),
+            "UPDATE services SET port_protocol = ? WHERE id = ?",
+            (port_protocol_to_json(current_ports), row["id"]),
         )
         if action == "remove":
             port_placeholders = ", ".join("?" for _ in new_port_nums)
@@ -2403,7 +2433,7 @@ def get_status_rows():
 
     service_rows = conn.execute(
         """
-        SELECT id, name, match, url_path, comment, paused, use_proxy, ports
+        SELECT id, name, match, url_path, comment, paused, use_proxy, port_protocol
         FROM services
         WHERE paused = 0
         ORDER BY name ASC
@@ -2413,7 +2443,7 @@ def get_status_rows():
 
     result = []
     for s in service_rows:
-        ports_list: list[dict] = parse_ports(s["ports"])
+        ports_list: list[dict] = parse_port_protocol(s["port_protocol"])
         if not ports_list:
             result.append({
                 "id": s["id"],

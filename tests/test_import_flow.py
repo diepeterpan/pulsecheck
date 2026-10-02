@@ -35,7 +35,7 @@ class ImportFlowTests(unittest.TestCase):
     def test_paused_services_are_not_scanned_or_shown_in_status(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, ports, paused) VALUES (?, ?, ?, ?)",
+            "INSERT INTO services (name, match, port_protocol, paused) VALUES (?, ?, ?, ?)",
             ("paused.example", "paused", "[443]", 1),
         )
         service_id = cursor.lastrowid
@@ -50,7 +50,7 @@ class ImportFlowTests(unittest.TestCase):
     def test_update_service_preserves_paused_when_not_specified(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, url_path, ports, paused) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO services (name, match, url_path, port_protocol, paused) VALUES (?, ?, ?, ?, ?)",
             ("paused.example", "paused", "", "[443]", 1),
         )
         service_id = cursor.lastrowid
@@ -65,7 +65,7 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_classifies_server_response_against_match(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[80, 443, 22]"),
         )
         conn.commit()
@@ -94,7 +94,7 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_attempts_https_after_http_timeout(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[443]"),
         )
         conn.commit()
@@ -123,7 +123,7 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_uses_socket_fallback_when_http_and_https_do_not_match(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[443]"),
         )
         conn.commit()
@@ -150,7 +150,7 @@ class ImportFlowTests(unittest.TestCase):
     def test_scan_uses_ssl_socket_fallback_when_plain_socket_fails(self):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
+            "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
             ("acme.example", "acme", "[443]"),
         )
         conn.commit()
