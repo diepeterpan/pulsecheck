@@ -1409,6 +1409,10 @@ button.danger {
     color: #f87171;
 }
 
+.status-table .hover-port-status.skipped {
+    color: #94a3b8;
+}
+
 .status-table .hover-port-meta {
     margin-left: auto;
     font-size: 0.72rem;
@@ -1463,6 +1467,12 @@ button.danger {
     background: #fffbeb;
     color: #b45309;
     border: 1px solid #fde68a;
+}
+
+.status-table .status-item.skipped {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
 }
 
 .status-item:focus-visible {
@@ -2369,6 +2379,12 @@ button:disabled {
     background: #fee2e2;
     color: #b91c1c;
     border: 1px solid #fca5a5;
+}
+
+.diag-status-pill.skipped {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #cbd5e1;
 }
 
 /* Empty / Ready State */

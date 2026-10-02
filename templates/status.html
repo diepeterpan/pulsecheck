@@ -81,16 +81,20 @@
                 {% else %}
                   {% set service_checked_at = first_entry.checked_at_local %}
                 {% endif %}
-                {% set online_count = valid_ports | selectattr('status', 'equalto', 'online') | list | length %}
-                {% set degraded_count = valid_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
-                {% set offline_count = valid_ports | selectattr('status', 'equalto', 'offline') | list | length %}
-                {% if offline_count > 0 %}
+                {% set active_ports = valid_ports | rejectattr('status', 'equalto', 'skipped') | list %}
+                {% set online_count = active_ports | selectattr('status', 'equalto', 'online') | list | length %}
+                {% set degraded_count = active_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
+                {% set offline_count = active_ports | selectattr('status', 'equalto', 'offline') | list | length %}
+                {% if not active_ports %}
+                  {% set overall_status = 'none' %}
+                  {% set status_label = 'Skipped' %}
+                {% elif offline_count > 0 %}
                   {% set overall_status = 'offline' %}
                   {% set status_label = 'Offline' %}
                 {% elif degraded_count > 0 %}
                   {% set overall_status = 'degraded' %}
                   {% set status_label = 'Degraded' %}
-                {% elif online_count == valid_ports | length %}
+                {% elif online_count == active_ports | length %}
                   {% set overall_status = 'online' %}
                   {% set status_label = 'Online' %}
                 {% else %}

@@ -42,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.5 beta")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.6")
 __version__ = APP_VERSION
 
 
@@ -1065,6 +1065,14 @@ def scan_service(
         start = time.monotonic()
         status = "offline"
         response_ms = None
+        # --- Ports without protocol are skipped (except ICMP) ---
+        if port is not None and not per_port_pref:
+            status = "skipped"
+            response_ms = None
+            store_port_check(service_id, port, status, response_ms)
+            port_statuses[port] = status
+            continue
+
         protocol_used = per_port_pref or ("icmp-ping" if port is None else "http")
         match_bytes = match.lower().encode() if match else b""
 
@@ -3252,14 +3260,19 @@ def compute_system_overall_status(status_rows: list[dict] | None = None) -> dict
             services_with_ports += 1
             continue
 
-        services_with_ports += 1
-        online_count = sum(1 for e in valid_ports if e.get("status") == "online")
-        degraded_count = sum(1 for e in valid_ports if e.get("status") == "degraded")
-        offline_count = sum(1 for e in valid_ports if e.get("status") == "offline")
+        active_ports = [e for e in valid_ports if e.get("status") != "skipped"]
+        if not active_ports:
+            # All ports are skipped/no protocol
+            continue
 
-        if online_count == len(valid_ports):
+        services_with_ports += 1
+        online_count = sum(1 for e in active_ports if e.get("status") == "online")
+        degraded_count = sum(1 for e in active_ports if e.get("status") == "degraded")
+        offline_count = sum(1 for e in active_ports if e.get("status") == "offline")
+
+        if online_count == len(active_ports):
             online_services += 1
-        elif offline_count == len(valid_ports):
+        elif offline_count == len(active_ports):
             offline_services += 1
         else:
             degraded_services += 1
@@ -3456,7 +3469,9 @@ def compute_overall_status(port_statuses: dict[int | str, str]) -> str:
     """
     if not port_statuses:
         return "none"
-    statuses = list(port_statuses.values())
+    statuses = [s for s in port_statuses.values() if s != "skipped"]
+    if not statuses:
+        return "none"
     if any(s == "offline" for s in statuses):
         return "offline"
     if any(s == "degraded" for s in statuses):

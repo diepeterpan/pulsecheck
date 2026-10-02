@@ -896,14 +896,14 @@ site3.com,site3,,0,80
         # 4. Test scan_service records online status
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('cam.local', 'legacy device', '[443]')")
+        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('cam.local', 'legacy device', '[{\"port\": 443, \"protocol\": \"https\"}]')")
         d_id = c.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.http.client.HTTPSConnection", FakeHTTPSConnection):
             attempts.clear()
-            pulsecheck_app.scan_service(d_id, "cam.local", [443], match="legacy device")
+            pulsecheck_app.scan_service(d_id, "cam.local", [{"port": 443, "protocol": "https"}], match="legacy device")
 
         conn = pulsecheck_app.get_db_connection()
         row = conn.execute("SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 443 ORDER BY id DESC LIMIT 1", (d_id,)).fetchone()
@@ -966,13 +966,13 @@ site3.com,site3,,0,80
         # 4. Test scan_service matches decompressed keyword and sets status to online
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('gzip-scan.local', 'Monitoring Target', '[80]')")
+        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('gzip-scan.local', 'Monitoring Target', '[{\"port\": 80, \"protocol\": \"http\"}]')")
         d_id = c.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
-            pulsecheck_app.scan_service(d_id, "gzip-scan.local", [80], match="Monitoring Target")
+            pulsecheck_app.scan_service(d_id, "gzip-scan.local", [{"port": 80, "protocol": "http"}], match="Monitoring Target")
 
         conn = pulsecheck_app.get_db_connection()
         row = conn.execute("SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 80 ORDER BY id DESC LIMIT 1", (d_id,)).fetchone()
@@ -1278,7 +1278,7 @@ direct.example,direct,,Direct site,0,0,8080
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
             "INSERT INTO services (name, match, port_protocol, use_proxy) VALUES (?, ?, ?, 1)",
-            ("proxied-host.local", "mismatch-token", "[80]"),
+            ("proxied-host.local", "mismatch-token", '[{"port": 80, "protocol": "http"}]'),
         )
         service_id = cur.lastrowid
         conn.commit()
@@ -1287,7 +1287,7 @@ direct.example,direct,,Direct site,0,0,8080
         # Simulate fetch_response returning content that does NOT match -> status will be offline/degraded
         mock_fetch.return_value = (b"some response", 200, "http://proxied-host.local:80/")
 
-        pulsecheck_app.scan_service(service_id, "proxied-host.local", [80], match="mismatch-token")
+        pulsecheck_app.scan_service(service_id, "proxied-host.local", [{"port": 80, "protocol": "http"}], match="mismatch-token")
 
         # Verify fetch_response was called with use_proxy=True
         mock_fetch.assert_called_once()
@@ -1385,13 +1385,13 @@ direct.example,direct,,Direct site,0,0,8080
 
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('header-match.local', 'WorkerNode77', '[80]')")
+        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('header-match.local', 'WorkerNode77', '[{\"port\": 80, \"protocol\": \"http\"}]')")
         service_id = c.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
-            pulsecheck_app.scan_service(service_id, "header-match.local", [80], match="WorkerNode77")
+            pulsecheck_app.scan_service(service_id, "header-match.local", [{"port": 80, "protocol": "http"}], match="WorkerNode77")
 
         conn = pulsecheck_app.get_db_connection()
         row = conn.execute("SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 80", (service_id,)).fetchone()

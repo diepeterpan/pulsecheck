@@ -444,37 +444,36 @@ invalid service host,,,,,
         self.assertEqual(res_icmp["ports"][0]["protocol"], "icmp-ping")
         self.assertEqual(res_icmp["discovered_protocol"], "icmp-ping")
 
-    @patch("app.fetch_response", side_effect=socket.timeout("HTTP timeout"))
-    @patch("app.fetch_socket_response", side_effect=socket.timeout("Socket timeout"))
-    @patch("app.fetch_socket_ssl_response", side_effect=socket.timeout("Socket SSL timeout"))
-    @patch("app.fetch_udp_response")
-    def test_scan_service_auto_discovers_and_persists_protocol(self, mock_udp, mock_ssl, mock_sock, mock_http):
-        import socket
-        mock_udp.return_value = b"UDP-SERVICE-PAYLOAD"
-        # Service created without protocol
+    def test_scan_service_skips_ports_without_protocol(self):
+        # Service created with a port that has no protocol
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
             "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
-            ("udp.service.local", "payload", '[{"port": 5000, "protocol": ""}]'),
+            ("unconfigured.service.local", "payload", '[{"port": 5000, "protocol": ""}]'),
         )
         conn.commit()
         service_id = cur.lastrowid
         conn.close()
 
-        # Run scan_service with protocol="" (auto-detect)
-        statuses = pulsecheck_app.scan_service(service_id, "udp.service.local", [5000], "payload")
-        self.assertEqual(statuses.get(5000), "online")
+        # Run scan_service on port without protocol -> must be skipped
+        statuses = pulsecheck_app.scan_service(service_id, "unconfigured.service.local", [{"port": 5000, "protocol": ""}], "payload")
+        self.assertEqual(statuses.get(5000), "skipped")
 
-        # Verify that discovered protocol was written to services table
-        srv = pulsecheck_app.get_service_by_id(service_id)
-        self.assertEqual(srv["protocol"], "udp")
+        # Verify check row in database has status = 'skipped'
+        conn = pulsecheck_app.get_db_connection()
+        check_row = conn.execute(
+            "SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 5000 ORDER BY id DESC LIMIT 1",
+            (service_id,),
+        ).fetchone()
+        conn.close()
+        self.assertIsNotNone(check_row)
+        self.assertEqual(check_row["status"], "skipped")
+        self.assertEqual(check_row["is_online"], 0)
 
-        # Next check uses stored protocol (fast path directly to udp)
-        with patch("app.fetch_udp_response", return_value=b"UDP-SERVICE-PAYLOAD") as fast_udp, \
-             patch("app.fetch_response") as http_check:
-            pulsecheck_app.scan_service(service_id, "udp.service.local", [5000], "payload")
-            fast_udp.assert_called_once()
-            http_check.assert_not_called()
+        # However, ICMP (portless) must NOT be skipped even if protocol is empty or None
+        with patch("app.fetch_icmp_ping_response", return_value=(True, 15, "bytes=64 time=15ms")):
+            icmp_statuses = pulsecheck_app.scan_service(service_id, "unconfigured.service.local", [{"port": None, "protocol": ""}], "")
+            self.assertEqual(icmp_statuses.get("icmp"), "online")
 
     @patch("app.scan_service")
     def test_csv_export_and_import_with_protocol(self, mock_scan):

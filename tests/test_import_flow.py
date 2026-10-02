@@ -66,7 +66,7 @@ class ImportFlowTests(unittest.TestCase):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
-            ("acme.example", "acme", "[80, 443, 22]"),
+            ("acme.example", "acme", '[{"port": 80, "protocol": "http"}, {"port": 443, "protocol": "http"}, {"port": 22, "protocol": "http"}]'),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -81,7 +81,7 @@ class ImportFlowTests(unittest.TestCase):
         with patch("app.fetch_response", side_effect=responses), patch(
             "app.fetch_socket_response", side_effect=[b"", b""]
         ):
-            pulsecheck_app.scan_service(service_id, "acme.example", [80, 443, 22], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [{"port": 80, "protocol": "http"}, {"port": 443, "protocol": "http"}, {"port": 22, "protocol": "http"}], "acme")
 
         conn = pulsecheck_app.get_db_connection()
         statuses = [row["status"] for row in conn.execute(
@@ -95,7 +95,7 @@ class ImportFlowTests(unittest.TestCase):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
-            ("acme.example", "acme", "[443]"),
+            ("acme.example", "acme", '[{"port": 443, "protocol": "http"}]'),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -108,7 +108,7 @@ class ImportFlowTests(unittest.TestCase):
                 (b"acme HTTPS service", 200, "https://acme.example:443/"),
             ],
         ) as fetch:
-            pulsecheck_app.scan_service(service_id, "acme.example", [443], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [{"port": 443, "protocol": "http"}], "acme")
 
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(fetch.call_args_list[1].args[2], "https")
@@ -124,20 +124,14 @@ class ImportFlowTests(unittest.TestCase):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
-            ("acme.example", "acme", "[443]"),
+            ("acme.example", "acme", '[{"port": 443, "protocol": "socket"}]'),
         )
         conn.commit()
         service_id = cursor.lastrowid
         conn.close()
 
-        with patch(
-            "app.fetch_response",
-            side_effect=[
-                (b"other HTTP service", 200, "http://acme.example:443/"),
-                (b"other HTTPS service", 200, "https://acme.example:443/"),
-            ],
-        ), patch("app.fetch_socket_response", return_value=b"acme socket service"):
-            pulsecheck_app.scan_service(service_id, "acme.example", [443], "acme")
+        with patch("app.fetch_socket_response", return_value=b"acme socket service"):
+            pulsecheck_app.scan_service(service_id, "acme.example", [{"port": 443, "protocol": "socket"}], "acme")
 
         conn = pulsecheck_app.get_db_connection()
         status = conn.execute(
@@ -151,22 +145,16 @@ class ImportFlowTests(unittest.TestCase):
         conn = pulsecheck_app.get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
-            ("acme.example", "acme", "[443]"),
+            ("acme.example", "acme", '[{"port": 443, "protocol": "socket-ssl"}]'),
         )
         conn.commit()
         service_id = cursor.lastrowid
         conn.close()
 
         with patch(
-            "app.fetch_response",
-            side_effect=[
-                (b"other HTTP service", 200, "http://acme.example:443/"),
-                (b"other HTTPS service", 200, "https://acme.example:443/"),
-            ],
-        ), patch("app.fetch_socket_response", side_effect=OSError("plain socket failed")), patch(
             "app.fetch_socket_ssl_response", return_value=b"acme SSL socket service"
         ):
-            pulsecheck_app.scan_service(service_id, "acme.example", [443], "acme")
+            pulsecheck_app.scan_service(service_id, "acme.example", [{"port": 443, "protocol": "socket-ssl"}], "acme")
 
         conn = pulsecheck_app.get_db_connection()
         status = conn.execute(
