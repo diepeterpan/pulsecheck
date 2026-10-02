@@ -1052,31 +1052,19 @@ button.danger {
 
 .status-table .col-service,
 .status-table .col-service {
-    width: 22%;
+    width: 38%;
 }
 
 .status-table .col-match {
-    width: 16%;
+    width: 28%;
 }
 
 .status-table .col-status {
-    width: 9%;
-}
-
-.status-table .col-ports {
-    width: 17%;
-}
-
-.status-table .col-latency {
-    width: 9%;
-}
-
-.status-table .col-time {
-    width: 15%;
+    width: 20%;
 }
 
 .status-table .col-actions {
-    width: 12%;
+    width: 14%;
 }
 
 .badge-proxy {
@@ -1094,7 +1082,7 @@ button.danger {
 
 .status-table td.col-service,
 .status-table td.col-match,
-.status-table td.col-ports,
+.status-table td.col-status,
 .services-table td.col-ports {
     position: relative;
     overflow: visible;
@@ -1162,6 +1150,11 @@ button.danger {
     color: #94a3b8;
 }
 
+.status-table .cell-status-wrapper {
+    display: inline-flex;
+    width: auto;
+}
+
 /* Hover Box for Truncated Service and Match Fields */
 .status-table .cell-hover-box,
 .services-table .cell-hover-box {
@@ -1173,9 +1166,10 @@ button.danger {
     max-width: min(340px, 85vw);
     padding: 7px 11px;
     border-radius: 6px;
-    background: #0f172a;
-    color: #ffffff;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
     pointer-events: none;
     opacity: 0;
     visibility: hidden;
@@ -1192,7 +1186,7 @@ button.danger {
     left: 14px;
     border-width: 5px;
     border-style: solid;
-    border-color: #0f172a transparent transparent transparent;
+    border-color: #ffffff transparent transparent transparent;
 }
 
 /* For first row, show hover box below to avoid clipping against table top/header */
@@ -1207,7 +1201,7 @@ button.danger {
 .services-table tbody tr:first-child .cell-hover-box::after {
     top: auto;
     bottom: 100%;
-    border-color: transparent transparent #0f172a transparent;
+    border-color: transparent transparent #ffffff transparent;
 }
 
 .status-table .cell-truncate-wrapper:hover .cell-hover-box,
@@ -1228,7 +1222,7 @@ button.danger {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #94a3b8;
+    color: #64748b;
     margin-bottom: 2px;
 }
 
@@ -1237,7 +1231,7 @@ button.danger {
     display: block;
     font-size: 0.82rem;
     font-weight: 500;
-    color: #f8fafc;
+    color: #0f172a;
     word-break: break-all;
     white-space: normal;
     line-height: 1.35;
