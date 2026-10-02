@@ -42,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.3 beta")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.4 beta")
 __version__ = APP_VERSION
 
 
@@ -103,7 +103,6 @@ def init_db():
             comment TEXT NOT NULL DEFAULT '',
             paused INTEGER NOT NULL DEFAULT 0,
             use_proxy INTEGER NOT NULL DEFAULT 0,
-            protocol TEXT NOT NULL DEFAULT '',
             ports TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
@@ -169,29 +168,46 @@ def init_db():
         conn.execute("ALTER TABLE services ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
     if "use_proxy" not in service_columns:
         conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
-    if "protocol" not in service_columns:
-        conn.execute("ALTER TABLE services ADD COLUMN protocol TEXT NOT NULL DEFAULT ''")
 
-    # Migrate ports column from plain int list [80, 443] to per-port-protocol objects
-    # [{"port": 80, "protocol": ""}, {"port": 443, "protocol": "https"}]
-    rows_to_migrate = conn.execute("SELECT id, ports, protocol FROM services").fetchall()
+    # Drop legacy protocol column from services if present
+    if "protocol" in service_columns:
+        try:
+            conn.execute("ALTER TABLE services DROP COLUMN protocol")
+        except Exception:
+            # Fallback rebuild for older SQLite versions
+            conn.executescript("""
+                PRAGMA foreign_keys = OFF;
+                CREATE TABLE services_drop_protocol_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    match TEXT NOT NULL DEFAULT '',
+                    url_path TEXT NOT NULL DEFAULT '',
+                    comment TEXT NOT NULL DEFAULT '',
+                    paused INTEGER NOT NULL DEFAULT 0,
+                    use_proxy INTEGER NOT NULL DEFAULT 0,
+                    ports TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO services_drop_protocol_new (id, name, match, url_path, comment, paused, use_proxy, ports, created_at)
+                    SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services;
+                DROP TABLE services;
+                ALTER TABLE services_drop_protocol_new RENAME TO services;
+                PRAGMA foreign_keys = ON;
+            """)
+
+    # Migrate legacy plain int list ports [80, 443] to per-port-protocol objects
+    rows_to_migrate = conn.execute("SELECT id, ports FROM services").fetchall()
     for row in rows_to_migrate:
         try:
             raw = json.loads(row["ports"] or "[]")
         except (json.JSONDecodeError, TypeError):
             raw = []
         if raw and isinstance(raw[0], int):
-            # Old format: plain integers — migrate to object format
-            legacy_proto = (row["protocol"] or "").strip().lower()
-            migrated = [{"port": int(p), "protocol": legacy_proto} for p in raw]
+            migrated = [{"port": int(p), "protocol": ""} for p in raw]
             conn.execute(
                 "UPDATE services SET ports = ? WHERE id = ?",
                 (json.dumps(migrated), row["id"]),
             )
-        elif raw and isinstance(raw[0], dict):
-            # Already new format — no migration needed
-            pass
-        # Empty list: leave as-is
 
     # Clean up obsolete port_checks rows for ports no longer configured on services
     try:
@@ -423,17 +439,14 @@ def ports_to_json(ports) -> str:
 def service_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports, created_at FROM services ORDER BY name ASC"
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
     services = []
     for row in rows:
         parsed_ports = parse_ports(row["ports"])
-        proto = row["protocol"] if "protocol" in row.keys() and row["protocol"] else ""
-        if not proto and parsed_ports:
-            protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
-            if protos:
-                proto = protos[0]
+        protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
+        proto = protos[0] if protos else ""
         services.append({
             "id": row["id"],
             "name": row["name"],
@@ -452,18 +465,15 @@ def service_list():
 def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports, created_at FROM services WHERE id = ?",
+        "SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services WHERE id = ?",
         (service_id,),
     ).fetchone()
     conn.close()
     if row is None:
         return None
     parsed_ports = parse_ports(row["ports"])
-    proto = row["protocol"] if "protocol" in row.keys() and row["protocol"] else ""
-    if not proto and parsed_ports:
-        protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
-        if protos:
-            proto = protos[0]
+    protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
+    proto = protos[0] if protos else ""
     return {
         "id": row["id"],
         "name": row["name"],
@@ -1264,8 +1274,7 @@ def scan_service(
     # Persist updated port protocols back to DB
     try:
         conn = get_db_connection()
-        first_proto = next((p.get("protocol") for p in ports if p.get("protocol")), "")
-        conn.execute("UPDATE services SET ports = ?, protocol = COALESCE(NULLIF(protocol, ''), ?) WHERE id = ?", (ports_to_json(ports), first_proto, service_id))
+        conn.execute("UPDATE services SET ports = ? WHERE id = ?", (ports_to_json(ports), service_id))
         conn.commit()
         conn.close()
     except Exception as exc:
@@ -1777,14 +1786,9 @@ def diagnose_service_ports(
             })
 
     all_diagnostics = port_diagnostics + icmp_diagnostics
-    statuses = [p["status"] for p in all_diagnostics]
-    if not statuses or any(s == "offline" for s in statuses):
-        overall_status = "offline"
-    elif any(s == "degraded" for s in statuses):
-        overall_status = "degraded"
-    elif all(s == "online" for s in statuses):
-        overall_status = "online"
-    else:
+    statuses_dict = {i: p["status"] for i, p in enumerate(all_diagnostics)}
+    overall_status = compute_overall_status(statuses_dict)
+    if overall_status == "none":
         overall_status = "offline"
 
     discovered_protocol = ""
@@ -1884,8 +1888,8 @@ def add_service(
             detected.append({"port": None, "protocol": "icmp-ping"})
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), clean_proto, ports_to_json(detected)),
+        "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (normalized, service_match, normalized_path, (comment or "").strip(), int(paused), int(use_proxy), ports_to_json(detected)),
     )
     conn.commit()
     service_id = cursor.lastrowid
@@ -2173,8 +2177,8 @@ def import_services_from_csv(
 
         conn = get_db_connection()
         cursor = conn.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), protocol_val, ports_to_json(ports_val)),
+            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (normalized, match_val, url_path_val, comment_val, int(paused_val), int(proxy_val), ports_to_json(ports_val)),
         )
         conn.commit()
         service_id = cursor.lastrowid
@@ -2254,9 +2258,6 @@ def update_service(
             for p in incoming_ports:
                 if p.get("port") is not None and not p.get("protocol"):
                     p["protocol"] = clean_proto
-        proto_to_save = clean_proto
-    else:
-        proto_to_save = existing_service.get("protocol", "") if existing_service else ""
 
     # Handle ICMP
     if icmp_enabled is None:
@@ -2277,7 +2278,7 @@ def update_service(
 
     conn = get_db_connection()
     conn.execute(
-        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, protocol = ?, ports = ? WHERE id = ?",
+        "UPDATE services SET name = ?, match = ?, url_path = ?, comment = ?, paused = ?, use_proxy = ?, ports = ? WHERE id = ?",
         (
             normalized,
             service_match,
@@ -2285,7 +2286,6 @@ def update_service(
             comment_val,
             int(paused),
             int(use_proxy_val),
-            proto_to_save,
             ports_to_json(incoming_ports),
             service_id,
         ),
@@ -2403,7 +2403,7 @@ def get_status_rows():
 
     service_rows = conn.execute(
         """
-        SELECT id, name, match, url_path, comment, paused, use_proxy, protocol, ports
+        SELECT id, name, match, url_path, comment, paused, use_proxy, ports
         FROM services
         WHERE paused = 0
         ORDER BY name ASC
@@ -2438,7 +2438,7 @@ def get_status_rows():
             if port_val is None:
                 port_protocol = "icmp-ping"
             else:
-                port_protocol = p.get("protocol") or (s["protocol"] if "protocol" in s.keys() and s["protocol"] else "http")
+                port_protocol = p.get("protocol") or "http"
 
             if check:
                 is_online = bool(check["is_online"])
@@ -3227,14 +3227,12 @@ def compute_system_overall_status(status_rows: list[dict] | None = None) -> dict
         degraded_count = sum(1 for e in valid_ports if e.get("status") == "degraded")
         offline_count = sum(1 for e in valid_ports if e.get("status") == "offline")
 
-        if offline_count > 0:
-            offline_services += 1
-        elif degraded_count > 0:
-            degraded_services += 1
-        elif online_count == len(valid_ports):
+        if online_count == len(valid_ports):
             online_services += 1
-        else:
+        elif offline_count == len(valid_ports):
             offline_services += 1
+        else:
+            degraded_services += 1
 
     if services_with_ports == 0:
         return {

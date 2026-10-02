@@ -454,8 +454,8 @@ invalid service host,,,,,
         # Service created without protocol
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
-            "INSERT INTO services (name, match, ports, protocol) VALUES (?, ?, ?, ?)",
-            ("udp.service.local", "payload", "[5000]", ""),
+            "INSERT INTO services (name, match, ports) VALUES (?, ?, ?)",
+            ("udp.service.local", "payload", '[{"port": 5000, "protocol": ""}]'),
         )
         conn.commit()
         service_id = cur.lastrowid
@@ -821,7 +821,7 @@ invalid service host,,,,,
         conn = pulsecheck_app.get_db_connection()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, ports) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 "multi-proto.example.com",
                 "",
@@ -829,7 +829,6 @@ invalid service host,,,,,
                 "Bulk port test service",
                 0,
                 0,
-                "",
                 pulsecheck_app.ports_to_json(initial_ports),
             ),
         )
