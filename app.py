@@ -1778,14 +1778,14 @@ def diagnose_service_ports(
 
     all_diagnostics = port_diagnostics + icmp_diagnostics
     statuses = [p["status"] for p in all_diagnostics]
-    if not statuses:
+    if not statuses or any(s == "offline" for s in statuses):
         overall_status = "offline"
+    elif any(s == "degraded" for s in statuses):
+        overall_status = "degraded"
     elif all(s == "online" for s in statuses):
         overall_status = "online"
-    elif all(s == "offline" for s in statuses):
-        overall_status = "offline"
     else:
-        overall_status = "degraded"
+        overall_status = "offline"
 
     discovered_protocol = ""
     for p in all_diagnostics:
@@ -2325,6 +2325,10 @@ def parse_port_values(ports_input: str):
 
 
 def bulk_update_ports(service_ids, action: str, ports_input: str):
+    """Add or remove ports for the selected services.
+    - When adding ports: defaults new ports to auto-detect protocol ('') without modifying existing ports.
+    - When deleting ports: removes only the specified ports and preserves the protocols of all remaining ports and probes (e.g. ICMP).
+    """
     new_port_nums = parse_port_values(ports_input)  # returns list[int]
     if not service_ids:
         raise ValueError("Select at least one service.")
@@ -2350,9 +2354,11 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
         if action == "add":
             for pnum in new_port_nums:
                 if pnum not in current_port_nums:
+                    # New ports default to auto-detect protocol ("")
                     current_ports.append({"port": pnum, "protocol": ""})
                     current_port_nums.add(pnum)
         else:
+            # When deleting a port, preserve the protocols and configuration of all remaining ports
             current_ports = [p for p in current_ports if p.get("port") not in set(new_port_nums)]
         conn.execute(
             "UPDATE services SET ports = ? WHERE id = ?",
@@ -3221,12 +3227,14 @@ def compute_system_overall_status(status_rows: list[dict] | None = None) -> dict
         degraded_count = sum(1 for e in valid_ports if e.get("status") == "degraded")
         offline_count = sum(1 for e in valid_ports if e.get("status") == "offline")
 
-        if online_count == len(valid_ports):
-            online_services += 1
-        elif offline_count == len(valid_ports):
+        if offline_count > 0:
             offline_services += 1
-        else:
+        elif degraded_count > 0:
             degraded_services += 1
+        elif online_count == len(valid_ports):
+            online_services += 1
+        else:
+            offline_services += 1
 
     if services_with_ports == 0:
         return {
@@ -3411,15 +3419,23 @@ def run_background_tasks():
     return scheduler
 
 
-def compute_overall_status(port_statuses: dict[int, str]) -> str:
+def compute_overall_status(port_statuses: dict[int | str, str]) -> str:
+    """Compute service-level overall status based on ports/probes status.
+    Precedence (worst to best):
+    1. If any port/probe is OFFLINE -> service is OFFLINE
+    2. Else if any port/probe is DEGRADED -> service is DEGRADED
+    3. Else if all are ONLINE -> service is ONLINE
+    """
     if not port_statuses:
         return "none"
     statuses = list(port_statuses.values())
+    if any(s == "offline" for s in statuses):
+        return "offline"
+    if any(s == "degraded" for s in statuses):
+        return "degraded"
     if all(s == "online" for s in statuses):
         return "online"
-    if all(s == "offline" for s in statuses):
-        return "offline"
-    return "degraded"
+    return "offline"
 
 
 def get_service_snapshots() -> dict[int, dict]:
@@ -3435,9 +3451,10 @@ def get_service_snapshots() -> dict[int, dict]:
                 "has_checks": False,
                 "port_statuses": {},
             }
-        if row["port"] is not None and row["checked_at"] is not None:
+        if row["checked_at"] is not None:
             services_map[s_id]["has_checks"] = True
-            services_map[s_id]["port_statuses"][row["port"]] = row["status"]
+            port_key = row["port"] if row["port"] is not None else "icmp"
+            services_map[s_id]["port_statuses"][port_key] = row["status"]
 
     for s_id, s_data in services_map.items():
         s_data["overall_status"] = compute_overall_status(s_data["port_statuses"])
@@ -3496,6 +3513,24 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
             return "#ea580c"  # Orange
         return "#64748b"      # Neutral slate
 
+    def format_port_change_html(p_change: str) -> str:
+        # Handles "Port <num>: <OLD> -> <NEW>" or "ICMP Ping: <OLD> -> <NEW>"
+        # Also handles arbitrary strings
+        if ":" in p_change and "->" in p_change:
+            prefix, rest = p_change.split(":", 1)
+            parts = rest.split("->")
+            if len(parts) == 2:
+                old_part = parts[0].strip()
+                new_part = parts[1].strip()
+                old_c = get_status_badge_color(old_part)
+                new_c = get_status_badge_color(new_part)
+                return (
+                    f"<strong style='color: #1e293b;'>{prefix.strip()}:</strong> "
+                    f"<strong style='color: {old_c};'>{old_part}</strong> &rarr; "
+                    f"<strong style='color: {new_c};'>{new_part}</strong>"
+                )
+        return p_change
+
     cards_html = []
     for item in changes:
         target_name = item.get("service") or item.get("name")
@@ -3505,7 +3540,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         old_color = get_status_badge_color(old_st)
         ports_html = ""
         if item.get("port_changes"):
-            p_items = "".join(f"<li style='margin: 3px 0;'>{p}</li>" for p in item["port_changes"])
+            p_items = "".join(f"<li style='margin: 4px 0;'>{format_port_change_html(str(p))}</li>" for p in item["port_changes"])
             ports_html = f"<div style='margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; color: #475569;'><strong style='color: #334155;'>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
         cards_html.append(
             f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
@@ -3658,7 +3693,10 @@ def check_all_services(
             for port, new_status in after_info["port_statuses"].items():
                 old_status = before_info["port_statuses"].get(port)
                 if old_status and old_status != new_status:
-                    port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
+                    if port in ("icmp", None):
+                        port_changes.append(f"ICMP Ping: {old_status.upper()} -> {new_status.upper()}")
+                    else:
+                        port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
 
             if before_info["overall_status"] != after_info["overall_status"] or port_changes:
                 changes.append({

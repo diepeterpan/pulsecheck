@@ -189,17 +189,21 @@
               <tr>
                 <td><code>Protocol</code></td>
                 <td><span class="tag-optional">Optional</span></td>
-                <td><code>http</code>, <code>https</code>, <code>socket</code>, <code>udp</code>, <code>udp-ssl</code>, <code>icmp-ping</code></td>
+                <td>
+                  Single protocol (e.g. <code>https</code>) applied to all ports, or a comma-separated list matching each port position (e.g. <code>"http, https, icmp-ping"</code>). Leave blank for auto-detect. Options: <code>http</code>, <code>https</code>, <code>socket</code>, <code>udp</code>, <code>udp-ssl</code>, <code>icmp-ping</code>
+                </td>
               </tr>
               <tr>
                 <td><code>Ports</code></td>
                 <td><span class="tag-optional">Optional</span></td>
-                <td>Ports e.g. <code>"80, 443"</code></td>
+                <td>
+                  Monitored ports e.g. <code>"80, 443"</code>. ICMP ping is portless and specified as <code>icmp</code> (e.g. <code>"80, 443, icmp"</code> or <code>"icmp"</code>).
+                </td>
               </tr>
             </tbody>
           </table>
           <div style="margin-top: 14px;">
-            <a href="data:text/csv;charset=utf-8,Service%2CMatch%2CURL%20path%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%0Ainternal.corp.local%2Cwelcome%2C%2Fhealth%2CInternal%20Gateway%2C0%2C1%2Chttps%2C%2280%2C%20443%22%0Aapi.example.com%2Capi%2C%2CProduction%20API%2C0%2C0%2Chttp%2C%22443%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+            <a href="data:text/csv;charset=utf-8,Service%2CMatch%2CURL%20path%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%0Ainternal.corp.local%2Cwelcome%2C%2Fhealth%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%0Aapi.example.com%2Capi%2C%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%0Aedge-router.local%2C%2C%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%0Amulti-probe.example%2C%2C%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20https%2C%20icmp-ping%22%2C%2280%2C%20443%2C%20icmp%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download Sample CSV Template
             </a>
@@ -238,7 +242,7 @@
           </div>
 
           <p class="tab-card-subtitle">
-            Download a full snapshot of your monitored services. The export includes service names, match tokens, health check paths, comments, paused states, proxy routing flags, preferred protocols, and monitored port lists.
+            Download a full snapshot of your monitored services. The export includes service names, match tokens, health check paths, comments, paused states, proxy routing flags, preferred protocols (per-port or uniform), and monitored port lists (including portless ICMP ping).
           </p>
 
           <div style="margin-top: 20px;">
@@ -261,13 +265,14 @@
               Export Structure &amp; Preview
             </h3>
           </div>
-          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured as follows:</p>
+          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured as follows (note per-port protocols and portless <code>icmp</code>):</p>
           <div class="code-preview-block">Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports
-internal.corp.local,internal,/health,Gateway,0,1,https,"80, 443"
+internal.corp.local,internal,/health,Gateway,0,1,"http, https","80, 443"
 api.example.com,api,,Production API,0,0,http,"443, 8443"
-backup-portal.example,backup,/login,DR Site,1,0,udp-ssl,"80"</div>
+edge-router.local,,,Edge Router,0,0,icmp-ping,icmp
+hybrid-node.example,ok,/ping,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp"</div>
           <p class="hub-description" style="margin: 0; font-size: 0.82rem; color: #64748b;">
-            This file can be opened directly in Microsoft Excel, Google Sheets, or re-imported into another PulseCheck deployment.
+            When ports use distinct protocols, the <code>Protocol</code> column lists each protocol in matching order. ICMP ping checks are portless and exported as <code>icmp</code> with protocol <code>icmp-ping</code>. This file can be opened directly in Microsoft Excel, Google Sheets, or re-imported into another PulseCheck deployment.
           </p>
         </div>
       </div>

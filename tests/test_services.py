@@ -220,7 +220,7 @@ invalid service host,,,,,
 
         self.assertTrue(results["success"])
         self.assertEqual(results["service_name"], "web.service.local")
-        self.assertEqual(results["overall_status"], "degraded")
+        self.assertEqual(results["overall_status"], "offline")
         self.assertEqual(len(results["ports"]), 3)
 
         # Port 80 checks
@@ -804,6 +804,124 @@ invalid service host,,,,,
         self.assertEqual(updated["name"], "barebones-updated.example.com")
         self.assertEqual(updated["match"], "")
         self.assertEqual(updated["ports"], [])
+
+
+    def test_bulk_ports_preserve_protocols_and_default_autodetect(self):
+        """Verify:
+        1) Adding ports defaults new ports to auto-detect protocol ('') while keeping existing ports' protocols.
+        2) Deleting ports preserves the protocols of all remaining ports and probes (e.g. ICMP).
+        """
+        # Create service with distinct protocols: 80 -> http, 443 -> https, 8443 -> https, and ICMP probe
+        initial_ports = [
+            {"port": 80, "protocol": "http"},
+            {"port": 443, "protocol": "https"},
+            {"port": 8443, "protocol": "https"},
+            {"port": None, "protocol": "icmp-ping"},
+        ]
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, protocol, ports) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "multi-proto.example.com",
+                "",
+                "",
+                "Bulk port test service",
+                0,
+                0,
+                "",
+                pulsecheck_app.ports_to_json(initial_ports),
+            ),
+        )
+        service_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        # Step 1: Bulk Add port 8080 and 9090
+        resp = self.client.post(
+            "/services/bulk-ports",
+            data={
+                "service_ids": [str(service_id)],
+                "port_action": "add",
+                "ports": "8080, 9090",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        svc = pulsecheck_app.get_service_by_id(service_id)
+        ports_dict = {p.get("port"): p.get("protocol") for p in svc["ports"]}
+
+        # Existing ports retain their configured protocols
+        self.assertEqual(ports_dict.get(80), "http")
+        self.assertEqual(ports_dict.get(443), "https")
+        self.assertEqual(ports_dict.get(8443), "https")
+        self.assertEqual(ports_dict.get(None), "icmp-ping")
+
+        # Newly added ports default to auto-detect ('')
+        self.assertIn(8080, ports_dict)
+        self.assertEqual(ports_dict.get(8080), "")
+        self.assertIn(9090, ports_dict)
+        self.assertEqual(ports_dict.get(9090), "")
+
+        # Step 2: Bulk Delete port 443 and 8080
+        resp_del = self.client.post(
+            "/services/bulk-ports",
+            data={
+                "service_ids": [str(service_id)],
+                "port_action": "remove",
+                "ports": "443, 8080",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(resp_del.status_code, 200)
+
+        svc_after = pulsecheck_app.get_service_by_id(service_id)
+        ports_after_dict = {p.get("port"): p.get("protocol") for p in svc_after["ports"]}
+
+        # Removed ports are absent
+        self.assertNotIn(443, ports_after_dict)
+        self.assertNotIn(8080, ports_after_dict)
+
+        # Remaining ports preserved their protocols exactly
+        self.assertEqual(ports_after_dict.get(80), "http")
+        self.assertEqual(ports_after_dict.get(8443), "https")
+        self.assertEqual(ports_after_dict.get(9090), "")
+        self.assertEqual(ports_after_dict.get(None), "icmp-ping")
+
+
+    @patch("app.scan_service")
+    def test_csv_import_and_export_with_per_port_protocols_and_icmp(self, mock_scan):
+        """Verify:
+        1) Importing CSV with per-port protocols and portless 'icmp' correctly parses into PortEntry items.
+        2) Exporting CSV outputs matching per-port protocols in Protocol and 'icmp' in Ports.
+        """
+        csv_input = """Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports
+hybrid-import.example,welcome,/health,Hybrid Test,0,1,"http, https, icmp-ping","80, 443, icmp"
+router-import.example,router,,Router Test,0,0,icmp-ping,icmp
+"""
+        summary = pulsecheck_app.import_services_from_csv(csv_input)
+        self.assertEqual(summary["total"], 2)
+        self.assertEqual(summary["imported"], 2)
+
+        # Verify parsed representation in DB
+        services = {s["name"]: s for s in pulsecheck_app.service_list()}
+        hybrid = services["hybrid-import.example"]
+        ports_dict = {p.get("port"): p.get("protocol") for p in hybrid["ports"]}
+        self.assertEqual(ports_dict.get(80), "http")
+        self.assertEqual(ports_dict.get(443), "https")
+        self.assertEqual(ports_dict.get(None), "icmp-ping")
+
+        router = services["router-import.example"]
+        self.assertEqual(len(router["ports"]), 1)
+        self.assertIsNone(router["ports"][0].get("port"))
+        self.assertEqual(router["ports"][0].get("protocol"), "icmp-ping")
+
+        # Verify Export CSV output
+        export_csv, count = pulsecheck_app.export_services_csv()
+        self.assertGreaterEqual(count, 2)
+        self.assertIn("hybrid-import.example,welcome,/health,Hybrid Test,0,1,\"http, https, icmp-ping\",\"80, 443, icmp\"", export_csv)
+        self.assertIn("router-import.example,router,,Router Test,0,0,icmp-ping,icmp", export_csv)
 
 
 if __name__ == "__main__":

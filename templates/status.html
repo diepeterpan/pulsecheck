@@ -84,15 +84,18 @@
                 {% set online_count = valid_ports | selectattr('status', 'equalto', 'online') | list | length %}
                 {% set degraded_count = valid_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
                 {% set offline_count = valid_ports | selectattr('status', 'equalto', 'offline') | list | length %}
-                {% if online_count == valid_ports | length %}
-                  {% set overall_status = 'online' %}
-                  {% set status_label = 'Online' %}
-                {% elif offline_count == valid_ports | length %}
+                {% if offline_count > 0 %}
                   {% set overall_status = 'offline' %}
                   {% set status_label = 'Offline' %}
-                {% else %}
+                {% elif degraded_count > 0 %}
                   {% set overall_status = 'degraded' %}
                   {% set status_label = 'Degraded' %}
+                {% elif online_count == valid_ports | length %}
+                  {% set overall_status = 'online' %}
+                  {% set status_label = 'Online' %}
+                {% else %}
+                  {% set overall_status = 'offline' %}
+                  {% set status_label = 'Offline' %}
                 {% endif %}
               {% endif %}
 

@@ -96,4 +96,16 @@ Use this format for new entries:
 
 - Menu function: Services / Port Configuration
 - Required future change: Allow each port to have its own protocol instead of treating all ports on a service to use the same protocol.
-- Status: pending
+- Status: completed
+
+- Menu function: Services 
+- Required future change: Adding and deleting ports on selected Services in the Services list screen must: 1) When deleting a port preserve the protocols of remainders port on the Service.  2) When adding a port default to auto-detect protocol.
+- Status: completed
+
+- Menu function: Import & Export 
+- Required future change: Sub functions Import CSV and Export CSV. 1) CSV File Import - improve the Supported Columns example re: Protocols seeing it is now per pord and ICMP dont have a port.  2) CSV File Export - improve Export Structure & Preview example re: Protocols seeing it is now per pord and ICMP dont have a port.
+- Status: completed
+
+- Menu function: Notifications / Email 
+- Required future change: Improve notifications re: Port Details; colorize them red, orange, and green per port status. Keep ICMP in mind which don't have a PORT and is just red or green.
+- Status: completed

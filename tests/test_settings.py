@@ -188,7 +188,10 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(pulsecheck_app.compute_overall_status({}), "none")
         self.assertEqual(pulsecheck_app.compute_overall_status({80: "online", 443: "online"}), "online")
         self.assertEqual(pulsecheck_app.compute_overall_status({80: "offline", 443: "offline"}), "offline")
-        self.assertEqual(pulsecheck_app.compute_overall_status({80: "online", 443: "offline"}), "degraded")
+        # Offline overrides degraded and online (worst to best)
+        self.assertEqual(pulsecheck_app.compute_overall_status({80: "online", 443: "offline"}), "offline")
+        self.assertEqual(pulsecheck_app.compute_overall_status({80: "degraded", 443: "offline"}), "offline")
+        self.assertEqual(pulsecheck_app.compute_overall_status({80: "online", 443: "degraded"}), "degraded")
 
     @patch("app.send_email")
     @patch("app.scan_service")
@@ -220,7 +223,7 @@ class SettingsTests(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Simulate scan_service changing port 80 to offline during scan
+        # Simulate scan_service changing port 80 to offline during scan (offline overrides online -> service is offline)
         def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path="", **kwargs):
             conn_inner = pulsecheck_app.get_db_connection()
             conn_inner.execute(
@@ -242,7 +245,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes[0]["service"], "service.example")
         self.assertEqual(changes[0]["old_status"], "online")
-        self.assertEqual(changes[0]["new_status"], "degraded")
+        self.assertEqual(changes[0]["new_status"], "offline")
         self.assertIn("Port 80: ONLINE -> OFFLINE", changes[0]["port_changes"])
 
         # Verify email was dispatched
@@ -252,7 +255,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(to_addr, "admin@example.com")
         self.assertIn("State Change Alert", subject)
         self.assertIn("service.example", body)
-        self.assertIn("ONLINE -> DEGRADED", body)
+        self.assertIn("ONLINE -> OFFLINE", body)
         self.assertIn("Port 80: ONLINE -> OFFLINE", body)
 
     @patch("app.send_email")
@@ -1675,17 +1678,17 @@ direct.example,direct,,Direct site,0,0,8080
             self.assertIn("pill-degraded", html)
             self.assertIn("pill-offline", html)
 
-            # Add Service 4: Degraded (port 80 online, port 8080 offline)
+            # Add Service 4: Degraded (port 80 online, port 8080 degraded with match failure)
             conn = pulsecheck_app.get_db_connection()
             c = conn.cursor()
             c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('gamma.mixed.net', 'gamma', '[80, 8080]', 0)")
             s4_id = c.lastrowid
             c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-30 12:15:00 UTC')", (s4_id,))
-            c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 8080, 0, 'offline', '2026-09-30 12:15:00 UTC')", (s4_id,))
+            c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 8080, 1, 'degraded', '2026-09-30 12:15:00 UTC')", (s4_id,))
             conn.commit()
             conn.close()
 
-            # Some degraded, none fully offline -> ORANGE "SOME DEGRADED"
+            # Some degraded, none offline -> ORANGE "SOME DEGRADED"
             resp_deg = self.client.get("/status")
             html_deg = resp_deg.data.decode("utf-8")
             self.assertIn("SOME DEGRADED", html_deg)
@@ -1731,6 +1734,89 @@ direct.example,direct,,Direct site,0,0,8080
         last_check = pulsecheck_app.get_last_scheduled_check()
         self.assertIsNotNone(last_check["timestamp"])
         self.assertNotEqual(last_check["formatted"], "Never")
+
+
+    def test_notification_port_details_colorized_and_icmp(self):
+        """Verify:
+        1) Port Details in notification HTML body are colorized red (#dc2626), orange (#ea580c), and green (#16a34a).
+        2) ICMP Ping probe (portless) is formatted without a port number and is colorized red or green.
+        """
+        pulsecheck_app.save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "alerts@test.com",
+            "recipient_email": "admin@test.com",
+        })
+
+        changes = [
+            {
+                "service": "mixed-node.example.com",
+                "old_status": "online",
+                "new_status": "degraded",
+                "port_changes": [
+                    "Port 80: ONLINE -> OFFLINE",
+                    "Port 443: ONLINE -> DEGRADED",
+                    "Port 8080: OFFLINE -> ONLINE",
+                    "ICMP Ping: ONLINE -> OFFLINE",
+                ],
+            }
+        ]
+
+        with patch("app.send_email") as mock_email:
+            mock_email.return_value = (True, "Sent")
+            success, msg = pulsecheck_app.send_state_change_notification(changes)
+            self.assertTrue(success)
+            mock_email.assert_called_once()
+
+            call_args = mock_email.call_args
+            body = call_args[0][2]
+            html_body = call_args[1].get("html_body", "")
+
+            # Verify plain text contains port changes and ICMP Ping
+            self.assertIn("Port Details:", body)
+            self.assertIn("Port 80: ONLINE -> OFFLINE", body)
+            self.assertIn("Port 443: ONLINE -> DEGRADED", body)
+            self.assertIn("Port 8080: OFFLINE -> ONLINE", body)
+            self.assertIn("ICMP Ping: ONLINE -> OFFLINE", body)
+
+            # Verify HTML body contains Port Details with colored text
+            self.assertIn("Port Details:", html_body)
+            # Port 80: ONLINE (green #16a34a) -> OFFLINE (red #dc2626)
+            self.assertIn("<strong style='color: #1e293b;'>Port 80:</strong>", html_body)
+            self.assertIn("<strong style='color: #16a34a;'>ONLINE</strong> &rarr; <strong style='color: #dc2626;'>OFFLINE</strong>", html_body)
+
+            # Port 443: ONLINE (green #16a34a) -> DEGRADED (orange #ea580c)
+            self.assertIn("<strong style='color: #1e293b;'>Port 443:</strong>", html_body)
+            self.assertIn("<strong style='color: #16a34a;'>ONLINE</strong> &rarr; <strong style='color: #ea580c;'>DEGRADED</strong>", html_body)
+
+            # Port 8080: OFFLINE (red #dc2626) -> ONLINE (green #16a34a)
+            self.assertIn("<strong style='color: #1e293b;'>Port 8080:</strong>", html_body)
+            self.assertIn("<strong style='color: #dc2626;'>OFFLINE</strong> &rarr; <strong style='color: #16a34a;'>ONLINE</strong>", html_body)
+
+            # ICMP Ping: ONLINE (green #16a34a) -> OFFLINE (red #dc2626)
+            self.assertIn("<strong style='color: #1e293b;'>ICMP Ping:</strong>", html_body)
+            self.assertIn("<strong style='color: #16a34a;'>ONLINE</strong> &rarr; <strong style='color: #dc2626;'>OFFLINE</strong>", html_body)
+
+
+    def test_status_page_offline_overrides_degraded(self):
+        """Verify that on the Status page, a service with 2 or more ports/probes
+        where 1 is OFFLINE and another is DEGRADED is marked OFFLINE at the service level.
+        """
+        conn = pulsecheck_app.get_db_connection()
+        c = conn.cursor()
+        c.execute("INSERT INTO services (name, match, ports, paused) VALUES ('offline-overrides.example', 'test', '[80, 443]', 0)")
+        s_id = c.lastrowid
+        # Port 80 is degraded, Port 443 is offline
+        c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'degraded', '2026-10-01 10:00:00 UTC')", (s_id,))
+        c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 443, 0, 'offline', '2026-10-01 10:00:00 UTC')", (s_id,))
+        conn.commit()
+        conn.close()
+
+        resp = self.client.get("/status")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+
+        # The row for offline-overrides.example must have data-status="offline"
+        self.assertIn('data-service="offline-overrides.example"  data-status="offline"', html)
 
 
 if __name__ == "__main__":
