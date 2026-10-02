@@ -98,14 +98,59 @@ Use this format for new entries:
 - Required future change: Allow each port to have its own protocol instead of treating all ports on a service to use the same protocol.
 - Status: completed
 
-- Menu function: Services 
-- Required future change: Adding and deleting ports on selected Services in the Services list screen must: 1) When deleting a port preserve the protocols of remainders port on the Service.  2) When adding a port default to auto-detect protocol.
+- Menu function: Services
+- Required future change:
+  1. When deleting a port from selected services, preserve the protocols of the remaining ports on that service.
+  2. When adding a new port, auto‑detect and assign the appropriate protocol.
 - Status: completed
 
-- Menu function: Import & Export 
-- Required future change: Sub functions Import CSV and Export CSV. 1) CSV File Import - improve the Supported Columns example re: Protocols seeing it is now per pord and ICMP dont have a port.  2) CSV File Export - improve Export Structure & Preview example re: Protocols seeing it is now per pord and ICMP dont have a port.
+- Menu function: Import & Export
+- Required future change:
+  1. **Import CSV** – improve the “Supported Columns” example to reflect that protocols are now per‑port and ICMP has no port number.
+  2. **Export CSV** – improve the export structure & preview example to show per‑port protocols and the ICMP case.
 - Status: completed
 
-- Menu function: Notifications / Email 
-- Required future change: Improve notifications re: Port Details; colorize them red, orange, and green per port status. Keep ICMP in mind which don't have a PORT and is just red or green.
+- Menu function: Notifications / Email
+- Required future change:
+  - Color‑code port details in notification emails:
+    - **Red** – offline / error
+    - **Orange** – degraded / intermittent
+    - **Green** – online / healthy
+  - Treat ICMP entries (no port) as either red or green.
 - Status: completed
+
+- Menu function: not applicable – under‑hood change
+- Required future change:
+  - Remove the database migration code that was added when the `port_checks` and `services` tables were changed.
+- Status: pending
+
+- Menu function: import, export, services, status screens
+- Required future change:
+  1. Store a **match** string and **URL path** for each `port_protocol` (ASCII or hex).
+  2. Capture these values during service **add** and **edit**.
+  3. Use the stored metadata in port diagnostics per port‑protocol.
+  4. Remove the shared `[match]` and `[url path]` columns from the schema.
+  5. For each port‑protocol, default to the existing match & URL values when not explicitly provided.
+  6. Update the Status and Services lists: remove the Match and URL Path columns.
+- Status: pending
+7) The [match] and [url path] value per port:protocol must be added to the hover of the PORTS column.
+8) On the status screen remove the MATCH column
+9) On the status screen add to the STATUS hove the [url path] and [match] value per port:protocol.
+Ask questions if there things that needs to be clarified and/or decisions to be taken?
+- Status: pending
+
+- Menu function: Impacts the entire system, from add/edit service and status screens
+- Required future change:
+1) Per [port_protocol] a [request] string which can be either ascii string or hex type string with multi line support.
+2) It must be captured and stored during the add and edit of a services before the [match] value per port:protocol.
+3) Must be used during port diagnostics per port:protocol.
+4) Remove the shared hard coded HTML get.
+5) Defaults to the current hard coded implementation for HTTP GET per port:protocol.
+6) Do not add the [request] value to the Status and Services list screens
+- Status: pending
+
+OpenWrt/Linux SSH integration for list of DNS/Services
+- Status: pending
+
+Predefined [request] defintions to be selected from when adding or editing a service
+- Status: pending
