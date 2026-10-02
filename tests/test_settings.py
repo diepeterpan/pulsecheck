@@ -523,54 +523,6 @@ site3.com,site3,,0,80
         self.assertTrue(len(image_parts) >= 1)
         self.assertEqual(image_parts[0].get("Content-ID"), "<pulsecheck_logo>")
 
-    def test_comment_schema_migration_preserves_existing_data(self):
-        # Create a database with old schema (without comment column)
-        temp_dir = tempfile.TemporaryDirectory()
-        old_db_path = Path(temp_dir.name) / "old_pulsecheck.db"
-        orig_db_path = pulsecheck_app.DB_PATH
-        try:
-            conn = sqlite3.connect(old_db_path)
-            conn.execute(
-                """
-                CREATE TABLE services (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    match TEXT NOT NULL DEFAULT '',
-                    url_path TEXT NOT NULL DEFAULT '',
-                    paused INTEGER NOT NULL DEFAULT 0,
-                    ports TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                "INSERT INTO services (name, match, url_path, paused, ports) VALUES (?, ?, ?, ?, ?)",
-                ("legacy-site.org", "legacy", "/app", 0, "[80, 443]"),
-            )
-            conn.commit()
-            conn.close()
-
-            # Point app DB_PATH to this older database and run init_db()
-            pulsecheck_app.DB_PATH = old_db_path
-            pulsecheck_app.init_db()
-
-            # Verify that comment column was added
-            conn = sqlite3.connect(old_db_path)
-            conn.row_factory = sqlite3.Row
-            cols = {r["name"] for r in conn.execute("PRAGMA table_info(services)").fetchall()}
-            self.assertIn("comment", cols)
-
-            # Verify existing data is preserved intact
-            row = conn.execute("SELECT * FROM services WHERE name = ?", ("legacy-site.org",)).fetchone()
-            self.assertIsNotNone(row)
-            self.assertEqual(row["name"], "legacy-site.org")
-            self.assertEqual(row["match"], "legacy")
-            self.assertEqual(row["url_path"], "/app")
-            self.assertEqual(row["comment"], "")
-            conn.close()
-        finally:
-            pulsecheck_app.DB_PATH = orig_db_path
-            temp_dir.cleanup()
 
     def test_service_comment_crud(self):
         with patch("app.scan_service"):

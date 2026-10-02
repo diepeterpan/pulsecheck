@@ -122,7 +122,7 @@ Use this format for new entries:
 - Menu function: not applicable – under‑hood change
 - Required future change:
   - Remove the database migration code that was added when the `port_checks` and `services` tables were changed.
-- Status: pending
+- Status: completed
 
 - Menu function: import, export, services, status screens
 - Required future change:

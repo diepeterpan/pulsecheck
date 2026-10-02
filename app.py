@@ -42,7 +42,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.7")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.0.8")
 __version__ = APP_VERSION
 
 
@@ -109,44 +109,20 @@ def init_db():
         """
     )
 
-    # Migrate port_checks table: port must allow NULL for ICMP (portless) probes.
-    # SQLite doesn't support ALTER COLUMN, so we rebuild the table if needed.
-    pc_cols = {row["name"]: row for row in conn.execute("PRAGMA table_info(port_checks)").fetchall()}
-    if "port" in pc_cols and pc_cols["port"]["notnull"] == 1:
-        # Rebuild port_checks with port INTEGER (nullable)
-        conn.executescript("""
-            PRAGMA foreign_keys = OFF;
-            CREATE TABLE IF NOT EXISTS port_checks_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                service_id INTEGER NOT NULL,
-                port INTEGER,
-                is_online INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'offline',
-                last_response_ms INTEGER,
-                checked_at TEXT NOT NULL,
-                FOREIGN KEY(service_id) REFERENCES services(id)
-            );
-            INSERT INTO port_checks_new (id, service_id, port, is_online, status, last_response_ms, checked_at)
-                SELECT id, service_id, port, is_online, status, last_response_ms, checked_at FROM port_checks;
-            DROP TABLE port_checks;
-            ALTER TABLE port_checks_new RENAME TO port_checks;
-            PRAGMA foreign_keys = ON;
-        """)
-    else:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS port_checks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                service_id INTEGER NOT NULL,
-                port INTEGER,
-                is_online INTEGER NOT NULL,
-                status TEXT NOT NULL DEFAULT 'offline',
-                last_response_ms INTEGER,
-                checked_at TEXT NOT NULL,
-                FOREIGN KEY(service_id) REFERENCES services(id)
-            )
-            """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS port_checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service_id INTEGER NOT NULL,
+            port INTEGER,
+            is_online INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'offline',
+            last_response_ms INTEGER,
+            checked_at TEXT NOT NULL,
+            FOREIGN KEY(service_id) REFERENCES services(id)
         )
+        """
+    )
 
     conn.execute(
         """
@@ -156,85 +132,6 @@ def init_db():
         )
         """
     )
-
-    service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)").fetchall()}
-    if "match" not in service_columns:
-        conn.execute("ALTER TABLE services ADD COLUMN match TEXT NOT NULL DEFAULT ''")
-    if "url_path" not in service_columns:
-        conn.execute("ALTER TABLE services ADD COLUMN url_path TEXT NOT NULL DEFAULT ''")
-    if "comment" not in service_columns:
-        conn.execute("ALTER TABLE services ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
-    if "paused" not in service_columns:
-        conn.execute("ALTER TABLE services ADD COLUMN paused INTEGER NOT NULL DEFAULT 0")
-    if "use_proxy" not in service_columns:
-        conn.execute("ALTER TABLE services ADD COLUMN use_proxy INTEGER NOT NULL DEFAULT 0")
-
-    # Rename ports column to port_protocol if present
-    if "ports" in service_columns and "port_protocol" not in service_columns:
-        try:
-            conn.execute("ALTER TABLE services RENAME COLUMN ports TO port_protocol")
-        except Exception:
-            # Fallback rebuild for older SQLite versions
-            conn.executescript("""
-                PRAGMA foreign_keys = OFF;
-                CREATE TABLE services_rename_port_proto_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    match TEXT NOT NULL DEFAULT '',
-                    url_path TEXT NOT NULL DEFAULT '',
-                    comment TEXT NOT NULL DEFAULT '',
-                    paused INTEGER NOT NULL DEFAULT 0,
-                    use_proxy INTEGER NOT NULL DEFAULT 0,
-                    port_protocol TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                INSERT INTO services_rename_port_proto_new (id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at)
-                    SELECT id, name, match, url_path, comment, paused, use_proxy, ports, created_at FROM services;
-                DROP TABLE services;
-                ALTER TABLE services_rename_port_proto_new RENAME TO services;
-                PRAGMA foreign_keys = ON;
-            """)
-
-    # Drop legacy protocol column from services if present
-    service_columns = {row["name"] for row in conn.execute("PRAGMA table_info(services)").fetchall()}
-    if "protocol" in service_columns:
-        try:
-            conn.execute("ALTER TABLE services DROP COLUMN protocol")
-        except Exception:
-            # Fallback rebuild for older SQLite versions
-            conn.executescript("""
-                PRAGMA foreign_keys = OFF;
-                CREATE TABLE services_drop_protocol_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    match TEXT NOT NULL DEFAULT '',
-                    url_path TEXT NOT NULL DEFAULT '',
-                    comment TEXT NOT NULL DEFAULT '',
-                    paused INTEGER NOT NULL DEFAULT 0,
-                    use_proxy INTEGER NOT NULL DEFAULT 0,
-                    port_protocol TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                INSERT INTO services_drop_protocol_new (id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at)
-                    SELECT id, name, match, url_path, comment, paused, use_proxy, port_protocol, created_at FROM services;
-                DROP TABLE services;
-                ALTER TABLE services_drop_protocol_new RENAME TO services;
-                PRAGMA foreign_keys = ON;
-            """)
-
-    # Migrate legacy plain int list port_protocol [80, 443] to per-port-protocol objects
-    rows_to_migrate = conn.execute("SELECT id, port_protocol FROM services").fetchall()
-    for row in rows_to_migrate:
-        try:
-            raw = json.loads(row["port_protocol"] or "[]")
-        except (json.JSONDecodeError, TypeError):
-            raw = []
-        if raw and isinstance(raw[0], int):
-            migrated = [{"port": int(p), "protocol": ""} for p in raw]
-            conn.execute(
-                "UPDATE services SET port_protocol = ? WHERE id = ?",
-                (json.dumps(migrated), row["id"]),
-            )
 
     # Clean up obsolete port_checks rows for ports no longer configured on services
     try:
