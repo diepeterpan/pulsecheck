@@ -1,5 +1,9 @@
 # PulseCheck
 
+> [!NOTE]
+> **AI Vibe Coding Project**  
+> This entire project was created through AI Vibe Coding using the **Antigravity IDE** powered primarily by Google DeepMind's **Gemini** models.
+
 PulseCheck is a lightweight, Linux-friendly web application and monitoring daemon that stores services in SQLite, discovers open ports, and monitors the health and availability of those services on an automated schedule.
 
 <p align="center">
@@ -36,15 +40,20 @@ Centralized directory for viewing and maintaining all monitored services with in
 - **Pause & Resume**: Temporarily bypass monitoring for specific services without deleting records or historical data.
 
 ### 3. Service Workflows & Live Diagnostics ("Test Probes")
-Dedicated 2-column full-screen workflow for adding and editing services with instant pre-flight diagnostic probing before saving.
+Dedicated tabbed workflow for adding and editing services with ample room for configuring multi-port protocols and instant pre-flight diagnostic probing before saving.
+
+<p align="center">
+  <img src="docs/screenshots/edit_service.png" alt="Service Configuration Tab" width="100%">
+</p>
 
 <p align="center">
   <img src="docs/screenshots/live_diagnostics.png" alt="Live Port Diagnostics and Probe Inspector" width="100%">
 </p>
 
-- **Per-Port Match & URL Path Configuration**: Configure independent **Match strings** and **URL paths** for every individual TCP/socket port in the Ports table (excluding portless ICMP ping).
-- **Pre-Flight Probe Testing**: Test connectivity, HTTP response codes, latency, and match string tokens directly against unsaved form inputs.
-- **Tabbed Port Inspector**: Switch between individual port tabs or the "All Ports" summary table with status indicators, result codes, and local timestamps.
+- **Dedicated Tabbed Interface**: Clean segmented tabs separate **Service Configuration** from **Port Diagnostics**, giving full card width to the Ports & Protocols table.
+- **Per-Port Match & URL Path Configuration**: Configure independent **Protocol**, **Match strings**, and **URL paths** for every individual TCP/UDP port in the spacious Ports table without horizontal scrolling.
+- **Pre-Flight Probe Testing**: Test connectivity, HTTP response codes, latency, and match string tokens directly against unsaved form inputs — clicking "Test Probes" automatically navigates to Port Diagnostics.
+- **Tabbed Port Inspector**: Switch between individual port tabs or the "All Ports" summary table with status indicators, result codes, latency, and local timestamps.
 - **Response Token Highlighting**: Scrollable dark console viewer displaying HTTP headers and response body with matching tokens highlighted in real time.
 
 ### 4. System Settings & SMTP Email Alerts

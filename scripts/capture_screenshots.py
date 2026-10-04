@@ -209,7 +209,10 @@ try:
     # 2. Services Inventory & Management
     capture("services", "/services", height=880)
 
-    # 3. Live Diagnostics ("Test Probes") on Add/Edit
+    # 3. Service Configuration & Ports Form
+    capture("edit_service", f"/services/{bitwarden_id}/edit", height=920)
+
+    # 4. Live Diagnostics ("Test Probes") on Add/Edit
     js_diag = """
     (function() {
       const mockData = {
@@ -250,6 +253,8 @@ try:
           }
         ]
       };
+      const diagTabBtn = document.getElementById('tab-port-diagnostics');
+      if (diagTabBtn) diagTabBtn.click();
       if (typeof window.renderDiagnosticResults === 'function') {
         window.renderDiagnosticResults(mockData);
         const tabBtn = document.querySelector('[data-target="tab-panel-port-443"]');
@@ -259,7 +264,7 @@ try:
     """
     capture("live_diagnostics", f"/services/{bitwarden_id}/edit", js_action=js_diag, wait=1.5, height=920)
 
-    # 4. Settings & SMTP Alerts
+    # 5. Settings & SMTP Alerts
     capture("settings", "/settings", height=920)
 
     # 5. Data Import & Export

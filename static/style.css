@@ -86,6 +86,24 @@ header {
     color: #1e293b;
 }
 
+.brand-github-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    padding: 4px;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+    margin-left: 2px;
+}
+
+.brand-github-link:hover {
+    color: #0f172a;
+    background-color: #f1f5f9;
+    transform: translateY(-1px);
+}
+
 nav, .main-nav {
     display: inline-flex;
     align-items: center;
@@ -2306,6 +2324,33 @@ button:disabled {
         grid-template-columns: 1fr;
         gap: 20px;
     }
+}
+
+/* Tabbed Service Form Styles */
+.service-tab-bar {
+    margin-bottom: 20px;
+}
+
+.service-tab-panel {
+    display: block;
+    animation: fadeInTab 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.service-tab-panel.edit-service-layout {
+    display: block;
+    width: 100%;
+}
+
+.service-tab-panel.hidden {
+    display: none !important;
+}
+
+.service-tab-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 24px 28px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .edit-test-card {

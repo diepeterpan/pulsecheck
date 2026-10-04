@@ -9,16 +9,31 @@
     <a class="button secondary" href="{{ return_to or url_for('services') }}">Back to list</a>
   </div>
 
-  <div class="tab-2col-layout edit-service-layout">
-    <!-- Left Column: Service Details Form -->
-    <div class="tab-main-card">
-      <div class="tab-card-header">
+  <!-- Segmented Tab Bar for Service Add/Edit -->
+  <div class="tab-nav-wrapper">
+    <div class="import-tab-bar service-tab-bar" role="tablist" aria-label="Service Editor Sections">
+      <button type="button" class="import-tab-btn active" role="tab" id="tab-service-config" aria-selected="true" aria-controls="panel-service-config" data-tab="config">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        Service Configuration
+      </button>
+      <button type="button" class="import-tab-btn" role="tab" id="tab-port-diagnostics" aria-selected="false" aria-controls="panel-port-diagnostics" data-tab="diagnostics">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Port Diagnostics
+        <span id="tab-diag-badge" class="diag-status-pill" style="display: none; margin-left: 6px; padding: 2px 7px; font-size: 0.68rem;"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- TAB 1: Service Configuration Panel -->
+  <div id="panel-service-config" class="service-tab-panel edit-service-layout" role="tabpanel" aria-labelledby="tab-service-config">
+    <div class="service-tab-card tab-main-card">
+      <div class="tab-card-header" style="margin-bottom: 4px;">
         <h3>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           Service Configuration
         </h3>
       </div>
-      <p class="tab-card-subtitle">
+      <p class="tab-card-subtitle" style="margin-bottom: 20px;">
         {% if is_add %}
           Enter target address, ports to monitor, and optional matching or proxy settings.
         {% else %}
@@ -35,51 +50,58 @@
         <input type="hidden" name="ports_json" id="ports-json-hidden">
         <input type="hidden" name="ports" id="ports" value="{{ (item.ports | map(attribute='port') | select('ne', none) | map('string') | join(', ')) if item.ports else '' }}">
 
-        <div style="margin-bottom: 16px;">
-          <label for="name" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Service name</label>
-          <input type="text" id="name" name="name" value="{{ item.name }}" placeholder="example.com" required style="width: 100%; box-sizing: border-box;">
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Domain name or IP address of the target service.</span>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px;">
+          <div>
+            <label for="name" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Service name</label>
+            <input type="text" id="name" name="name" value="{{ item.name }}" placeholder="example.com" required style="width: 100%; box-sizing: border-box;">
+            <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Domain name or IP address of the target service.</span>
+          </div>
+
+          <div>
+            <label for="comment" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Comment (optional)</label>
+            <input type="text" id="comment" name="comment" value="{{ item.comment or '' }}" placeholder="Notes, purpose, or owner" style="width: 100%; box-sizing: border-box;">
+            <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Optional reference note or system description.</span>
+          </div>
         </div>
 
-        <div style="margin-bottom: 16px;">
-          <label for="comment" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Comment (optional)</label>
-          <input type="text" id="comment" name="comment" value="{{ item.comment or '' }}" placeholder="Notes, purpose, or owner" style="width: 100%; box-sizing: border-box;">
-        </div>
-
-        <div style="display: flex; gap: 24px; align-items: center; margin: 16px 0;">
+        <div style="display: flex; gap: 24px; align-items: center; margin: 16px 0 24px;">
           <label for="paused" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
             <input type="checkbox" id="paused" name="paused" {% if item.paused %}checked{% endif %}>
             Paused
           </label>
           <label for="use_proxy" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
             <input type="checkbox" id="use_proxy" name="use_proxy" {% if item.use_proxy %}checked{% endif %}>
-            Use Proxy Server
+            Use Proxy Server <span style="font-size: 0.8rem; color: #64748b; font-weight: 400;">(HTTP and HTTPS only)</span>
           </label>
         </div>
 
         <!-- ===== Port Configuration Table ===== -->
-        <div style="margin-bottom: 8px;">
-          <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports &amp; Protocols (optional)</label>
-          <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto; margin-bottom: 8px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 480px;">
+        <div style="margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+            <label style="font-weight: 600; font-size: 0.92rem; margin: 0; color: #0f172a;">Ports &amp; Protocols (optional)</label>
+            <span style="font-size: 0.78rem; color: #64748b;">Configure individual ports, protocol probing modes, match tokens, and URL paths</span>
+          </div>
+
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto; margin-bottom: 10px; background: #ffffff;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 620px;">
               <thead>
                 <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 18%;">Port</th>
-                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 26%;">Protocol</th>
-                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 26%;">Match</th>
-                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 24%;">URL path</th>
-                  <th style="padding: 8px 6px; width: 32px;"></th>
+                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 15%;">Port</th>
+                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 23%;">Protocol</th>
+                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 27%;">Match Token</th>
+                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 30%;">URL Path</th>
+                  <th style="padding: 10px 8px; width: 36px;"></th>
                 </tr>
               </thead>
               <tbody id="port-rows">
                 {% set tcp_ports = item.ports | selectattr('port', 'defined') | selectattr('port', 'ne', none) | list if item.ports else [] %}
                 {% for p in tcp_ports %}
                   <tr class="port-config-row" style="border-bottom: 1px solid #f1f5f9;">
-                    <td style="padding: 6px 8px;">
-                      <input type="number" class="port-row-num" min="1" max="65535" placeholder="e.g. 80" value="{{ p.port }}" required style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
+                    <td style="padding: 8px 12px;">
+                      <input type="number" class="port-row-num" min="1" max="65535" placeholder="e.g. 80" value="{{ p.port }}" required style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;">
                     </td>
-                    <td style="padding: 6px 8px;">
-                      <select class="port-row-proto" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; font-size: 0.84rem;">
+                    <td style="padding: 8px 12px;">
+                      <select class="port-row-proto" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; font-size: 0.85rem;">
                         <option value="" {% if not p.protocol %}selected{% endif %}>Auto-detect</option>
                         <option value="http" {% if p.protocol == 'http' %}selected{% endif %}>HTTP</option>
                         <option value="https" {% if p.protocol == 'https' %}selected{% endif %}>HTTPS</option>
@@ -89,15 +111,15 @@
                         <option value="udp-ssl" {% if p.protocol == 'udp-ssl' %}selected{% endif %}>UDP SSL</option>
                       </select>
                     </td>
-                    <td style="padding: 6px 8px;">
-                      <input type="text" class="port-row-match" placeholder="Optional token" value="{{ p.match or '' }}" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
+                    <td style="padding: 8px 12px;">
+                      <input type="text" class="port-row-match" placeholder="Optional token" value="{{ p.match or '' }}" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;">
                     </td>
-                    <td style="padding: 6px 8px;">
-                      <input type="text" class="port-row-path" placeholder="/path" value="{{ p.url_path or '' }}" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
+                    <td style="padding: 8px 12px;">
+                      <input type="text" class="port-row-path" placeholder="/path" value="{{ p.url_path or '' }}" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;">
                     </td>
-                    <td style="padding: 6px 6px; text-align: center;">
-                      <button type="button" class="btn-remove-port" title="Remove port" style="background: none; border: none; cursor: pointer; color: #94a3b8; padding: 3px; border-radius: 4px; display: flex; align-items: center;">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    <td style="padding: 8px 8px; text-align: center;">
+                      <button type="button" class="btn-remove-port" title="Remove port" style="background: none; border: none; cursor: pointer; color: #94a3b8; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin: 0 auto;">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </button>
                     </td>
                   </tr>
@@ -105,29 +127,31 @@
               </tbody>
             </table>
           </div>
-          <button type="button" id="btn-add-port" class="button secondary" style="font-size: 0.82rem; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add Port
-          </button>
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 6px;">Each port can use a separate protocol. Leave protocol as Auto-detect to have PulseCheck discover it.</span>
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <button type="button" id="btn-add-port" class="button secondary" style="font-size: 0.84rem; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Port
+            </button>
+            <span class="field-hint" style="font-size: 0.78rem; color: #64748b;">Leave protocol as Auto-detect to have PulseCheck discover it.</span>
+          </div>
         </div>
 
         <!-- ===== ICMP Toggle ===== -->
-        <div style="margin: 16px 0 22px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: flex-start; gap: 10px;">
-          <label for="icmp-enabled" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500; flex: 1;">
+        <div style="margin: 18px 0 24px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+          <label for="icmp-enabled" style="margin: 0; display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
             <input type="checkbox" id="icmp-enabled" name="icmp_enabled" value="icmp-ping"
               {% if item.ports and (item.ports | selectattr('port', 'equalto', none) | list or item.ports | selectattr('protocol', 'equalto', 'icmp-ping') | list) %}checked{% endif %}>
             <span>
               <strong>ICMP Ping probe</strong>
-              <span style="font-weight: 400; color: #64748b; font-size: 0.82rem; margin-left: 4px;">— no port required</span>
+              <span style="font-weight: 400; color: #64748b; font-size: 0.82rem; margin-left: 6px;">— no port required</span>
             </span>
           </label>
-          <span style="font-size: 0.75rem; color: #94a3b8; line-height: 1.4; max-width: 220px;">Sends an ICMP ping after all TCP/UDP ports are probed. Stored without a port number.</span>
+          <span style="font-size: 0.76rem; color: #94a3b8; line-height: 1.4;">Sends an ICMP ping alongside port probes. Stored without a port number.</span>
         </div>
 
-        <div style="display: flex; gap: 10px; margin-top: 24px; align-items: center; flex-wrap: wrap;">
+        <div style="display: flex; gap: 10px; margin-top: 26px; align-items: center; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid #f1f5f9;">
           <button type="submit" class="button primary" id="btn-save-service">{{ submit_btn_text }}</button>
-          <button type="button" id="btn-live-test" class="button secondary btn-test-action">
+          <button type="button" id="btn-live-test" class="button secondary btn-test-action" title="Switch to diagnostics tab and test probes">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-test-pulse"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span id="btn-live-test-text">Test Probes</span>
           </button>
@@ -135,18 +159,27 @@
         </div>
       </form>
     </div>
+  </div>
 
-    <!-- Right Column: Live Port Diagnostics -->
-    <div class="tab-side-card edit-test-card" id="edit-test-panel">
-      <div class="tab-card-header">
-        <h3>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
-          Port Diagnostics
-        </h3>
-        <div style="display: flex; align-items: center; gap: 8px;">
+  <!-- TAB 2: Port Diagnostics Panel -->
+  <div id="panel-port-diagnostics" class="service-tab-panel hidden" role="tabpanel" aria-labelledby="tab-port-diagnostics">
+    <div class="service-tab-card edit-test-card" id="edit-test-panel">
+      <div class="tab-card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #f1f5f9; padding-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <h3 style="margin: 0; display: inline-flex; align-items: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+            Port Diagnostics
+          </h3>
           <span id="diag-overall-pill" class="diag-status-pill" style="display: none;"></span>
-          <button type="button" id="btn-diag-retest" class="button secondary btn-test-action" style="display: none; padding: 4px 10px; font-size: 0.78rem;">
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button type="button" id="btn-diag-retest" class="button secondary btn-test-action" style="display: none; padding: 6px 14px; font-size: 0.82rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             Retest
+          </button>
+          <button type="button" class="button secondary btn-back-to-config" style="padding: 6px 12px; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            Back to Configuration
           </button>
         </div>
       </div>
@@ -363,6 +396,42 @@
     portRowsEl.addEventListener("input", updatePortsHidden);
     updatePortsHidden(); // Initial serialise
 
+    // ===== Top-level Service Form Tab Switching =====
+    const tabBtnConfig = document.getElementById("tab-service-config");
+    const tabBtnDiag = document.getElementById("tab-port-diagnostics");
+    const panelConfig = document.getElementById("panel-service-config");
+    const panelDiag = document.getElementById("panel-port-diagnostics");
+    const tabDiagBadge = document.getElementById("tab-diag-badge");
+    const backToConfigBtns = document.querySelectorAll(".btn-back-to-config");
+
+    function setActiveTab(tabKey) {
+      if (tabKey === "diagnostics") {
+        tabBtnConfig.classList.remove("active");
+        tabBtnConfig.setAttribute("aria-selected", "false");
+        tabBtnDiag.classList.add("active");
+        tabBtnDiag.setAttribute("aria-selected", "true");
+        panelConfig.classList.add("hidden");
+        panelDiag.classList.remove("hidden");
+      } else {
+        tabBtnDiag.classList.remove("active");
+        tabBtnDiag.setAttribute("aria-selected", "false");
+        tabBtnConfig.classList.add("active");
+        tabBtnConfig.setAttribute("aria-selected", "true");
+        panelDiag.classList.add("hidden");
+        panelConfig.classList.remove("hidden");
+      }
+    }
+
+    if (tabBtnConfig) {
+      tabBtnConfig.addEventListener("click", () => setActiveTab("config"));
+    }
+    if (tabBtnDiag) {
+      tabBtnDiag.addEventListener("click", () => setActiveTab("diagnostics"));
+    }
+    backToConfigBtns.forEach(btn => {
+      btn.addEventListener("click", () => setActiveTab("config"));
+    });
+
     // ===== Diagnostics =====
     const testUrl = "{{ test_url }}";
     const btnLiveTest = document.getElementById("btn-live-test");
@@ -478,14 +547,18 @@
 
       if (!nameVal) {
         alert("Please enter a service name before testing.");
+        setActiveTab("config");
         document.getElementById("name").focus();
         return;
       }
       if (portsData.length === 0 && !icmpEnabled) {
         alert("Please add at least one port or enable ICMP Ping before testing.");
+        setActiveTab("config");
         return;
       }
 
+      // Switch to diagnostics tab automatically
+      setActiveTab("diagnostics");
       setTestLoading(true);
 
       // Include ICMP as a portless entry if toggle is on
@@ -544,6 +617,11 @@
         diagError.style.display = "block";
         diagErrorMessage.textContent = err.message || "An unexpected error occurred during probe testing.";
         diagResults.style.display = "none";
+        if (tabDiagBadge) {
+          tabDiagBadge.textContent = "ERROR";
+          tabDiagBadge.className = "diag-status-pill offline";
+          tabDiagBadge.style.display = "inline-flex";
+        }
       } finally {
         setTestLoading(false);
       }
@@ -559,6 +637,12 @@
       diagOverallPill.className = "diag-status-pill " + overall;
       diagOverallPill.style.display = "inline-flex";
       btnDiagRetest.style.display = "inline-flex";
+
+      if (tabDiagBadge) {
+        tabDiagBadge.textContent = overall.toUpperCase();
+        tabDiagBadge.className = "diag-status-pill " + overall;
+        tabDiagBadge.style.display = "inline-flex";
+      }
 
       diagTabsNav.innerHTML = "";
       diagTabsContent.innerHTML = "";
