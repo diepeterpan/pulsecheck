@@ -187,7 +187,7 @@ invalid service host,,,,,
 
         # Form fields present and not excessively wide
         self.assertIn('id="name"', html)
-        self.assertIn('id="match"', html)
+        self.assertIn('class="port-row-match"', html)
         self.assertIn('id="ports"', html)
         self.assertIn('id="paused"', html)
         self.assertIn('id="use_proxy"', html)
@@ -448,8 +448,8 @@ invalid service host,,,,,
         # Service created with a port that has no protocol
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
-            "INSERT INTO services (name, match, port_protocol) VALUES (?, ?, ?)",
-            ("unconfigured.service.local", "payload", '[{"port": 5000, "protocol": ""}]'),
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("unconfigured.service.local", '[{"port": 5000, "protocol": "", "match": "payload", "url_path": ""}]'),
         )
         conn.commit()
         service_id = cur.lastrowid
@@ -774,7 +774,8 @@ invalid service host,,,,,
         row = conn.execute("SELECT * FROM services WHERE name = 'barebones.example.com'").fetchone()
         conn.close()
         self.assertIsNotNone(row)
-        self.assertEqual(row["match"], "")
+        svc_dict = pulsecheck_app.get_service_by_id(row["id"])
+        self.assertEqual(svc_dict["match"], "")
         parsed = pulsecheck_app.parse_port_protocol(row["port_protocol"])
         self.assertEqual(parsed, [])
 
@@ -820,11 +821,9 @@ invalid service host,,,,,
         conn = pulsecheck_app.get_db_connection()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, use_proxy, port_protocol) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO services (name, comment, paused, use_proxy, port_protocol) VALUES (?, ?, ?, ?, ?)",
             (
                 "multi-proto.example.com",
-                "",
-                "",
                 "Bulk port test service",
                 0,
                 0,
@@ -919,7 +918,7 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
         export_csv, count = pulsecheck_app.export_services_csv()
         self.assertGreaterEqual(count, 2)
         self.assertIn("hybrid-import.example,welcome,/health,Hybrid Test,0,1,\"http, https, icmp-ping\",\"80, 443, icmp\"", export_csv)
-        self.assertIn("router-import.example,router,,Router Test,0,0,icmp-ping,icmp", export_csv)
+        self.assertIn("router-import.example,,,Router Test,0,0,icmp-ping,icmp", export_csv)
 
 
 if __name__ == "__main__":

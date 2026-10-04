@@ -56,7 +56,6 @@
           <thead>
             <tr>
               <th class="col-service col-service">Service</th>
-              <th class="col-match">Match</th>
               <th class="col-status">Status</th>
               <th class="col-actions">Actions</th>
             </tr>
@@ -115,19 +114,6 @@
                     </span>
                   </div>
                 </td>
-                <td class="col-match">
-                  {% if first_entry.match %}
-                    <div class="cell-truncate-wrapper" tabindex="0">
-                      <span class="status-match-text truncate-text" title="{{ first_entry.match }}">{{ first_entry.match }}</span>
-                      <span class="cell-hover-box" role="tooltip">
-                        <span class="hover-box-label">Match</span>
-                        <span class="hover-box-value">{{ first_entry.match }}</span>
-                      </span>
-                    </div>
-                  {% else %}
-                    <span class="match-none">&mdash;</span>
-                  {% endif %}
-                </td>
                 <td class="col-status">
                   {% if status_label %}
                     <div class="cell-truncate-wrapper cell-status-wrapper" tabindex="0">
@@ -137,28 +123,39 @@
                           <span class="hover-box-label">Monitored Ports ({{ valid_ports|length }})</span>
                           <div class="hover-box-ports-list">
                             {% for entry in valid_ports %}
-                              <div class="hover-box-port-row">
-                                {% if entry.port is none %}
-                                  <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
-                                    <strong class="status-port">ICMP</strong>
+                              <div class="hover-box-port-row" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 0; border-bottom: 1px solid rgba(226, 232, 240, 0.4);">
+                                <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
+                                  {% if entry.port is none %}
+                                    <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
+                                      <strong class="status-port">ICMP</strong>
+                                    </span>
+                                  {% else %}
+                                    <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
+                                      <strong class="status-port">{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}</strong>
+                                    </span>
+                                  {% endif %}
+                                  <span class="hover-port-status {{ entry.status or 'offline' }}">{{ (entry.status or 'unscanned')|upper }}</span>
+                                  <span class="hover-port-meta">
+                                    {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}&mdash;{% endif %}
+                                    &bull;
+                                    {{ entry.checked_at_local or 'Never' }}
                                   </span>
-                                {% else %}
-                                  <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
-                                    <strong class="status-port">{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}</strong>
-                                  </span>
+                                </div>
+                                {% if entry.port is not none and (entry.url_path or entry.match) %}
+                                  <div style="font-size: 0.72rem; color: #475569; padding-left: 2px;">
+                                    {% if entry.url_path %}Path: <code>{{ entry.url_path }}</code>{% endif %}
+                                    {% if entry.url_path and entry.match %} &bull; {% endif %}
+                                    {% if entry.match %}Match: <strong style="color: #0f172a;">"{{ entry.match }}"</strong>{% endif %}
+                                  </div>
                                 {% endif %}
-                                <span class="hover-port-status {{ entry.status or 'offline' }}">{{ (entry.status or 'unscanned')|upper }}</span>
-                                <span class="hover-port-meta">
-                                  {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}&mdash;{% endif %}
-                                  &bull;
-                                  {{ entry.checked_at_local or 'Never' }}
-                                </span>
                               </div>
                             {% endfor %}
                           </div>
                         </span>
                       {% endif %}
                     </div>
+                  {% else %}
+                    <span class="no-ports" style="font-weight: 500;">NONE</span>
                   {% endif %}
                 </td>
                 <td class="col-actions">

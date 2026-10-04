@@ -160,7 +160,7 @@ Use this format for new entries:
 
   - Ask questions if there things that needs to be clarified and/or decisions to be taken?
     
-- Status: pending
+- Status: completed
 
 - Menu function: Impacts the entire system, from add/edit service and status screens
 - Required future change:

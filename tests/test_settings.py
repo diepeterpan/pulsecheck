@@ -208,8 +208,8 @@ class SettingsTests(unittest.TestCase):
         # Add service and simulate previous check state: online
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
-            "INSERT INTO services (name, match, port_protocol, paused) VALUES (?, ?, ?, ?)",
-            ("service.example", "service", "[80, 443]", 0),
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, ?)",
+            ("service.example", '[{"port": 80, "protocol": "http", "match": "service"}, {"port": 443, "protocol": "https", "match": "service"}]', 0),
         )
         service_id = conn.execute("SELECT id FROM services WHERE name = ?", ("service.example",)).fetchone()["id"]
         conn.execute(
@@ -224,7 +224,7 @@ class SettingsTests(unittest.TestCase):
         conn.close()
 
         # Simulate scan_service changing port 80 to offline during scan (offline overrides online -> service is offline)
-        def simulate_scan(d_id, name, ports, match, explicit_debug=None, url_path="", **kwargs):
+        def simulate_scan(d_id, name, ports, match=None, explicit_debug=None, url_path="", **kwargs):
             conn_inner = pulsecheck_app.get_db_connection()
             conn_inner.execute(
                 "INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, ?, 0, 'offline', '2026-09-28 12:10:00 UTC')",
@@ -240,7 +240,7 @@ class SettingsTests(unittest.TestCase):
 
         mock_scan.side_effect = simulate_scan
 
-        changes = pulsecheck_app.check_all_services()
+        changes = pulsecheck_app.check_all_services(max_retries=0)
 
         self.assertEqual(len(changes), 1)
         self.assertEqual(changes[0]["service"], "service.example")
@@ -271,8 +271,8 @@ class SettingsTests(unittest.TestCase):
         # Add service with existing check state
         conn = pulsecheck_app.get_db_connection()
         conn.execute(
-            "INSERT INTO services (name, match, port_protocol, paused) VALUES (?, ?, ?, ?)",
-            ("stable.example", "stable", "[80]", 0),
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, ?)",
+            ("stable.example", '[{"port": 80, "protocol": "http", "match": "stable"}]', 0),
         )
         service_id = conn.execute("SELECT id FROM services WHERE name = ?", ("stable.example",)).fetchone()["id"]
         conn.execute(
@@ -302,13 +302,20 @@ class SettingsTests(unittest.TestCase):
 
     def test_export_services_csv(self):
         conn = pulsecheck_app.get_db_connection()
+        p_a = pulsecheck_app.port_protocol_to_json([
+            {"port": 80, "protocol": "", "match": "service", "url_path": "/test"},
+            {"port": 443, "protocol": "", "match": "service", "url_path": "/test"},
+        ])
+        p_b = pulsecheck_app.port_protocol_to_json([
+            {"port": 8080, "protocol": "", "match": "other", "url_path": ""},
+        ])
         conn.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, port_protocol) VALUES (?, ?, ?, ?, ?, ?)",
-            ("service-a.com", "service", "/test", "Internal gateway", 0, "[80, 443]"),
+            "INSERT INTO services (name, comment, paused, port_protocol) VALUES (?, ?, ?, ?)",
+            ("service-a.com", "Internal gateway", 0, p_a),
         )
         conn.execute(
-            "INSERT INTO services (name, match, url_path, comment, paused, port_protocol) VALUES (?, ?, ?, ?, ?, ?)",
-            ("service-b.com", "other", "", "", 1, "[8080]"),
+            "INSERT INTO services (name, comment, paused, port_protocol) VALUES (?, ?, ?, ?)",
+            ("service-b.com", "", 1, p_b),
         )
         conn.commit()
         conn.close()
@@ -324,9 +331,10 @@ class SettingsTests(unittest.TestCase):
     def test_import_services_from_csv_success_and_skip_duplicates(self, mock_scan):
         # Seed an existing service in the database
         conn = pulsecheck_app.get_db_connection()
+        p_exist = pulsecheck_app.port_protocol_to_json([{"port": 80, "protocol": "", "match": "existing", "url_path": ""}])
         conn.execute(
-            "INSERT INTO services (name, match, url_path, paused, port_protocol) VALUES (?, ?, ?, ?, ?)",
-            ("existing.com", "existing", "", 0, "[80]"),
+            "INSERT INTO services (name, paused, port_protocol) VALUES (?, 0, ?)",
+            ("existing.com", p_exist),
         )
         conn.commit()
         conn.close()
@@ -359,9 +367,12 @@ bad site!!,bad,,0,80
 
     def test_export_route(self):
         conn = pulsecheck_app.get_db_connection()
+        p_data = pulsecheck_app.port_protocol_to_json([
+            {"port": 443, "protocol": "", "match": "test", "url_path": ""},
+        ])
         conn.execute(
-            "INSERT INTO services (name, match, url_path, paused, port_protocol) VALUES (?, ?, ?, ?, ?)",
-            ("test.org", "test", "", 0, "[443]"),
+            "INSERT INTO services (name, paused, port_protocol) VALUES (?, 0, ?)",
+            ("test.org", p_data),
         )
         conn.commit()
         conn.close()
@@ -397,8 +408,8 @@ bad site!!,bad,,0,80
     def test_update_service_with_empty_ports_skips_scan_and_discovery(self, mock_scan, mock_discover):
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
-            "INSERT INTO services (name, match, url_path, paused, port_protocol) VALUES (?, ?, ?, ?, ?)",
-            ("service-to-edit.com", "service", "", 0, "[80, 443]"),
+            "INSERT INTO services (name, paused, port_protocol) VALUES (?, ?, ?)",
+            ("service-to-edit.com", 0, '[{"port": 80, "protocol": "http", "match": "service", "url_path": ""}, {"port": 443, "protocol": "https", "match": "service", "url_path": ""}]'),
         )
         service_id = cur.lastrowid
         conn.commit()
@@ -525,7 +536,7 @@ site3.com,site3,,0,80
 
 
     def test_service_comment_crud(self):
-        with patch("app.scan_service"):
+        with patch("app.discover_ports", return_value=[80]), patch("app.scan_service"):
             service_id = pulsecheck_app.add_service(
                 "comment-test.com",
                 comment="Primary internal API server",
@@ -630,19 +641,17 @@ site3.com,site3,,0,80
             self.assertEqual(reimported["legacy-no-comment.io"]["comment"], "")
 
     def test_services_filter_query_params_prefill(self):
-        with patch("app.scan_service"):
+        with patch("app.discover_ports", return_value=[80]), patch("app.scan_service"):
             pulsecheck_app.add_service("alpha.com")
-        resp = self.client.get("/services?filter_service=alpha&filter_match=alp&filter_path=/test&filter_paused=active&filter_ports=443")
+        resp = self.client.get("/services?filter_service=alpha&filter_paused=active&filter_ports=443")
         self.assertEqual(resp.status_code, 200)
         html = resp.data.decode("utf-8")
         self.assertIn('value="alpha"', html)
-        self.assertIn('value="alp"', html)
-        self.assertIn('value="/test"', html)
         self.assertIn('value="active" selected', html)
         self.assertIn('value="443"', html)
 
     def test_edit_service_maintains_filter_return_to(self):
-        with patch("app.scan_service"):
+        with patch("app.discover_ports", return_value=[80, 443]), patch("app.scan_service"):
             service_id = pulsecheck_app.add_service("filter-preserve.com")
             return_url = "/services?filter_service=filter-preserve&filter_paused=active"
 
@@ -753,8 +762,8 @@ site3.com,site3,,0,80
         # Verify on /status page with multiple ports, the latest check is picked
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES (?, ?, ?, 0)",
-                  ("multiport.org", "multi", "[80, 443]"))
+        c.execute("INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, 0)",
+                  ("multiport.org", '[{"port": 80, "protocol": "http", "match": "multi"}, {"port": 443, "protocol": "https", "match": "multi"}]'))
         d_id = c.lastrowid
         # Port 80 checked earlier, Port 443 checked later
         c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-29 06:00:00 UTC')", (d_id,))
@@ -848,14 +857,14 @@ site3.com,site3,,0,80
         # 4. Test scan_service records online status
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('cam.local', 'legacy device', '[{\"port\": 443, \"protocol\": \"https\"}]')")
+        c.execute("INSERT INTO services (name, port_protocol) VALUES ('cam.local', '[{\"port\": 443, \"protocol\": \"https\", \"match\": \"legacy device\"}]')")
         d_id = c.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.http.client.HTTPSConnection", FakeHTTPSConnection):
             attempts.clear()
-            pulsecheck_app.scan_service(d_id, "cam.local", [{"port": 443, "protocol": "https"}], match="legacy device")
+            pulsecheck_app.scan_service(d_id, "cam.local", [{"port": 443, "protocol": "https", "match": "legacy device"}])
 
         conn = pulsecheck_app.get_db_connection()
         row = conn.execute("SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 443 ORDER BY id DESC LIMIT 1", (d_id,)).fetchone()
@@ -918,13 +927,13 @@ site3.com,site3,,0,80
         # 4. Test scan_service matches decompressed keyword and sets status to online
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('gzip-scan.local', 'Monitoring Target', '[{\"port\": 80, \"protocol\": \"http\"}]')")
+        c.execute("INSERT INTO services (name, port_protocol) VALUES ('gzip-scan.local', '[{\"port\": 80, \"protocol\": \"http\", \"match\": \"Monitoring Target\"}]')")
         d_id = c.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
-            pulsecheck_app.scan_service(d_id, "gzip-scan.local", [{"port": 80, "protocol": "http"}], match="Monitoring Target")
+            pulsecheck_app.scan_service(d_id, "gzip-scan.local", [{"port": 80, "protocol": "http", "match": "Monitoring Target"}])
 
         conn = pulsecheck_app.get_db_connection()
         row = conn.execute("SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 80 ORDER BY id DESC LIMIT 1", (d_id,)).fetchone()
@@ -1229,8 +1238,8 @@ direct.example,direct,,Direct site,0,0,8080
         # Configure service in DB with use_proxy=1
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
-            "INSERT INTO services (name, match, port_protocol, use_proxy) VALUES (?, ?, ?, 1)",
-            ("proxied-host.local", "mismatch-token", '[{"port": 80, "protocol": "http"}]'),
+            "INSERT INTO services (name, port_protocol, use_proxy) VALUES (?, ?, 1)",
+            ("proxied-host.local", '[{"port": 80, "protocol": "http", "match": "mismatch-token"}]'),
         )
         service_id = cur.lastrowid
         conn.commit()
@@ -1239,7 +1248,7 @@ direct.example,direct,,Direct site,0,0,8080
         # Simulate fetch_response returning content that does NOT match -> status will be offline/degraded
         mock_fetch.return_value = (b"some response", 200, "http://proxied-host.local:80/")
 
-        pulsecheck_app.scan_service(service_id, "proxied-host.local", [{"port": 80, "protocol": "http"}], match="mismatch-token")
+        pulsecheck_app.scan_service(service_id, "proxied-host.local", [{"port": 80, "protocol": "http", "match": "mismatch-token"}])
 
         # Verify fetch_response was called with use_proxy=True
         mock_fetch.assert_called_once()
@@ -1337,13 +1346,13 @@ direct.example,direct,,Direct site,0,0,8080
 
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol) VALUES ('header-match.local', 'WorkerNode77', '[{\"port\": 80, \"protocol\": \"http\"}]')")
+        c.execute("INSERT INTO services (name, port_protocol) VALUES ('header-match.local', '[{\"port\": 80, \"protocol\": \"http\", \"match\": \"WorkerNode77\"}]')")
         service_id = c.lastrowid
         conn.commit()
         conn.close()
 
         with patch("app.http.client.HTTPConnection", FakeHTTPConnection):
-            pulsecheck_app.scan_service(service_id, "header-match.local", [{"port": 80, "protocol": "http"}], match="WorkerNode77")
+            pulsecheck_app.scan_service(service_id, "header-match.local", [{"port": 80, "protocol": "http", "match": "WorkerNode77"}])
 
         conn = pulsecheck_app.get_db_connection()
         row = conn.execute("SELECT status, is_online FROM port_checks WHERE service_id = ? AND port = 80", (service_id,)).fetchone()
@@ -1358,9 +1367,10 @@ direct.example,direct,,Direct site,0,0,8080
         c = conn.cursor()
         long_service = "really-long-subdomain-12345.production.api.internal-cloud-network.company.com"
         long_match = "Corporate Authentication Portal - Cluster Edge Node 42"
+        ports_json = pulsecheck_app.port_protocol_to_json([{"port": 443, "protocol": "https", "match": long_match, "url_path": ""}])
         c.execute(
-            "INSERT INTO services (name, match, port_protocol, paused) VALUES (?, ?, ?, 0)",
-            (long_service, long_match, "[443]"),
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, 0)",
+            (long_service, ports_json),
         )
         d_id = c.lastrowid
         c.execute(
@@ -1381,18 +1391,16 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn(long_service, html)
         self.assertIn(long_match, html)
         self.assertIn('<span class="hover-box-label">Service</span>', html)
-        self.assertIn('<span class="hover-box-label">Match</span>', html)
-        self.assertIn("cell-ports-wrapper", html)
-        self.assertIn("status-ports-inline", html)
-        self.assertIn("cell-hover-box-ports", html)
+        self.assertIn("cell-status-wrapper", html)
+        self.assertIn("status-hover-box-ports", html)
         self.assertIn("Monitored Ports", html)
 
     def test_status_page_proxy_indicator_badge(self):
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
         c.execute(
-            "INSERT INTO services (name, match, port_protocol, paused, use_proxy) VALUES (?, ?, ?, 0, 1)",
-            ("proxied-service.internal", "proxytoken", "[8080]"),
+            "INSERT INTO services (name, port_protocol, paused, use_proxy) VALUES (?, ?, 0, 1)",
+            ("proxied-service.internal", '[{"port": 8080, "protocol": "http", "match": "proxytoken"}]'),
         )
         d_id = c.lastrowid
         c.execute(
@@ -1415,9 +1423,10 @@ direct.example,direct,,Direct site,0,0,8080
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
         ports_list = [80, 443, 8080, 8443, 3000, 5000, 8000, 8888, 9000, 9443]
+        port_protocol_val = pulsecheck_app.port_protocol_to_json([{"port": p, "protocol": "http", "match": "cluster"} for p in ports_list])
         c.execute(
-            "INSERT INTO services (name, match, port_protocol, paused) VALUES (?, ?, ?, 0)",
-            ("manyports.example", "cluster", str(ports_list)),
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, 0)",
+            ("manyports.example", port_protocol_val),
         )
         d_id = c.lastrowid
         for p in ports_list:
@@ -1597,15 +1606,15 @@ direct.example,direct,,Direct site,0,0,8080
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
         # Service 1: No ports listed -> MUST BE IGNORED
-        c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES ('noports.internal', 'no', '[]', 0)")
+        c.execute("INSERT INTO services (name, port_protocol, paused) VALUES ('noports.internal', '[]', 0)")
 
         # Service 2: Port 80 online
-        c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES ('alpha.online.net', 'alpha', '[80]', 0)")
+        c.execute("INSERT INTO services (name, port_protocol, paused) VALUES ('alpha.online.net', '[{\"port\": 80, \"protocol\": \"http\", \"match\": \"alpha\"}]', 0)")
         s2_id = c.lastrowid
         c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-30 12:00:00 UTC')", (s2_id,))
 
         # Service 3: Port 443 online
-        c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES ('beta.online.net', 'beta', '[443]', 0)")
+        c.execute("INSERT INTO services (name, port_protocol, paused) VALUES ('beta.online.net', '[{\"port\": 443, \"protocol\": \"https\", \"match\": \"beta\"}]', 0)")
         s3_id = c.lastrowid
         c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 443, 1, 'online', '2026-09-30 12:05:00 UTC')", (s3_id,))
         conn.commit()
@@ -1633,7 +1642,7 @@ direct.example,direct,,Direct site,0,0,8080
             # Add Service 4: Degraded (port 80 online, port 8080 degraded with match failure)
             conn = pulsecheck_app.get_db_connection()
             c = conn.cursor()
-            c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES ('gamma.mixed.net', 'gamma', '[80, 8080]', 0)")
+            c.execute("INSERT INTO services (name, port_protocol, paused) VALUES ('gamma.mixed.net', '[{\"port\": 80, \"protocol\": \"http\", \"match\": \"gamma\"}, {\"port\": 8080, \"protocol\": \"http\", \"match\": \"gamma\"}]', 0)")
             s4_id = c.lastrowid
             c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-09-30 12:15:00 UTC')", (s4_id,))
             c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 8080, 1, 'degraded', '2026-09-30 12:15:00 UTC')", (s4_id,))
@@ -1649,7 +1658,7 @@ direct.example,direct,,Direct site,0,0,8080
             # Add Service 5: Offline (port 9000 offline)
             conn = pulsecheck_app.get_db_connection()
             c = conn.cursor()
-            c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES ('delta.down.net', 'delta', '[9000]', 0)")
+            c.execute("INSERT INTO services (name, port_protocol, paused) VALUES ('delta.down.net', '[{\"port\": 9000, \"protocol\": \"http\", \"match\": \"delta\"}]', 0)")
             s5_id = c.lastrowid
             c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 9000, 0, 'offline', '2026-09-30 12:20:00 UTC')", (s5_id,))
             conn.commit()
@@ -1755,7 +1764,7 @@ direct.example,direct,,Direct site,0,0,8080
         """
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO services (name, match, port_protocol, paused) VALUES ('offline-overrides.example', 'test', '[80, 443]', 0)")
+        c.execute("INSERT INTO services (name, port_protocol, paused) VALUES ('offline-overrides.example', '[{\"port\": 80, \"protocol\": \"http\", \"match\": \"test\"}, {\"port\": 443, \"protocol\": \"https\", \"match\": \"test\"}]', 0)")
         s_id = c.lastrowid
         # Port 80 is degraded, Port 443 is offline
         c.execute("INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'degraded', '2026-10-01 10:00:00 UTC')", (s_id,))

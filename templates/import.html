@@ -73,8 +73,8 @@
             <li class="guide-item">
               <span class="guide-icon">2</span>
               <div>
-                <strong>Automatic Port Discovery</strong>
-                <div>PulseCheck automatically probes each new service across standard ports (80, 443, 8080, 8443, etc.) to detect active services.</div>
+                <strong>Automatic Port Discovery &amp; Port Settings</strong>
+                <div>PulseCheck automatically probes each new service across standard ports (80, 443, 8080, 8443, etc.) to detect active ports. Probing verification (<strong>Match string</strong> and <strong>URL path</strong>) is configured individually per port rather than at the service level; newly discovered ports default to the service hostname token and root path (<code>/</code>).</div>
               </div>
             </li>
             <li class="guide-item">
@@ -164,12 +164,16 @@
               <tr>
                 <td><code>Match</code></td>
                 <td><span class="tag-optional">Optional</span></td>
-                <td>Verification text token</td>
+                <td>
+                  <strong>Per-port token(s).</strong> A single string applied to all non-ICMP ports, or a comma-separated list positionally aligned with each port in <code>Ports</code> (e.g. <code>"welcome, api"</code>). ICMP ports ignore match tokens. Leave blank for none.
+                </td>
               </tr>
               <tr>
                 <td><code>URL path</code></td>
                 <td><span class="tag-optional">Optional</span></td>
-                <td>Custom probe path (e.g. <code>/health</code>)</td>
+                <td>
+                  <strong>Per-port HTTP path(s).</strong> A single path applied to all non-ICMP ports, or a comma-separated list positionally aligned with each port in <code>Ports</code> (e.g. <code>"/, /health"</code>). ICMP ports ignore URL paths. Leave blank for default (<code>/</code>).
+                </td>
               </tr>
               <tr>
                 <td><code>Comment</code></td>
@@ -203,7 +207,7 @@
             </tbody>
           </table>
           <div style="margin-top: 14px;">
-            <a href="data:text/csv;charset=utf-8,Service%2CMatch%2CURL%20path%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%0Ainternal.corp.local%2Cwelcome%2C%2Fhealth%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%0Aapi.example.com%2Capi%2C%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%0Aedge-router.local%2C%2C%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%0Amulti-probe.example%2C%2C%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20https%2C%20icmp-ping%22%2C%2280%2C%20443%2C%20icmp%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+            <a href="data:text/csv;charset=utf-8,Service%2CMatch%2CURL%20path%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%0Ainternal.corp.local%2C%22welcome%2C%20api%22%2C%22%2F%2C%20%2Fhealth%22%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%0Aapi.example.com%2Capi%2C%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%0Aedge-router.local%2C%2C%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%0Amulti-probe.example%2C%22ok%2C%20%2C%22%2C%22%2Fping%2C%20%2C%22%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20https%2C%20icmp-ping%22%2C%2280%2C%20443%2C%20icmp%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download Sample CSV Template
             </a>
@@ -242,7 +246,7 @@
           </div>
 
           <p class="tab-card-subtitle">
-            Download a full snapshot of your monitored services. The export includes service names, match tokens, health check paths, comments, paused states, proxy routing flags, preferred protocols (per-port or uniform), and monitored port lists (including portless ICMP ping).
+            Download a full snapshot of your monitored services. Match tokens and URL paths are stored per-port rather than service-wide. The export includes service names, per-port match tokens, health check paths, comments, paused states, proxy routing flags, preferred protocols, and monitored port lists (including portless ICMP ping).
           </p>
 
           <div style="margin-top: 20px;">
@@ -265,14 +269,14 @@
               Export Structure &amp; Preview
             </h3>
           </div>
-          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured as follows (note per-port protocols and portless <code>icmp</code>):</p>
+          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured with per-port Match strings, URL paths, and protocols positionally aligned with the <code>Ports</code> column:</p>
           <div class="code-preview-block">Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports
-internal.corp.local,internal,/health,Gateway,0,1,"http, https","80, 443"
+internal.corp.local,"welcome, api","/, /health",Gateway,0,1,"http, https","80, 443"
 api.example.com,api,,Production API,0,0,http,"443, 8443"
 edge-router.local,,,Edge Router,0,0,icmp-ping,icmp
-hybrid-node.example,ok,/ping,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp"</div>
+hybrid-node.example,"ok, , ","/ping, , ",Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp"</div>
           <p class="hub-description" style="margin: 0; font-size: 0.82rem; color: #64748b;">
-            When ports use distinct protocols, the <code>Protocol</code> column lists each protocol in matching order. ICMP ping checks are portless and exported as <code>icmp</code> with protocol <code>icmp-ping</code>. This file can be opened directly in Microsoft Excel, Google Sheets, or re-imported into another PulseCheck deployment.
+            <strong>Per-Port Configuration:</strong> Match tokens and URL paths are configured per individual port. When all non-ICMP ports share the same value (or only one port exists), a single value is exported. When ports differ, a comma-separated list aligned 1-to-1 with the non-ICMP ports in <code>Ports</code> is exported. ICMP ping probes are portless and never have match tokens or URL paths.
           </p>
         </div>
       </div>

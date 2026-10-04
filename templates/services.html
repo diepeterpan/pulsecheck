@@ -43,8 +43,6 @@
           <tr>
             <th class="col-select">Select</th>
             <th class="col-service col-service">Service</th>
-            <th class="col-match">Match</th>
-            <th class="col-path">URL path</th>
             <th class="col-paused">Paused</th>
             <th class="col-ports">Ports</th>
             <th class="col-actions">Actions</th>
@@ -54,12 +52,6 @@
               <th class="col-filter-cell col-select"></th>
               <th class="col-filter-cell col-service col-service">
                 <input type="search" id="filter-col-service" class="column-filter-input" data-col="service" placeholder="Filter service..." value="{{ request.args.get('filter_service', request.args.get('filter', '')) }}" autocomplete="off" aria-label="Filter service">
-              </th>
-              <th class="col-filter-cell col-match">
-                <input type="search" id="filter-col-match" class="column-filter-input" data-col="match" placeholder="Filter match..." value="{{ request.args.get('filter_match', '') }}" autocomplete="off" aria-label="Filter match">
-              </th>
-              <th class="col-filter-cell col-path">
-                <input type="search" id="filter-col-path" class="column-filter-input" data-col="path" placeholder="Filter path..." value="{{ request.args.get('filter_path', '') }}" autocomplete="off" aria-label="Filter URL path">
               </th>
               <th class="col-filter-cell col-paused">
                 <select id="filter-col-paused" class="column-filter-select" data-col="paused" aria-label="Filter paused status">
@@ -81,9 +73,6 @@
           {% for service in services %}
             <tr class="service-row service-row"
                 data-service="{{ service.name | lower }}"
-                
-                data-match="{{ service.match | lower }}"
-                data-path="{{ (service.url_path or '(root)') | lower }}"
                 data-comment="{{ (service.comment or '') | lower }}"
                 data-paused="{{ 'paused' if service.paused else 'active' }}"
                 data-ports="{{ ((service.ports | format_ports_column) or 'none') | lower }}">
@@ -102,8 +91,6 @@
                   {% endif %}
                 </div>
               </td>
-              <td class="col-match">{{ service.match }}</td>
-              <td class="col-path">{% if service.url_path %}<span class="path-pill">{{ service.url_path }}</span>{% else %}<span class="path-root">(root)</span>{% endif %}</td>
               <td class="col-paused">{% if service.paused %}<span class="badge paused">Paused</span>{% else %}<span class="badge active">Active</span>{% endif %}</td>
               <td class="col-ports col-ports">
                 {% if service.ports and (service.ports | format_ports_column) %}
@@ -115,11 +102,21 @@
                       <span class="hover-box-label">Configured Ports ({{ service.ports|length }})</span>
                       <div class="hover-box-ports-list">
                         {% for p in service.ports %}
-                          <div class="hover-box-port-row">
-                            {% if p.port is none or (p.protocol or '')|upper in ('ICMP', 'ICMP-PING') %}
-                              <span class="port-proto-pill">ICMP</span>
-                            {% else %}
-                              <span class="port-proto-pill">{{ p.port }}:{{ ((p.protocol or 'HTTP') | protocol_label)|replace(' ', '') }}</span>
+                          <div class="hover-box-port-row" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 0; border-bottom: 1px solid rgba(226, 232, 240, 0.4);">
+                            <div>
+                              {% if p.port is none or (p.protocol or '')|upper in ('ICMP', 'ICMP-PING') %}
+                                <span class="port-proto-pill">ICMP</span>
+                              {% else %}
+                                <span class="port-proto-pill">{{ p.port }}:{{ ((p.protocol or 'HTTP') | protocol_label)|replace(' ', '') }}</span>
+                              {% endif %}
+                            </div>
+                            {% if p.port is not none and (p.protocol or '')|upper not in ('ICMP', 'ICMP-PING') %}
+                              {% if p.match %}
+                                <div style="font-size: 0.72rem; color: #475569; padding-left: 2px;">Match: <strong style="color: #0f172a;">"{{ p.match }}"</strong></div>
+                              {% endif %}
+                              {% if p.url_path %}
+                                <div style="font-size: 0.72rem; color: #475569; padding-left: 2px;">Path: <code>{{ p.url_path }}</code></div>
+                              {% endif %}
                             {% endif %}
                           </div>
                         {% endfor %}
@@ -155,29 +152,21 @@
       const resetButton = document.getElementById('reset-all-filters');
 
       const filterService = document.getElementById('filter-col-service') || document.getElementById('filter-col-service');
-      const filterMatch = document.getElementById('filter-col-match');
-      const filterPath = document.getElementById('filter-col-path');
       const filterPaused = document.getElementById('filter-col-paused');
       const filterPorts = document.getElementById('filter-col-ports');
 
-      const filterInputs = [filterService, filterMatch, filterPath, filterPaused, filterPorts].filter(Boolean);
+      const filterInputs = [filterService, filterPaused, filterPorts].filter(Boolean);
 
       function initFilters() {
         const urlParams = new URLSearchParams(window.location.search);
         let hasUrlParam = false;
-        ['filter_service', 'filter', 'filter_match', 'filter_path', 'filter_paused', 'filter_ports'].forEach(k => {
+        ['filter_service', 'filter', 'filter_paused', 'filter_ports'].forEach(k => {
           if (urlParams.has(k) && urlParams.get(k).trim()) hasUrlParam = true;
         });
 
         if (hasUrlParam) {
           if (filterService && (urlParams.get('filter_service') || urlParams.get('filter'))) {
             filterService.value = urlParams.get('filter_service') || urlParams.get('filter');
-          }
-          if (filterMatch && urlParams.get('filter_match')) {
-            filterMatch.value = urlParams.get('filter_match');
-          }
-          if (filterPath && urlParams.get('filter_path')) {
-            filterPath.value = urlParams.get('filter_path');
           }
           if (filterPaused && urlParams.get('filter_paused')) {
             filterPaused.value = urlParams.get('filter_paused');
@@ -190,8 +179,6 @@
             const saved = JSON.parse(sessionStorage.getItem('pulsecheck_service_filters') || 'null');
             if (saved) {
               if (filterService && saved.service) filterService.value = saved.service;
-              if (filterMatch && saved.match) filterMatch.value = saved.match;
-              if (filterPath && saved.path) filterPath.value = saved.path;
               if (filterPaused && saved.paused) filterPaused.value = saved.paused;
               if (filterPorts && saved.ports) filterPorts.value = saved.ports;
             }
@@ -201,8 +188,6 @@
 
       function applyColumnFilters() {
         const serviceQuery = (filterService ? filterService.value : '').trim().toLowerCase();
-        const matchQuery = (filterMatch ? filterMatch.value : '').trim().toLowerCase();
-        const pathQuery = (filterPath ? filterPath.value : '').trim().toLowerCase();
         const pausedQuery = (filterPaused ? filterPaused.value : '').toLowerCase();
         const portsQuery = (filterPorts ? filterPorts.value : '').trim().toLowerCase();
 
@@ -210,18 +195,14 @@
 
         serviceRows.forEach((row) => {
           const serviceName = row.dataset.service || row.dataset.service || '';
-          const match = row.dataset.match || '';
-          const path = row.dataset.path || '';
           const paused = row.dataset.paused || '';
           const ports = row.dataset.ports || '';
 
           const matchService = !serviceQuery || serviceName.includes(serviceQuery);
-          const matchMatch = !matchQuery || match.includes(matchQuery);
-          const matchPath = !pathQuery || path.includes(pathQuery);
           const matchPaused = !pausedQuery || paused === pausedQuery;
           const matchPorts = !portsQuery || ports.includes(portsQuery);
 
-          const isVisible = matchService && matchMatch && matchPath && matchPaused && matchPorts;
+          const isVisible = matchService && matchPaused && matchPorts;
           row.hidden = !isVisible;
           if (isVisible) visibleCount++;
         });
@@ -230,7 +211,7 @@
           countDisplay.textContent = visibleCount;
         }
 
-        const hasFilter = serviceQuery || matchQuery || pathQuery || pausedQuery || portsQuery;
+        const hasFilter = serviceQuery || pausedQuery || portsQuery;
         if (resetButton) {
           resetButton.disabled = !hasFilter;
         }
@@ -240,8 +221,6 @@
         if (serviceQuery) {
           params.set('filter_service', (filterService ? filterService.value : '').trim());
         }
-        if (matchQuery) params.set('filter_match', (filterMatch ? filterMatch.value : '').trim());
-        if (pathQuery) params.set('filter_path', (filterPath ? filterPath.value : '').trim());
         if (pausedQuery) params.set('filter_paused', pausedQuery);
         if (portsQuery) params.set('filter_ports', (filterPorts ? filterPorts.value : '').trim());
 
@@ -253,8 +232,6 @@
           try {
             const filterState = {
               service: (filterService ? filterService.value : '').trim(),
-              match: (filterMatch ? filterMatch.value : '').trim(),
-              path: (filterPath ? filterPath.value : '').trim(),
               paused: pausedQuery,
               ports: (filterPorts ? filterPorts.value : '').trim()
             };
@@ -295,8 +272,6 @@
       if (resetButton) {
         resetButton.addEventListener('click', () => {
           if (filterService) filterService.value = '';
-          if (filterMatch) filterMatch.value = '';
-          if (filterPath) filterPath.value = '';
           if (filterPaused) filterPaused.value = '';
           if (filterPorts) filterPorts.value = '';
           try {

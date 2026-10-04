@@ -27,10 +27,10 @@ cursor.execute("DELETE FROM port_checks WHERE service_id = 941")
 cursor.execute("DELETE FROM services WHERE id = 941")
 
 # Clean services: replace domains with .dummy.net and clean comments/matches
-cursor.execute("SELECT id, name, match, comment, ports FROM services")
+cursor.execute("SELECT id, name, comment, port_protocol FROM services")
 rows = cursor.fetchall()
 seen_names = set()
-for sid, name, match, comment, ports in rows:
+for sid, name, comment, port_protocol in rows:
     base_name = re.sub(r"\.galleon\.(co\.za|dedyn\.io)$", "", name)
     base_name = re.sub(r"\.galleon$", "", base_name)
     base_name = re.sub(r"\.(com|co\.za|dedyn\.io|local|org|net)$", "", base_name)
@@ -45,8 +45,7 @@ for sid, name, match, comment, ports in rows:
         continue
     seen_names.add(clean_name)
     
-    clean_match = match.replace("galleon", "").strip()
-    clean_comment = comment.replace("galleon", "internal").strip()
+    clean_comment = (comment or "").replace("galleon", "internal").strip()
     if "OpenWrt" in clean_comment:
         clean_comment = "Edge Gateway Appliance"
     elif "Machine is not always on" in clean_comment:
@@ -67,8 +66,10 @@ for sid, name, match, comment, ports in rows:
         clean_comment = "Linux Metrics Agent"
     elif base_name == "camera":
         clean_comment = "Security RTSP Stream"
-        
-    cursor.execute("UPDATE services SET name = ?, match = ?, comment = ? WHERE id = ?", (clean_name, clean_match, clean_comment, sid))
+
+    # Clean port_protocol JSON to strip galleon
+    clean_pp = (port_protocol or "[]").replace("galleon", "")
+    cursor.execute("UPDATE services SET name = ?, comment = ?, port_protocol = ? WHERE id = ?", (clean_name, clean_comment, clean_pp, sid))
 
 # Update settings: clean example values with .dummy.net
 cursor.execute("UPDATE settings SET value = 'smtp.dummy.net' WHERE key = 'smtp_host'")
@@ -80,8 +81,12 @@ cursor.execute("UPDATE settings SET value = 'ops-team@dummy.net' WHERE key = 're
 cursor.execute("UPDATE settings SET value = 'proxy.dummy.net' WHERE key = 'proxy_host'")
 cursor.execute("UPDATE settings SET value = '8080' WHERE key = 'proxy_port'")
 
-# Ensure bitwarden.dummy.net has ports 80, 443
-cursor.execute("UPDATE services SET ports = '[80, 443]' WHERE name = 'bitwarden.dummy.net'")
+# Ensure bitwarden.dummy.net has ports 80, 443 with per-port match and url_path
+bitwarden_pp = json.dumps([
+    {"port": 443, "protocol": "https", "match": "bitwarden", "url_path": ""},
+    {"port": 80, "protocol": "http", "match": "bitwarden", "url_path": ""},
+])
+cursor.execute("UPDATE services SET port_protocol = ? WHERE name = 'bitwarden.dummy.net'", (bitwarden_pp,))
 
 # Set beszel-lenovo.dummy.net to degraded and camera.dummy.net to offline to show color-coded badges
 cursor.execute("SELECT id FROM services WHERE name = 'beszel-lenovo.dummy.net'")
@@ -117,7 +122,8 @@ else:
 conn = sqlite3.connect(DEMO_DB)
 cursor = conn.cursor()
 cursor.execute("SELECT id FROM services WHERE name = 'bitwarden.dummy.net'")
-bitwarden_id = cursor.fetchone()[0]
+bitwarden_row = cursor.fetchone()
+bitwarden_id = bitwarden_row[0] if bitwarden_row else 1
 conn.close()
 
 # 2. Launch Flask on port 8189
@@ -138,9 +144,11 @@ for _ in range(15):
     except Exception:
         time.sleep(0.5)
 
-# 3. Launch Chrome Headless
-chrome_proc = subprocess.Popen([
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+# 3. Launch Chrome Headless via Flatpak
+chrome_cmd = [
+    "flatpak", "run",
+    f"--filesystem={BASE_DIR}",
+    "com.google.Chrome",
     "--headless=new",
     "--remote-debugging-port=9222",
     "--remote-allow-origins=*",
@@ -149,9 +157,10 @@ chrome_proc = subprocess.Popen([
     "--no-default-browser-check",
     "--disable-gpu",
     "--no-sandbox",
-    "--window-size=1440,960"
-], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(1.5)
+    "--window-size=1440,960",
+]
+chrome_proc = subprocess.Popen(chrome_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+time.sleep(2.0)
 
 try:
     tabs = json.loads(urllib.request.urlopen("http://127.0.0.1:9222/json").read())
@@ -186,6 +195,12 @@ try:
             f.write(base64.b64decode(res["data"]))
         print(f"Saved: {filename}")
 
+    send_cmd("Emulation.setDeviceMetricsOverride", {
+        "width": 1440,
+        "height": 960,
+        "deviceScaleFactor": 1,
+        "mobile": False,
+    })
     send_cmd("Page.enable")
 
     # 1. Live Status Dashboard

@@ -42,18 +42,6 @@
         </div>
 
         <div style="margin-bottom: 16px;">
-          <label for="match" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Match (optional)</label>
-          <input type="text" id="match" name="match" value="{{ item.match }}" placeholder="Optional token to verify" style="width: 100%; box-sizing: border-box;">
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Expected token in response body or headers for ONLINE status (case-insensitive). Leave blank if none.</span>
-        </div>
-
-        <div style="margin-bottom: 16px;">
-          <label for="url_path" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">URL path (optional)</label>
-          <input type="text" id="url_path" name="url_path" value="{{ item.url_path }}" placeholder="/test/test.asp" style="width: 100%; box-sizing: border-box;">
-          <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Custom HTTP probe path (defaults to root <code>/</code>).</span>
-        </div>
-
-        <div style="margin-bottom: 16px;">
           <label for="comment" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Comment (optional)</label>
           <input type="text" id="comment" name="comment" value="{{ item.comment or '' }}" placeholder="Notes, purpose, or owner" style="width: 100%; box-sizing: border-box;">
         </div>
@@ -72,23 +60,25 @@
         <!-- ===== Port Configuration Table ===== -->
         <div style="margin-bottom: 8px;">
           <label style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Ports &amp; Protocols (optional)</label>
-          <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; margin-bottom: 8px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem;">
+          <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto; margin-bottom: 8px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 480px;">
               <thead>
                 <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                  <th style="padding: 8px 12px; text-align: left; font-weight: 600; color: #475569; width: 38%;">Port</th>
-                  <th style="padding: 8px 12px; text-align: left; font-weight: 600; color: #475569;">Protocol</th>
-                  <th style="padding: 8px 6px; width: 36px;"></th>
+                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 18%;">Port</th>
+                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 26%;">Protocol</th>
+                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 26%;">Match</th>
+                  <th style="padding: 8px 10px; text-align: left; font-weight: 600; color: #475569; width: 24%;">URL path</th>
+                  <th style="padding: 8px 6px; width: 32px;"></th>
                 </tr>
               </thead>
               <tbody id="port-rows">
                 {% set tcp_ports = item.ports | selectattr('port', 'defined') | selectattr('port', 'ne', none) | list if item.ports else [] %}
                 {% for p in tcp_ports %}
                   <tr class="port-config-row" style="border-bottom: 1px solid #f1f5f9;">
-                    <td style="padding: 6px 12px;">
+                    <td style="padding: 6px 8px;">
                       <input type="number" class="port-row-num" min="1" max="65535" placeholder="e.g. 80" value="{{ p.port }}" required style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
                     </td>
-                    <td style="padding: 6px 12px;">
+                    <td style="padding: 6px 8px;">
                       <select class="port-row-proto" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; font-size: 0.84rem;">
                         <option value="" {% if not p.protocol %}selected{% endif %}>Auto-detect</option>
                         <option value="http" {% if p.protocol == 'http' %}selected{% endif %}>HTTP</option>
@@ -98,6 +88,12 @@
                         <option value="udp" {% if p.protocol == 'udp' %}selected{% endif %}>UDP</option>
                         <option value="udp-ssl" {% if p.protocol == 'udp-ssl' %}selected{% endif %}>UDP SSL</option>
                       </select>
+                    </td>
+                    <td style="padding: 6px 8px;">
+                      <input type="text" class="port-row-match" placeholder="Optional token" value="{{ p.match or '' }}" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
+                    </td>
+                    <td style="padding: 6px 8px;">
+                      <input type="text" class="port-row-path" placeholder="/path" value="{{ p.url_path or '' }}" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;">
                     </td>
                     <td style="padding: 6px 6px; text-align: center;">
                       <button type="button" class="btn-remove-port" title="Remove port" style="background: none; border: none; cursor: pointer; color: #94a3b8; padding: 3px; border-radius: 4px; display: flex; align-items: center;">
@@ -246,13 +242,13 @@
       }
     }
 
-    function addPortRow(portNum, proto) {
+    function addPortRow(portNum, proto, matchVal, pathVal) {
       const tr = document.createElement("tr");
       tr.className = "port-config-row";
       tr.style.cssText = "border-bottom: 1px solid #f1f5f9;";
 
       const tdPort = document.createElement("td");
-      tdPort.style.padding = "6px 12px";
+      tdPort.style.padding = "6px 8px";
       const portInput = document.createElement("input");
       portInput.type = "number";
       portInput.className = "port-row-num";
@@ -265,8 +261,28 @@
       tdPort.appendChild(portInput);
 
       const tdProto = document.createElement("td");
-      tdProto.style.padding = "6px 12px";
+      tdProto.style.padding = "6px 8px";
       tdProto.appendChild(makeProtoSelect(proto || ""));
+
+      const tdMatch = document.createElement("td");
+      tdMatch.style.padding = "6px 8px";
+      const matchInput = document.createElement("input");
+      matchInput.type = "text";
+      matchInput.className = "port-row-match";
+      matchInput.placeholder = "Optional token";
+      matchInput.value = matchVal || "";
+      matchInput.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;";
+      tdMatch.appendChild(matchInput);
+
+      const tdPath = document.createElement("td");
+      tdPath.style.padding = "6px 8px";
+      const pathInput = document.createElement("input");
+      pathInput.type = "text";
+      pathInput.className = "port-row-path";
+      pathInput.placeholder = "/path";
+      pathInput.value = pathVal || "";
+      pathInput.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;";
+      tdPath.appendChild(pathInput);
 
       const tdDel = document.createElement("td");
       tdDel.style.cssText = "padding: 6px 6px; text-align: center;";
@@ -279,6 +295,8 @@
 
       tr.appendChild(tdPort);
       tr.appendChild(tdProto);
+      tr.appendChild(tdMatch);
+      tr.appendChild(tdPath);
       tr.appendChild(tdDel);
       portRowsEl.appendChild(tr);
 
@@ -293,9 +311,16 @@
       rows.forEach(row => {
         const portInput = row.querySelector(".port-row-num");
         const protoSel = row.querySelector(".port-row-proto");
+        const matchInput = row.querySelector(".port-row-match");
+        const pathInput = row.querySelector(".port-row-path");
         const portVal = parseInt(portInput.value);
         if (portVal >= 1 && portVal <= 65535) {
-          result.push({ port: portVal, protocol: protoSel.value });
+          result.push({
+            port: portVal,
+            protocol: protoSel ? protoSel.value : "",
+            match: matchInput ? matchInput.value.trim() : "",
+            url_path: pathInput ? pathInput.value.trim() : "",
+          });
           numList.push(portVal);
         }
       });
@@ -322,11 +347,11 @@
     if (portRowsEl.querySelectorAll(".port-config-row").length === 0) {
       const tcpPorts = serverPorts.filter(p => p.port != null);
       if (tcpPorts.length > 0) {
-        tcpPorts.forEach(p => addPortRow(p.port, p.protocol || ""));
+        tcpPorts.forEach(p => addPortRow(p.port, p.protocol || "", p.match || "", p.url_path || ""));
       }
     }
 
-    btnAddPort.addEventListener("click", () => addPortRow(null, ""));
+    btnAddPort.addEventListener("click", () => addPortRow(null, "", "", ""));
 
     // Serialize before submit
     form.addEventListener("submit", () => {
@@ -430,9 +455,16 @@
       rows.forEach(row => {
         const portInput = row.querySelector(".port-row-num");
         const protoSel = row.querySelector(".port-row-proto");
+        const matchInput = row.querySelector(".port-row-match");
+        const pathInput = row.querySelector(".port-row-path");
         const portVal = parseInt(portInput.value);
         if (portVal >= 1 && portVal <= 65535) {
-          result.push({ port: portVal, protocol: protoSel.value });
+          result.push({
+            port: portVal,
+            protocol: protoSel ? protoSel.value : "",
+            match: matchInput ? matchInput.value.trim() : "",
+            url_path: pathInput ? pathInput.value.trim() : "",
+          });
         }
       });
       return result;
@@ -440,8 +472,6 @@
 
     async function runDiagnostics() {
       const nameVal = document.getElementById("name").value.trim();
-      const matchVal = document.getElementById("match").value.trim();
-      const urlPathVal = document.getElementById("url_path").value.trim();
       const useProxyVal = document.getElementById("use_proxy").checked;
       const icmpEnabled = document.getElementById("icmp-enabled").checked;
       const portsData = getPortsFromTable();
@@ -461,13 +491,13 @@
       // Include ICMP as a portless entry if toggle is on
       const portsToSend = [...portsData];
       if (icmpEnabled) {
-        portsToSend.push({ port: null, protocol: "icmp-ping" });
+        portsToSend.push({ port: null, protocol: "icmp-ping", match: "", url_path: "" });
       }
 
       const payload = {
         name: nameVal,
-        match: matchVal,
-        url_path: urlPathVal,
+        match: "",
+        url_path: "",
         use_proxy: useProxyVal,
         ports: portsToSend,
         icmp_enabled: icmpEnabled,
