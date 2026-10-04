@@ -180,6 +180,32 @@ docker compose up -d --build
 
 The application runs in headless mode inside the container and is immediately accessible on [http://127.0.0.1:8182](http://127.0.0.1:8182).
 
+> [!IMPORTANT]
+> **MAC Address & Manufacturer Resolution in Docker:**
+> By default, Docker containers run in isolated bridge networking mode (`bridge`), meaning the container has its own private network stack and ARP table. It can resolve hostnames to IP addresses, but it cannot see the Layer 2 MAC addresses of devices on your physical local area network (LAN).
+>
+> If MAC address and manufacturer resolution is needed, the **easiest and recommended solution** is to run the container in **Host Networking Mode**.
+>
+> In `docker-compose.yaml`, add `network_mode: host` and remove the `ports` mapping:
+>
+> ```yaml
+> services:
+>   pulsecheck:
+>     container_name: pulsecheck
+>     image: pulsecheck:latest
+>     network_mode: host
+>     # Note: Remove or comment out 'ports:' when using network_mode: host
+>     # ports:
+>     #   - "8182:8182"
+>     environment:
+>       - PULSECHECK_PORT=8182
+>       ...
+> ```
+>
+> **Alternative Methods:**
+> - **MACVLAN / IPVLAN Network**: If you want to keep container network isolation while providing direct Layer 2 access to the physical network, configure a Docker [macvlan network](https://docs.docker.com/engine/network/drivers/macvlan/). This assigns the container its own dedicated IP and virtual MAC address directly on your physical LAN subnet.
+> - **Bare-Metal / Systemd**: Running PulseCheck directly on the host OS via a Python virtual environment automatically shares the host's ARP table with zero extra configuration.
+
 ---
 
 ## Interactive Console Menu
