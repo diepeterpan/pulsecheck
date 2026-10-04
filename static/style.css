@@ -1128,6 +1128,43 @@ button.danger {
     border-radius: 4px;
 }
 
+/* --- Sortable column headers --- */
+th.sortable-th {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+th.sortable-th:hover {
+    background-color: rgba(99, 102, 241, 0.07);
+}
+
+th.sortable-th:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: -2px;
+}
+
+th.sortable-th .sort-indicator {
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.72rem;
+    opacity: 0.35;
+    transition: opacity 0.15s ease, color 0.15s ease;
+    vertical-align: middle;
+}
+
+th.sortable-th:hover .sort-indicator {
+    opacity: 0.7;
+}
+
+th.sortable-th[aria-sort="ascending"] .sort-indicator,
+th.sortable-th[aria-sort="descending"] .sort-indicator {
+    opacity: 1;
+    color: #4f46e5;
+    font-weight: bold;
+}
+
 .status-table .truncate-text,
 .services-table .truncate-text {
     display: block;

@@ -42,9 +42,9 @@
         <thead>
           <tr>
             <th class="col-select">Select</th>
-            <th class="col-service col-service">Service</th>
-            <th class="col-paused">Paused</th>
-            <th class="col-ports">Ports</th>
+            <th class="col-service col-service sortable-th" data-sort-col="service" aria-sort="none" tabindex="0" title="Click to sort by Service">Service <span class="sort-indicator" aria-hidden="true">⇅</span></th>
+            <th class="col-paused sortable-th" data-sort-col="paused" aria-sort="none" tabindex="0" title="Click to sort by Paused">Paused <span class="sort-indicator" aria-hidden="true">⇅</span></th>
+            <th class="col-ports sortable-th" data-sort-col="ports" aria-sort="none" tabindex="0" title="Click to sort by Ports">Ports <span class="sort-indicator" aria-hidden="true">⇅</span></th>
             <th class="col-actions">Actions</th>
           </tr>
           {% if services and not add_mode %}
@@ -305,6 +305,89 @@
       }
 
       serviceCheckboxes.forEach((checkbox) => checkbox.addEventListener('change', updateSelectAllLabel));
+
+      // --- Sorting Logic ---
+      const sortableHeaders = Array.from(document.querySelectorAll('.services-table th.sortable-th'));
+      const tbody = document.querySelector('.services-table tbody');
+      let currentSortCol = null;
+      let currentSortDir = 'none'; // 'none' -> 'asc' -> 'desc' -> 'none'
+      const initialRowsOrder = [...serviceRows];
+
+      function updateSortHeaderUI() {
+        sortableHeaders.forEach(th => {
+          const col = th.dataset.sortCol;
+          const indicator = th.querySelector('.sort-indicator');
+          if (col === currentSortCol && currentSortDir !== 'none') {
+            th.setAttribute('aria-sort', currentSortDir === 'asc' ? 'ascending' : 'descending');
+            if (indicator) indicator.textContent = currentSortDir === 'asc' ? '▲' : '▼';
+          } else {
+            th.setAttribute('aria-sort', 'none');
+            if (indicator) indicator.textContent = '⇅';
+          }
+        });
+      }
+
+      function sortServicesTable(col) {
+        if (currentSortCol === col) {
+          if (currentSortDir === 'none') currentSortDir = 'asc';
+          else if (currentSortDir === 'asc') currentSortDir = 'desc';
+          else {
+            currentSortDir = 'none';
+            currentSortCol = null;
+          }
+        } else {
+          currentSortCol = col;
+          currentSortDir = 'asc';
+        }
+
+        updateSortHeaderUI();
+
+        if (currentSortDir === 'none' || !currentSortCol) {
+          initialRowsOrder.forEach(row => tbody.appendChild(row));
+          return;
+        }
+
+        const sortedRows = [...serviceRows].sort((rowA, rowB) => {
+          let valA = '';
+          let valB = '';
+
+          if (currentSortCol === 'service') {
+            valA = (rowA.dataset.service || '').trim();
+            valB = (rowB.dataset.service || '').trim();
+          } else if (currentSortCol === 'paused') {
+            valA = (rowA.dataset.paused || '').trim();
+            valB = (rowB.dataset.paused || '').trim();
+          } else if (currentSortCol === 'ports') {
+            valA = (rowA.dataset.ports || '').trim();
+            valB = (rowB.dataset.ports || '').trim();
+          }
+
+          let comp = 0;
+          if (currentSortCol === 'paused') {
+            // 'active' comes before 'paused' in ascending
+            if (valA === valB) comp = 0;
+            else if (valA === 'active') comp = -1;
+            else comp = 1;
+          } else {
+            comp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+          }
+
+          return currentSortDir === 'asc' ? comp : -comp;
+        });
+
+        sortedRows.forEach(row => tbody.appendChild(row));
+      }
+
+      sortableHeaders.forEach(th => {
+        const col = th.dataset.sortCol;
+        th.addEventListener('click', () => sortServicesTable(col));
+        th.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            sortServicesTable(col);
+          }
+        });
+      });
 
       initFilters();
       applyColumnFilters();

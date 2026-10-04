@@ -55,8 +55,8 @@
         <table class="services-table services-table status-table">
           <thead>
             <tr>
-              <th class="col-service col-service">Service</th>
-              <th class="col-status">Status</th>
+              <th class="col-service col-service sortable-th" data-sort-col="service" aria-sort="none" tabindex="0" title="Click to sort by Service">Service <span class="sort-indicator" aria-hidden="true">⇅</span></th>
+              <th class="col-status sortable-th" data-sort-col="status" aria-sort="none" tabindex="0" title="Click to sort by Status">Status <span class="sort-indicator" aria-hidden="true">⇅</span></th>
               <th class="col-actions">Actions</th>
             </tr>
           </thead>
@@ -221,6 +221,92 @@
         updateCounts();
         applyFilters();
 
+        // --- Sorting Logic ---
+        const sortableHeaders = Array.from(document.querySelectorAll('.status-table th.sortable-th'));
+        const tbody = document.querySelector('.status-table tbody');
+        let currentSortCol = null;
+        let currentSortDir = 'none'; // 'none' -> 'asc' -> 'desc' -> 'none'
+        const initialRowsOrder = [...statusRows];
+
+        // Severity weight: best health first when ascending
+        const statusWeights = {
+          'online': 1,
+          'degraded': 2,
+          'offline': 3,
+          'none': 4
+        };
+
+        function updateSortHeaderUI() {
+          sortableHeaders.forEach(th => {
+            const col = th.dataset.sortCol;
+            const indicator = th.querySelector('.sort-indicator');
+            if (col === currentSortCol && currentSortDir !== 'none') {
+              th.setAttribute('aria-sort', currentSortDir === 'asc' ? 'ascending' : 'descending');
+              if (indicator) indicator.textContent = currentSortDir === 'asc' ? '▲' : '▼';
+            } else {
+              th.setAttribute('aria-sort', 'none');
+              if (indicator) indicator.textContent = '⇅';
+            }
+          });
+        }
+
+        function sortStatusTable(col) {
+          if (currentSortCol === col) {
+            if (currentSortDir === 'none') currentSortDir = 'asc';
+            else if (currentSortDir === 'asc') currentSortDir = 'desc';
+            else {
+              currentSortDir = 'none';
+              currentSortCol = null;
+            }
+          } else {
+            currentSortCol = col;
+            currentSortDir = 'asc';
+          }
+
+          updateSortHeaderUI();
+
+          if (currentSortDir === 'none' || !currentSortCol) {
+            initialRowsOrder.forEach(row => tbody.appendChild(row));
+            return;
+          }
+
+          const sortedRows = [...statusRows].sort((rowA, rowB) => {
+            let comp = 0;
+            if (currentSortCol === 'service') {
+              const valA = (rowA.dataset.service || '').trim();
+              const valB = (rowB.dataset.service || '').trim();
+              comp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+            } else if (currentSortCol === 'status') {
+              const statusA = (rowA.dataset.status || 'none').trim();
+              const statusB = (rowB.dataset.status || 'none').trim();
+              const weightA = statusWeights[statusA] !== undefined ? statusWeights[statusA] : 99;
+              const weightB = statusWeights[statusB] !== undefined ? statusWeights[statusB] : 99;
+              if (weightA !== weightB) {
+                comp = weightA - weightB;
+              } else {
+                // Secondary sort by service name
+                const nameA = (rowA.dataset.service || '').trim();
+                const nameB = (rowB.dataset.service || '').trim();
+                comp = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
+              }
+            }
+
+            return currentSortDir === 'asc' ? comp : -comp;
+          });
+
+          sortedRows.forEach(row => tbody.appendChild(row));
+        }
+
+        sortableHeaders.forEach(th => {
+          const col = th.dataset.sortCol;
+          th.addEventListener('click', () => sortStatusTable(col));
+          th.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              sortStatusTable(col);
+            }
+          });
+        });
       </script>
     {% else %}
       <p>No status data yet.</p>
