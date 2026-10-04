@@ -38,151 +38,178 @@
     </div>
 
     {% if grouped %}
-      <div class="service-toolbar service-toolbar status-toolbar">
-        <div class="service-filter-group service-filter-group">
-          <input type="search" id="status-filter" placeholder="Filter services..." autocomplete="off" aria-label="Filter services by name">
-        </div>
+      <!-- STICKY TOP ZONE -->
+      <div class="status-sticky-header" id="status-sticky-header">
+        <!-- Controls Row: Search + Status Pills + Sort Buttons -->
+        <div class="status-controls-bar">
+          <div class="service-filter-group status-search-group">
+            <input type="search" id="status-filter" placeholder="Filter services..." autocomplete="off" aria-label="Filter services by name">
+          </div>
 
-        <div class="status-filter-pills" id="status-filter-pills">
-          <button type="button" class="btn-filter-pill pill-all active" data-filter="all">All <span class="pill-count" id="count-all">0</span></button>
-          <button type="button" class="btn-filter-pill pill-online" data-filter="online">Online <span class="pill-count" id="count-online">0</span></button>
-          <button type="button" class="btn-filter-pill pill-degraded" data-filter="degraded">Degraded <span class="pill-count" id="count-degraded">0</span></button>
-          <button type="button" class="btn-filter-pill pill-offline" data-filter="offline">Offline <span class="pill-count" id="count-offline">0</span></button>
+          <div class="status-filter-pills" id="status-filter-pills">
+            <button type="button" class="btn-filter-pill pill-all active" data-filter="all">All <span class="pill-count" id="count-all">0</span></button>
+            <button type="button" class="btn-filter-pill pill-online" data-filter="online">Online <span class="pill-count" id="count-online">0</span></button>
+            <button type="button" class="btn-filter-pill pill-degraded" data-filter="degraded">Degraded <span class="pill-count" id="count-degraded">0</span></button>
+            <button type="button" class="btn-filter-pill pill-offline" data-filter="offline">Offline <span class="pill-count" id="count-offline">0</span></button>
+            <button type="button" class="btn-filter-pill pill-skipped" data-filter="skipped">Skipped <span class="pill-count" id="count-skipped">0</span></button>
+          </div>
+
+          <div class="status-sort-group" role="group" aria-label="Sort services">
+            <span class="status-sort-label">Sort:</span>
+            <button type="button" class="btn-sort-toggle" id="sort-service-btn" data-sort-col="service" aria-sort="none" title="Sort by service name">
+              Service <span class="sort-indicator" aria-hidden="true">⇅</span>
+            </button>
+            <button type="button" class="btn-sort-toggle" id="sort-status-btn" data-sort-col="status" aria-sort="none" title="Sort by status severity">
+              Status <span class="sort-indicator" aria-hidden="true">⇅</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="table-responsive">
-        <table class="services-table services-table status-table">
-          <thead>
-            <tr>
-              <th class="col-service col-service sortable-th" data-sort-col="service" aria-sort="none" tabindex="0" title="Click to sort by Service">Service <span class="sort-indicator" aria-hidden="true">⇅</span></th>
-              <th class="col-status sortable-th" data-sort-col="status" aria-sort="none" tabindex="0" title="Click to sort by Status">Status <span class="sort-indicator" aria-hidden="true">⇅</span></th>
-              <th class="col-actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for service_name, entries in grouped.items() %}
-              {% set first_entry = entries[0] %}
-              {% if not first_entry.has_ports %}
-                {% set valid_ports = [] %}
-                {% set overall_status = 'none' %}
-                {% set status_label = '' %}
-                {% set service_checked_at = '' %}
+      <!-- SCROLLABLE CARDS GRID -->
+      <div class="status-card-grid-zone">
+        <div class="status-card-grid" id="status-card-grid">
+          {% for service_name, entries in grouped.items() %}
+            {% set first_entry = entries[0] %}
+            {% if not first_entry.has_ports %}
+              {% set valid_ports = [] %}
+              {% set overall_status = 'none' %}
+              {% set status_label = '' %}
+              {% set service_checked_at = '' %}
+            {% else %}
+              {% set valid_ports = entries %}
+              {% set checked_entries = entries | selectattr('checked_at') | list %}
+              {% if checked_entries %}
+                {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
+                {% set service_checked_at = latest_entry.checked_at_local %}
               {% else %}
-                {% set valid_ports = entries %}
-                {% set checked_entries = entries | selectattr('checked_at') | list %}
-                {% if checked_entries %}
-                  {% set latest_entry = (checked_entries | sort(attribute='checked_at', reverse=true))[0] %}
-                  {% set service_checked_at = latest_entry.checked_at_local %}
-                {% else %}
-                  {% set service_checked_at = first_entry.checked_at_local %}
-                {% endif %}
-                {% set active_ports = valid_ports | rejectattr('status', 'equalto', 'skipped') | list %}
-                {% set online_count = active_ports | selectattr('status', 'equalto', 'online') | list | length %}
-                {% set degraded_count = active_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
-                {% set offline_count = active_ports | selectattr('status', 'equalto', 'offline') | list | length %}
-                {% if not active_ports %}
-                  {% set overall_status = 'none' %}
-                  {% set status_label = 'Skipped' %}
-                {% elif offline_count > 0 %}
-                  {% set overall_status = 'offline' %}
-                  {% set status_label = 'Offline' %}
-                {% elif degraded_count > 0 %}
-                  {% set overall_status = 'degraded' %}
-                  {% set status_label = 'Degraded' %}
-                {% elif online_count == active_ports | length %}
-                  {% set overall_status = 'online' %}
-                  {% set status_label = 'Online' %}
-                {% else %}
-                  {% set overall_status = 'offline' %}
-                  {% set status_label = 'Offline' %}
-                {% endif %}
+                {% set service_checked_at = first_entry.checked_at_local %}
               {% endif %}
+              {% set active_ports = valid_ports | rejectattr('status', 'equalto', 'skipped') | list %}
+              {% set online_count = active_ports | selectattr('status', 'equalto', 'online') | list | length %}
+              {% set degraded_count = active_ports | selectattr('status', 'equalto', 'degraded') | list | length %}
+              {% set offline_count = active_ports | selectattr('status', 'equalto', 'offline') | list | length %}
+              {% if not active_ports %}
+                {% set overall_status = 'none' %}
+                {% set status_label = 'Skipped' %}
+              {% elif offline_count > 0 %}
+                {% set overall_status = 'offline' %}
+                {% set status_label = 'Offline' %}
+              {% elif degraded_count > 0 %}
+                {% set overall_status = 'degraded' %}
+                {% set status_label = 'Degraded' %}
+              {% elif online_count == active_ports | length %}
+                {% set overall_status = 'online' %}
+                {% set status_label = 'Online' %}
+              {% else %}
+                {% set overall_status = 'offline' %}
+                {% set status_label = 'Offline' %}
+              {% endif %}
+            {% endif %}
 
-              <tr class="service-row service-row status-row" data-service="{{ service_name | lower }}"  data-status="{{ overall_status }}">
-                <td class="col-service col-service">
-                  <div class="cell-truncate-wrapper" tabindex="0">
-                    <strong class="status-service-strong status-service-strong truncate-text">
-                      <a class="status-service-link status-service-link" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}">{{ service_name }}</a>
-                    </strong>
-                    {% if first_entry.use_proxy %}
-                      <span class="badge badge-proxy" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
-                    {% endif %}
-                    <span class="cell-hover-box" role="tooltip">
-                      <span class="hover-box-label">Service</span>
-                      <span class="hover-box-value">{{ service_name }}{% if first_entry.use_proxy %} &bull; Proxy Server{% endif %}</span>
-                    </span>
-                  </div>
-                </td>
-                <td class="col-status">
+            <div class="status-card" data-service-id="{{ first_entry.id }}" data-service="{{ service_name | lower }}"  data-status="{{ overall_status }}" data-expanded="false">
+              <!-- Collapsed Header Row (always visible) -->
+              <div class="status-card-header" role="button" tabindex="0" aria-expanded="false" aria-label="Toggle details for {{ service_name }}">
+                <div class="status-card-header-left cell-truncate-wrapper">
+                  <a class="status-card-name-link truncate-text" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}" onclick="event.stopPropagation();">
+                    {{ service_name }}
+                  </a>
+                  {% if first_entry.use_proxy %}
+                    <span class="badge badge-proxy" title="Accessed via Proxy Server">Proxy</span>
+                  {% endif %}
+                  <span class="cell-hover-box sr-only" role="tooltip" style="display:none;" aria-hidden="true">
+                    <span class="hover-box-label">Service</span>
+                  </span>
+                </div>
+
+                <div class="status-card-header-right cell-status-wrapper">
                   {% if status_label %}
-                    <div class="cell-truncate-wrapper cell-status-wrapper" tabindex="0">
-                      <span class="badge status-badge {{ overall_status }}">{{ status_label }}</span>
-                      {% if valid_ports %}
-                        <span class="cell-hover-box cell-hover-box-ports status-hover-box-ports" role="tooltip">
-                          <span class="hover-box-label">Monitored Ports ({{ valid_ports|length }})</span>
-                          <div class="hover-box-ports-list">
-                            {% for entry in valid_ports %}
-                              <div class="hover-box-port-row" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 4px 0; border-bottom: 1px solid rgba(226, 232, 240, 0.4);">
-                                <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
-                                  {% if entry.port is none %}
-                                    <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
-                                      <strong class="status-port">ICMP</strong>
-                                    </span>
-                                  {% else %}
-                                    <span class="status-item {{ entry.status or 'offline' }} status-item-sm">
-                                      <strong class="status-port">{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}</strong>
-                                    </span>
-                                  {% endif %}
-                                  <span class="hover-port-status {{ entry.status or 'offline' }}">{{ (entry.status or 'unscanned')|upper }}</span>
-                                  <span class="hover-port-meta">
-                                    {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}&mdash;{% endif %}
-                                    &bull;
-                                    {{ entry.checked_at_local or 'Never' }}
-                                  </span>
-                                </div>
-                                {% if entry.port is not none and (entry.url_path or entry.match) %}
-                                  <div style="font-size: 0.72rem; color: #475569; padding-left: 2px;">
-                                    {% if entry.url_path %}Path: <code>{{ entry.url_path }}</code>{% endif %}
-                                    {% if entry.url_path and entry.match %} &bull; {% endif %}
-                                    {% if entry.match %}Match: <strong style="color: #0f172a;">"{{ entry.match }}"</strong>{% endif %}
-                                  </div>
-                                {% endif %}
-                              </div>
-                            {% endfor %}
-                          </div>
-                        </span>
-                      {% endif %}
-                    </div>
+                    <span class="badge status-badge {{ overall_status }}">{{ status_label }}</span>
                   {% else %}
                     <span class="no-ports" style="font-weight: 500;">NONE</span>
                   {% endif %}
-                </td>
-                <td class="col-actions">
-                  <div class="row-actions">
-                    <form method="post" action="{{ url_for('rescan_service_route', service_id=first_entry.id) }}" class="inline-form">
-                      <button type="submit" class="btn-action primary" title="Rescan this service now">Rescan</button>
-                    </form>
-                    <a class="btn-action edit" href="{{ url_for('edit_service', service_id=first_entry.id) }}" title="Edit service settings">Edit</a>
-                  </div>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+                  {% if service_checked_at %}
+                    <span class="status-card-checked" title="Last checked at {{ service_checked_at }}">
+                      Checked {{ service_checked_at }}
+                    </span>
+                  {% endif %}
+                  <button type="button" class="status-card-toggle" aria-hidden="true" tabindex="-1">
+                    <span class="chevron-arrow">›</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Expanded Details Section (hidden by default) -->
+              <div class="status-card-body" hidden>
+                <div class="status-card-chips">
+                  {% if valid_ports %}
+                    {% for entry in valid_ports %}
+                      {% set port_st = entry.status or 'offline' %}
+                      <div class="status-port-chip {{ port_st }}" tabindex="0">
+                        <span class="chip-dot {{ port_st }}"></span>
+                        <strong class="chip-port-text status-port">{% if entry.port is none %}ICMP{% else %}{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}{% endif %}</strong>
+                        <span class="chip-status-text">{{ port_st|upper }}</span>
+
+                        <!-- Rich hover / focus tooltip -->
+                        <div class="chip-tooltip status-hover-box-ports cell-hover-box-ports" role="tooltip">
+                          <div class="chip-tooltip-title">
+                            <span class="hover-box-label" style="display:none;">Monitored Ports ({{ valid_ports|length }})</span>
+                            {% if entry.port is none %}
+                              ICMP Ping
+                            {% else %}
+                              Monitored Ports ({{ valid_ports|length }}) &bull; Port {{ entry.port }}{% if entry.protocol %} ({{ ((entry.protocol or '') | protocol_label) }}){% endif %}
+                            {% endif %}
+                            &bull;
+                            <span class="chip-tooltip-badge {{ port_st }}">{{ port_st|upper }}</span>
+                          </div>
+                          <div class="chip-tooltip-metrics">
+                            <span>⏱ {% if entry.last_response_ms is not none %}{{ entry.last_response_ms }} ms{% else %}—{% endif %}</span>
+                            <span>•</span>
+                            <span>{{ entry.checked_at_local or 'Never checked' }}</span>
+                          </div>
+                          {% if entry.port is not none and (entry.url_path or entry.match) %}
+                            <div class="chip-tooltip-details">
+                              {% if entry.url_path %}<div><strong>Path:</strong> <code>{{ entry.url_path }}</code></div>{% endif %}
+                              {% if entry.match %}<div><strong>Match:</strong> <code>"{{ entry.match }}"</code></div>{% endif %}
+                            </div>
+                          {% endif %}
+                        </div>
+                      </div>
+                    {% endfor %}
+                  {% else %}
+                    <span class="status-card-noports no-ports">NONE &bull; No monitored ports configured</span>
+                  {% endif %}
+                </div>
+
+                <div class="status-card-actions">
+                  <form method="post" action="{{ url_for('rescan_service_route', service_id=first_entry.id) }}" class="inline-form" onclick="event.stopPropagation();">
+                    <button type="submit" class="btn-action primary" title="Rescan this service now">Rescan</button>
+                  </form>
+                  <a class="btn-action edit" href="{{ url_for('edit_service', service_id=first_entry.id) }}" title="Edit service settings" onclick="event.stopPropagation();">Edit</a>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
       </div>
 
       <script>
         const statusFilter = document.getElementById('status-filter');
         const filterPills = Array.from(document.querySelectorAll('.btn-filter-pill'));
-        const statusRows = Array.from(document.querySelectorAll('.status-row'));
+        const cardGrid = document.getElementById('status-card-grid');
+        const statusCards = Array.from(document.querySelectorAll('.status-card'));
         let currentStatusFilter = 'all';
 
+        // 1. Update counter badges on filter pills
         function updateCounts() {
-          const counts = { all: statusRows.length, online: 0, degraded: 0, offline: 0, none: 0 };
-          statusRows.forEach(row => {
-            const s = row.dataset.status;
-            if (counts[s] !== undefined) counts[s]++;
+          const counts = { all: statusCards.length, online: 0, degraded: 0, offline: 0, skipped: 0 };
+          statusCards.forEach(card => {
+            const s = card.dataset.status;
+            if (s === 'none' || s === 'skipped') {
+              counts.skipped++;
+            } else if (counts[s] !== undefined) {
+              counts[s]++;
+            }
           });
           const cAll = document.getElementById('count-all');
           if (cAll) cAll.textContent = counts.all;
@@ -192,17 +219,30 @@
           if (cDegraded) cDegraded.textContent = counts.degraded;
           const cOffline = document.getElementById('count-offline');
           if (cOffline) cOffline.textContent = counts.offline;
+          const cSkipped = document.getElementById('count-skipped');
+          if (cSkipped) cSkipped.textContent = counts.skipped;
         }
 
+        // 2. Filter application
         function applyFilters() {
           const query = (statusFilter ? statusFilter.value : '').trim().toLowerCase();
-          statusRows.forEach(row => {
-            const serviceName = row.dataset.service || '';
-            const status = row.dataset.status || '';
+          statusCards.forEach(card => {
+            const serviceName = card.dataset.service || '';
+            const status = card.dataset.status || '';
             const matchesQuery = !query || serviceName.includes(query);
-            const matchesStatus = (currentStatusFilter === 'all') || (status === currentStatusFilter);
-            row.hidden = !(matchesQuery && matchesStatus);
+            const matchesStatus = (currentStatusFilter === 'all') ||
+              (currentStatusFilter === 'skipped' && (status === 'none' || status === 'skipped')) ||
+              (status === currentStatusFilter);
+            card.hidden = !(matchesQuery && matchesStatus);
           });
+        }
+
+        function setStatusFilter(filterVal) {
+          currentStatusFilter = filterVal;
+          filterPills.forEach(p => {
+            p.classList.toggle('active', p.dataset.filter === filterVal);
+          });
+          applyFilters();
         }
 
         if (statusFilter) {
@@ -210,25 +250,71 @@
         }
 
         filterPills.forEach(pill => {
-          pill.addEventListener('click', () => {
-            filterPills.forEach(p => p.classList.remove('active'));
-            pill.classList.add('active');
-            currentStatusFilter = pill.dataset.filter;
-            applyFilters();
+          pill.addEventListener('click', () => setStatusFilter(pill.dataset.filter));
+        });
+
+        // 3. Card Expand / Collapse with Session Persistence
+        const EXPANDED_STORAGE_KEY = 'pulsecheck_status_expanded_services';
+        let expandedSet = new Set();
+        try {
+          const saved = sessionStorage.getItem(EXPANDED_STORAGE_KEY);
+          if (saved) expandedSet = new Set(JSON.parse(saved));
+        } catch (e) {}
+
+        function saveExpandedState() {
+          try {
+            sessionStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify([...expandedSet]));
+          } catch (e) {}
+        }
+
+        statusCards.forEach(card => {
+          const serviceId = card.dataset.serviceId;
+          const header = card.querySelector('.status-card-header');
+          const body = card.querySelector('.status-card-body');
+          if (!header || !body) return;
+
+          // Restore previously opened cards
+          if (serviceId && expandedSet.has(serviceId)) {
+            card.dataset.expanded = 'true';
+            card.classList.add('is-expanded');
+            header.setAttribute('aria-expanded', 'true');
+            body.hidden = false;
+          }
+
+          function toggleCard(e) {
+            // Prevent toggling when clicking directly on child links or forms
+            if (e.target.closest('a') || e.target.closest('button.btn-action') || e.target.closest('form')) {
+              return;
+            }
+            const isExpanded = card.dataset.expanded === 'true';
+            const willExpand = !isExpanded;
+            card.dataset.expanded = willExpand ? 'true' : 'false';
+            card.classList.toggle('is-expanded', willExpand);
+            header.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+            body.hidden = !willExpand;
+
+            if (serviceId) {
+              if (willExpand) expandedSet.add(serviceId);
+              else expandedSet.delete(serviceId);
+              saveExpandedState();
+            }
+          }
+
+          header.addEventListener('click', toggleCard);
+          header.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              toggleCard(e);
+            }
           });
         });
 
-        updateCounts();
-        applyFilters();
-
-        // --- Sorting Logic ---
-        const sortableHeaders = Array.from(document.querySelectorAll('.status-table th.sortable-th'));
-        const tbody = document.querySelector('.status-table tbody');
+        // 4. Sorting Logic on Cards
+        const sortButtons = Array.from(document.querySelectorAll('.btn-sort-toggle'));
         let currentSortCol = null;
         let currentSortDir = 'none'; // 'none' -> 'asc' -> 'desc' -> 'none'
-        const initialRowsOrder = [...statusRows];
+        const initialCardsOrder = [...statusCards];
 
-        // Severity weight: best health first when ascending
         const statusWeights = {
           'online': 1,
           'degraded': 2,
@@ -236,21 +322,23 @@
           'none': 4
         };
 
-        function updateSortHeaderUI() {
-          sortableHeaders.forEach(th => {
-            const col = th.dataset.sortCol;
-            const indicator = th.querySelector('.sort-indicator');
+        function updateSortButtonsUI() {
+          sortButtons.forEach(btn => {
+            const col = btn.dataset.sortCol;
+            const indicator = btn.querySelector('.sort-indicator');
             if (col === currentSortCol && currentSortDir !== 'none') {
-              th.setAttribute('aria-sort', currentSortDir === 'asc' ? 'ascending' : 'descending');
+              btn.setAttribute('aria-sort', currentSortDir === 'asc' ? 'ascending' : 'descending');
+              btn.classList.add('sort-active');
               if (indicator) indicator.textContent = currentSortDir === 'asc' ? '▲' : '▼';
             } else {
-              th.setAttribute('aria-sort', 'none');
+              btn.setAttribute('aria-sort', 'none');
+              btn.classList.remove('sort-active');
               if (indicator) indicator.textContent = '⇅';
             }
           });
         }
 
-        function sortStatusTable(col) {
+        function sortCards(col) {
           if (currentSortCol === col) {
             if (currentSortDir === 'none') currentSortDir = 'asc';
             else if (currentSortDir === 'asc') currentSortDir = 'desc';
@@ -263,50 +351,44 @@
             currentSortDir = 'asc';
           }
 
-          updateSortHeaderUI();
+          updateSortButtonsUI();
 
           if (currentSortDir === 'none' || !currentSortCol) {
-            initialRowsOrder.forEach(row => tbody.appendChild(row));
+            initialCardsOrder.forEach(card => cardGrid.appendChild(card));
             return;
           }
 
-          const sortedRows = [...statusRows].sort((rowA, rowB) => {
+          const sortedCards = [...statusCards].sort((cardA, cardB) => {
             let comp = 0;
             if (currentSortCol === 'service') {
-              const valA = (rowA.dataset.service || '').trim();
-              const valB = (rowB.dataset.service || '').trim();
+              const valA = (cardA.dataset.service || '').trim();
+              const valB = (cardB.dataset.service || '').trim();
               comp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
             } else if (currentSortCol === 'status') {
-              const statusA = (rowA.dataset.status || 'none').trim();
-              const statusB = (rowB.dataset.status || 'none').trim();
+              const statusA = (cardA.dataset.status || 'none').trim();
+              const statusB = (cardB.dataset.status || 'none').trim();
               const weightA = statusWeights[statusA] !== undefined ? statusWeights[statusA] : 99;
               const weightB = statusWeights[statusB] !== undefined ? statusWeights[statusB] : 99;
               if (weightA !== weightB) {
                 comp = weightA - weightB;
               } else {
-                // Secondary sort by service name
-                const nameA = (rowA.dataset.service || '').trim();
-                const nameB = (rowB.dataset.service || '').trim();
+                const nameA = (cardA.dataset.service || '').trim();
+                const nameB = (cardB.dataset.service || '').trim();
                 comp = nameA.localeCompare(nameB, undefined, { numeric: true, sensitivity: 'base' });
               }
             }
-
             return currentSortDir === 'asc' ? comp : -comp;
           });
 
-          sortedRows.forEach(row => tbody.appendChild(row));
+          sortedCards.forEach(card => cardGrid.appendChild(card));
         }
 
-        sortableHeaders.forEach(th => {
-          const col = th.dataset.sortCol;
-          th.addEventListener('click', () => sortStatusTable(col));
-          th.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              sortStatusTable(col);
-            }
-          });
+        sortButtons.forEach(btn => {
+          btn.addEventListener('click', () => sortCards(btn.dataset.sortCol));
         });
+
+        updateCounts();
+        applyFilters();
       </script>
     {% else %}
       <p>No status data yet.</p>

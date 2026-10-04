@@ -1037,6 +1037,39 @@ button.danger {
     border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* GREY: SKIPPED */
+.btn-filter-pill.pill-skipped {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #475569;
+}
+
+.btn-filter-pill.pill-skipped .pill-count {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
+.btn-filter-pill.pill-skipped:hover {
+    background: #f1f5f9;
+    border-color: #64748b;
+    color: #1e293b;
+    box-shadow: 0 2px 6px rgba(100, 116, 139, 0.2);
+}
+
+.btn-filter-pill.pill-skipped.active {
+    background: #64748b;
+    border-color: #475569;
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(100, 116, 139, 0.35);
+}
+
+.btn-filter-pill.pill-skipped.active .pill-count {
+    background: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
 .badge.status-badge.online {
     background: #ecfdf5;
     color: #047857;
@@ -2891,6 +2924,530 @@ button:disabled {
         width: 100%;
         flex-wrap: wrap;
         gap: 10px;
+        justify-content: flex-start;
+    }
+}
+
+/* ==========================================================================
+   Status Page Redesign — Sticky Header, Stat Tiles & Collapsible Cards Grid
+   ========================================================================== */
+
+/* Sticky Top Zone */
+.status-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: #ffffff;
+    padding: 16px 20px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+    margin: -1.25rem -1.25rem 1.25rem -1.25rem;
+}
+
+/* Stat Tiles Row — 4 tiles taking 25% width each */
+.status-stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+    width: 100%;
+}
+
+.status-stat-card {
+    appearance: none;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    box-sizing: border-box;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+    border-left: 4px solid #cbd5e1;
+}
+
+.status-stat-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.status-stat-card:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+.status-stat-card .stat-card-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    margin-bottom: 2px;
+}
+
+.status-stat-card .stat-card-value {
+    font-size: 1.45rem;
+    font-weight: 800;
+    line-height: 1.1;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Stat Card Colors */
+.status-stat-card.stat-all {
+    border-left-color: #64748b;
+}
+.status-stat-card.stat-all.active {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    box-shadow: 0 0 0 1px #94a3b8;
+}
+
+.status-stat-card.stat-online {
+    border-left-color: #10b981;
+}
+.status-stat-card.stat-online .stat-card-value {
+    color: #047857;
+}
+.status-stat-card.stat-online.active {
+    background: #f0fdf4;
+    border-color: #86efac;
+    box-shadow: 0 0 0 1px #10b981;
+}
+
+.status-stat-card.stat-degraded {
+    border-left-color: #f59e0b;
+}
+.status-stat-card.stat-degraded .stat-card-value {
+    color: #b45309;
+}
+.status-stat-card.stat-degraded.active {
+    background: #fffbeb;
+    border-color: #fde68a;
+    box-shadow: 0 0 0 1px #f59e0b;
+}
+
+.status-stat-card.stat-offline {
+    border-left-color: #ef4444;
+}
+.status-stat-card.stat-offline .stat-card-value {
+    color: #dc2626;
+}
+.status-stat-card.stat-offline.active {
+    background: #fef2f2;
+    border-color: #fecaca;
+    box-shadow: 0 0 0 1px #ef4444;
+}
+
+/* Controls Bar (Search + Filter Pills + Sort) */
+.status-controls-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.status-search-group {
+    flex: 1 1 200px;
+    min-width: 180px;
+}
+
+.status-sort-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.status-sort-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.btn-sort-toggle {
+    appearance: none;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #334155;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+}
+
+.btn-sort-toggle:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+.btn-sort-toggle:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 1px;
+}
+
+.btn-sort-toggle.sort-active {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+    box-shadow: 0 1px 3px rgba(59, 130, 246, 0.15);
+}
+
+.btn-sort-toggle .sort-indicator {
+    font-size: 0.75rem;
+    color: #64748b;
+}
+.btn-sort-toggle.sort-active .sort-indicator {
+    color: #1d4ed8;
+}
+
+/* Scrollable Card Grid Zone */
+.status-card-grid-zone {
+    padding-top: 4px;
+}
+
+.status-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(440px, 1fr));
+    gap: 12px;
+}
+
+/* Individual Status Card */
+.status-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.15s ease;
+    overflow: visible;
+}
+
+.status-card:hover {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+.status-card[data-status="online"] {
+    border-left-color: #10b981;
+}
+
+.status-card[data-status="degraded"] {
+    border-left-color: #f59e0b;
+}
+
+.status-card[data-status="offline"] {
+    border-left-color: #ef4444;
+}
+
+.status-card[data-status="none"] {
+    border-left-color: #94a3b8;
+}
+
+/* Collapsed Header (Always Visible) */
+.status-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 4px;
+}
+
+.status-card-header:hover {
+    background-color: #f8fafc;
+}
+
+.status-card-header:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: -2px;
+}
+
+.status-card-header-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.status-card-name-link {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #0f172a;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.status-card-name-link:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.status-card-header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.status-card-checked {
+    font-size: 0.74rem;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.status-card-toggle {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: #64748b;
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chevron-arrow {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-weight: 700;
+}
+
+.status-card.is-expanded .chevron-arrow {
+    transform: rotate(90deg);
+}
+
+/* Expanded Card Body */
+.status-card-body {
+    padding: 10px 16px 14px;
+    border-top: 1px solid #f1f5f9;
+    background: #ffffff;
+}
+
+.status-card-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.status-card-noports {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    font-style: italic;
+}
+
+/* Port Chips with Per-Port Status Coloring */
+.status-port-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    cursor: default;
+    border: 1px solid transparent;
+    transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.status-port-chip:hover,
+.status-port-chip:focus-visible {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.status-port-chip:focus-visible {
+    outline: 2px solid #3b82f6;
+    outline-offset: 1px;
+}
+
+.status-port-chip.online {
+    background: #ecfdf5;
+    color: #047857;
+    border-color: #a7f3d0;
+}
+
+.status-port-chip.degraded {
+    background: #fffbeb;
+    color: #b45309;
+    border-color: #fde68a;
+}
+
+.status-port-chip.offline {
+    background: #fef2f2;
+    color: #dc2626;
+    border-color: #fecaca;
+}
+
+.status-port-chip.skipped,
+.status-port-chip.none {
+    background: #f1f5f9;
+    color: #64748b;
+    border-color: #e2e8f0;
+}
+
+.chip-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.chip-dot.online { background-color: #10b981; }
+.chip-dot.degraded { background-color: #f59e0b; }
+.chip-dot.offline { background-color: #ef4444; }
+.chip-dot.skipped,
+.chip-dot.none { background-color: #94a3b8; }
+
+.chip-port-text {
+    font-weight: 700;
+}
+
+.chip-status-text {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    opacity: 0.85;
+}
+
+/* Rich Chip Hover Tooltip */
+.chip-tooltip {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: #0f172a;
+    color: #ffffff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    line-height: 1.4;
+    white-space: nowrap;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+    pointer-events: none;
+    z-index: 50;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    min-width: 170px;
+}
+
+.chip-tooltip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 5px;
+    border-style: solid;
+    border-color: #0f172a transparent transparent transparent;
+}
+
+.status-port-chip:hover .chip-tooltip,
+.status-port-chip:focus-visible .chip-tooltip {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.chip-tooltip-title {
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.chip-tooltip-badge {
+    font-size: 0.66rem;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 700;
+}
+
+.chip-tooltip-badge.online { background: #065f46; color: #a7f3d0; }
+.chip-tooltip-badge.degraded { background: #78350f; color: #fde68a; }
+.chip-tooltip-badge.offline { background: #7f1d1d; color: #fecaca; }
+
+.chip-tooltip-metrics {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #94a3b8;
+    font-size: 0.72rem;
+}
+
+.chip-tooltip-details {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 0.72rem;
+    color: #cbd5e1;
+}
+
+.chip-tooltip-details code {
+    background: rgba(255, 255, 255, 0.12);
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: #e2e8f0;
+}
+
+/* Card Actions */
+.status-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed #f1f5f9;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 900px) {
+    .status-stat-tiles {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .status-card-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .status-sticky-header {
+        position: static;
+        margin: 0 0 1rem 0;
+        padding: 12px 0;
+    }
+
+    .status-controls-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .status-sort-group {
+        margin-left: 0;
         justify-content: flex-start;
     }
 }
