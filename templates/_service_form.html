@@ -64,6 +64,28 @@
           </div>
         </div>
 
+        <!-- ===== Network Discovery Info (read-only) ===== -->
+        <div style="display: flex; gap: 24px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; padding: 10px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 0.78rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .04em;">IP</span>
+            <span style="font-size: 0.88rem; font-family: monospace; color: #0f172a;">
+              {{ item.discovered_ip or '—' }}
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 0.78rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .04em;">MAC</span>
+            <span style="font-size: 0.88rem; font-family: monospace; color: #0f172a;">
+              {{ item.discovered_mac or '—' }}
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 0.78rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .04em;">Manufacturer</span>
+            <span style="font-size: 0.88rem; color: #0f172a;">
+              {{ item.discovered_manufacturer or '—' }}
+            </span>
+          </div>
+        </div>
+
         <div style="display: flex; gap: 24px; align-items: center; margin: 16px 0 24px;">
           <label for="paused" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
             <input type="checkbox" id="paused" name="paused" {% if item.paused %}checked{% endif %}>

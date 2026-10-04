@@ -24,6 +24,7 @@ from datetime import datetime, timezone, timedelta
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
+import urllib.request
 from zoneinfo import ZoneInfo
 
 from concurrent.futures import ThreadPoolExecutor
@@ -42,7 +43,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.1")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.2")
 __version__ = APP_VERSION
 
 
@@ -207,6 +208,18 @@ def init_db():
             conn.execute("DROP TABLE services")
             conn.execute("ALTER TABLE services_new RENAME TO services")
             conn.execute("PRAGMA foreign_keys = ON")
+    except Exception:
+        pass
+
+    # Migration: add network-discovery columns
+    try:
+        svc_cols = [c[1] for c in conn.execute("PRAGMA table_info(services)").fetchall()]
+        if "discovered_ip" not in svc_cols:
+            conn.execute("ALTER TABLE services ADD COLUMN discovered_ip TEXT DEFAULT NULL")
+        if "discovered_mac" not in svc_cols:
+            conn.execute("ALTER TABLE services ADD COLUMN discovered_mac TEXT DEFAULT NULL")
+        if "discovered_manufacturer" not in svc_cols:
+            conn.execute("ALTER TABLE services ADD COLUMN discovered_manufacturer TEXT DEFAULT NULL")
     except Exception:
         pass
 
@@ -447,7 +460,8 @@ def port_protocol_to_json(ports) -> str:
 def service_list():
     conn = get_db_connection()
     rows = conn.execute(
-        "SELECT id, name, comment, paused, use_proxy, port_protocol, created_at FROM services ORDER BY name ASC"
+        "SELECT id, name, comment, paused, use_proxy, port_protocol, created_at, "
+        "discovered_ip, discovered_mac, discovered_manufacturer FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
     services = []
@@ -469,6 +483,9 @@ def service_list():
             "port_protocol": parsed_ports,
             "ports": parsed_ports,
             "created_at": row["created_at"],
+            "discovered_ip": row["discovered_ip"] if "discovered_ip" in row.keys() else None,
+            "discovered_mac": row["discovered_mac"] if "discovered_mac" in row.keys() else None,
+            "discovered_manufacturer": row["discovered_manufacturer"] if "discovered_manufacturer" in row.keys() else None,
         })
     return services
 
@@ -476,7 +493,8 @@ def service_list():
 def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
-        "SELECT id, name, comment, paused, use_proxy, port_protocol, created_at FROM services WHERE id = ?",
+        "SELECT id, name, comment, paused, use_proxy, port_protocol, created_at, "
+        "discovered_ip, discovered_mac, discovered_manufacturer FROM services WHERE id = ?",
         (service_id,),
     ).fetchone()
     conn.close()
@@ -499,6 +517,9 @@ def get_service_by_id(service_id):
         "port_protocol": parsed_ports,
         "ports": parsed_ports,
         "created_at": row["created_at"],
+        "discovered_ip": row["discovered_ip"] if "discovered_ip" in row.keys() else None,
+        "discovered_mac": row["discovered_mac"] if "discovered_mac" in row.keys() else None,
+        "discovered_manufacturer": row["discovered_manufacturer"] if "discovered_manufacturer" in row.keys() else None,
     }
 
 
@@ -2024,6 +2045,7 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
         conn.commit()
         service_id = cursor.lastrowid
         conn.close()
+        trigger_discovery_async(service_id, normalized)
         scan_service(service_id, normalized, detected_entries, derived, url_path="")
         summary["imported"] += 1
 
@@ -2292,6 +2314,7 @@ def import_services_from_csv(
         conn.commit()
         service_id = cursor.lastrowid
         conn.close()
+        trigger_discovery_async(service_id, normalized)
 
         if not paused_val and ports_val:
             if progress_callback is not None:
@@ -3049,6 +3072,7 @@ def add_service_route():
         if result is None:
             flash("That service already exists.")
             return redirect(url_for("services"))
+        trigger_discovery_async(result, normalize_service(name))
         flash(f"Added service {name}.")
         return redirect(url_for("services"))
 
@@ -3131,11 +3155,16 @@ def edit_service(service_id):
         icmp_enabled = icmp_raw in ("on", "1", "true", "icmp-ping", "icmp")
         paused = request.form.get("paused") == "on"
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
+        old_name = service["name"]
         try:
             update_service(service_id, name, ports_input, match, url_path, paused, comment=comment, use_proxy=use_proxy, icmp_enabled=icmp_enabled)
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_service", service_id=service_id, return_to=return_to))
+        if normalize_service(name) != old_name:
+            svc = get_service_by_id(service_id)
+            trigger_discovery_async(service_id, normalize_service(name),
+                                    prev_mac=svc.get("discovered_mac") if svc else None)
         flash(f"Updated service {name}.")
         return redirect(return_to or url_for("services"))
 
@@ -3537,10 +3566,174 @@ def settings_route():
     return render_template("settings.html", settings=current_settings)
 
 
+# ── Network discovery ─────────────────────────────────────────────────────────
+MACLOOKUP_API_KEY = os.getenv("PULSECHECK_MACLOOKUP_API_KEY", "")
+_MAC_LOOKUP_LOCK = threading.Lock()   # serialise API calls; one at a time
+
+
+def _resolve_ip(hostname: str) -> str | None:
+    """Return the first IPv4/IPv6 address for hostname, or None."""
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        return infos[0][4][0] if infos else None
+    except (socket.gaierror, OSError):
+        return None
+
+
+def _resolve_mac(ip: str) -> str | None:
+    """
+    Look up MAC address for ip from the local ARP/neighbour cache.
+    Works for same-LAN hosts; returns None for remote hosts.
+    """
+    try:
+        result = subprocess.run(
+            ["ip", "neigh", "show", ip],
+            capture_output=True, text=True, timeout=3
+        )
+        for token in result.stdout.split():
+            if re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", token):
+                return token.upper()
+    except Exception:
+        pass
+    try:
+        result = subprocess.run(
+            ["arp", "-n", ip],
+            capture_output=True, text=True, timeout=3
+        )
+        m = re.search(r"([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", result.stdout)
+        if m:
+            return m.group(0).upper()
+    except Exception:
+        pass
+    return None
+
+
+def _lookup_manufacturer(mac: str) -> str:
+    """
+    Query maclookup.app for the NIC manufacturer.
+    Returns the vendor string, or "NONE" on failure.
+    Throttled: holds _MAC_LOOKUP_LOCK + sleeps 1 s between calls.
+    """
+    with _MAC_LOOKUP_LOCK:
+        try:
+            url = f"https://api.maclookup.app/v2/macs/{mac}"
+            headers = {}
+            if MACLOOKUP_API_KEY:
+                headers["Authorization"] = f"Bearer {MACLOOKUP_API_KEY}"
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                vendor = (data.get("company") or "").strip()
+                return vendor if vendor else "NONE"
+        except Exception:
+            return "NONE"
+        finally:
+            time.sleep(1)   # 1 s gap between any two API calls
+
+
+def _update_discovery_fields(service_id: int, ip, mac, manufacturer):
+    """Persist the three discovery fields for one service."""
+    conn = get_db_connection()
+    conn.execute(
+        "UPDATE services SET discovered_ip=?, discovered_mac=?, "
+        "discovered_manufacturer=? WHERE id=?",
+        (ip, mac, manufacturer, service_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def discover_network_info_for_service(service_id: int, hostname: str, prev_mac: str | None = None):
+    """
+    Full discovery pipeline for one service:
+      1. Resolve hostname -> IP
+      2. Resolve IP -> MAC (ARP)
+      3. Lookup MAC -> Manufacturer (API, throttled, skip if MAC unchanged)
+
+    Efficiency rules:
+    - No IP  -> clear all three fields; stop.
+    - No MAC -> store IP, clear MAC + manufacturer; stop.
+    - MAC unchanged vs prev_mac -> skip API call; keep stored manufacturer.
+    - MAC present but API fails -> store MAC + "NONE".
+    """
+    ip = _resolve_ip(hostname)
+    if not ip:
+        _update_discovery_fields(service_id, None, None, None)
+        return
+
+    mac = _resolve_mac(ip)
+    if not mac:
+        _update_discovery_fields(service_id, ip, None, None)
+        return
+
+    # Skip API if MAC is the same as last run
+    if prev_mac and prev_mac.upper() == mac.upper():
+        # Update IP (may have changed), keep manufacturer as-is
+        conn = get_db_connection()
+        conn.execute(
+            "UPDATE services SET discovered_ip=? WHERE id=?",
+            (ip, service_id),
+        )
+        conn.commit()
+        conn.close()
+        return
+
+    manufacturer = _lookup_manufacturer(mac)
+    _update_discovery_fields(service_id, ip, mac, manufacturer)
+
+
+def run_discovery_for_all_services():
+    """
+    Hourly scheduled job.
+    Runs up to 5 services in parallel (IP+MAC lookup).
+    MAC -> manufacturer calls are serialised via _MAC_LOOKUP_LOCK.
+    """
+    rows = []
+    try:
+        conn = get_db_connection()
+        rows = conn.execute(
+            "SELECT id, name, discovered_mac FROM services"
+        ).fetchall()
+        conn.close()
+    except Exception as exc:
+        print(f"[Discovery] DB read error: {exc}")
+        return
+
+    def _run_one(row):
+        discover_network_info_for_service(
+            row["id"], row["name"], row["discovered_mac"]
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = [executor.submit(_run_one, row) for row in rows]
+        for f in futures:
+            try:
+                f.result()
+            except Exception as exc:
+                print(f"[Discovery] Worker error: {exc}")
+
+
+def trigger_discovery_async(service_id: int, hostname: str, prev_mac: str | None = None):
+    """Fire-and-forget discovery for a single service."""
+    t = threading.Thread(
+        target=discover_network_info_for_service,
+        args=(service_id, hostname, prev_mac),
+        daemon=True,
+    )
+    t.start()
+
+
 def run_background_tasks():
     global GLOBAL_SCHEDULER
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(check_all_services, "interval", minutes=10, id="pulsecheck_scan")
+    scheduler.add_job(
+        run_discovery_for_all_services,
+        "interval",
+        hours=1,
+        id="pulsecheck_discovery",
+        next_run_time=datetime.now(),
+    )
     scheduler.start()
     GLOBAL_SCHEDULER = scheduler
     return scheduler

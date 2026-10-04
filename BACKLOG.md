@@ -177,3 +177,6 @@ OpenWrt/Linux SSH integration for list of DNS/Services
 
 Predefined [request] defintions to be selected from when adding or editing a service
 - Status: pending
+
+Display of IP, MAC and Manufacturer on the Status and List screen
+- Status: pending
