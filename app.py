@@ -29,10 +29,12 @@ from zoneinfo import ZoneInfo
 
 from concurrent.futures import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, Response, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, Response, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
+MANUFACTURER_ICONS_DIR = DB_PATH.parent / "manufacturer_icons"
+MANUFACTURER_ICONS_DIR.mkdir(parents=True, exist_ok=True)
 COMMON_PORTS = [80, 443, 22, 21, 25, 53, 110, 143, 587, 993, 995, 8080, 8443, 8444, 3306, 5432, 27017, 3000, 9000]
 HTTPS_PORTS = {443, 8443, 8444}
 DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
@@ -43,7 +45,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.2")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.3")
 __version__ = APP_VERSION
 
 
@@ -74,7 +76,11 @@ def inject_version():
     return {
         "app_version": APP_VERSION,
         "version": APP_VERSION,
+        "get_manufacturer_icon_url": get_manufacturer_icon_url,
     }
+
+
+inject_globals = inject_version
 IMPORT_STATE = {}
 IMPORT_LOCK = threading.Lock()
 GLOBAL_SCHEDULER = None
@@ -3631,16 +3637,221 @@ def _lookup_manufacturer(mac: str) -> str:
             time.sleep(1)   # 1 s gap between any two API calls
 
 
+def slugify_manufacturer(name: str) -> str:
+    """Normalize a manufacturer name into a safe filesystem slug."""
+    s = (name or "").lower().strip()
+    # Strip common corporate suffixes
+    s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|gmbh|sa|bv|s\.p\.a|s\.a|n\.v)\b\.?", "", s)
+    # Remove punctuation / special characters
+    s = re.sub(r"[^\w\s-]", "", s)
+    # Collapse whitespace into underscores
+    s = re.sub(r"[\s-]+", "_", s).strip("_")
+    return s or "unknown"
+
+
+def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
+    """Return local cached URL for manufacturer icon if it exists on disk."""
+    if not manufacturer or manufacturer.strip().upper() in ("", "NONE"):
+        return None
+    slug = slugify_manufacturer(manufacturer)
+    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
+        icon_path = MANUFACTURER_ICONS_DIR / f"{slug}{ext}"
+        if icon_path.is_file() and icon_path.stat().st_size > 0:
+            return f"/static/manufacturer-icons/{slug}{ext}"
+    return None
+
+
+@app.route("/static/manufacturer-icons/<path:filename>")
+def serve_manufacturer_icon(filename):
+    """Serve manufacturer logos cached on disk."""
+    return send_from_directory(MANUFACTURER_ICONS_DIR, filename)
+
+
+# Well-known hardware & networking manufacturers to official domains
+_KNOWN_MANUFACTURER_DOMAINS = {
+    "apple": "apple.com",
+    "dell": "dell.com",
+    "intel": "intel.com",
+    "cisco": "cisco.com",
+    "ubiquiti": "ui.com",
+    "hewlett packard": "hp.com",
+    "hp": "hp.com",
+    "synology": "synology.com",
+    "asustek": "asus.com",
+    "asus": "asus.com",
+    "raspberry pi": "raspberrypi.com",
+    "tp-link": "tp-link.com",
+    "tplink": "tp-link.com",
+    "netgear": "netgear.com",
+    "microsoft": "microsoft.com",
+    "google": "google.com",
+    "amazon": "amazon.com",
+    "samsung": "samsung.com",
+    "sony": "sony.com",
+    "lg": "lg.com",
+    "lenovo": "lenovo.com",
+    "huawei": "huawei.com",
+    "d-link": "dlink.com",
+    "dlink": "dlink.com",
+    "super micro": "supermicro.com",
+    "supermicro": "supermicro.com",
+    "qnap": "qnap.com",
+    "mikrotik": "mikrotik.com",
+    "fortinet": "fortinet.com",
+    "palo alto": "paloaltonetworks.com",
+    "juniper": "juniper.net",
+    "aruba": "arubanetworks.com",
+    "espressif": "espressif.com",
+    "realtek": "realtek.com",
+    "broadcom": "broadcom.com",
+    "avm": "avm.de",
+    "sonos": "sonos.com",
+    "brother": "brother.com",
+    "canon": "canon.com",
+    "epson": "epson.com",
+    "xerox": "xerox.com",
+}
+
+
+def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
+    """
+    Find, download, and cache an icon for the manufacturer in MANUFACTURER_ICONS_DIR.
+    Checks disk cache first to prevent repeated internet requests.
+    """
+    if not manufacturer or manufacturer.strip().upper() in ("", "NONE"):
+        return None
+
+    slug = slugify_manufacturer(manufacturer)
+    dest_path = MANUFACTURER_ICONS_DIR / f"{slug}.png"
+
+    # 1. Disk Cache hit
+    if dest_path.is_file() and dest_path.stat().st_size > 0:
+        return f"/static/manufacturer-icons/{slug}.png"
+
+    # Determine domain to check
+    m_lower = manufacturer.lower()
+    domain = None
+    for key, dom in _KNOWN_MANUFACTURER_DOMAINS.items():
+        if key in m_lower:
+            domain = dom
+            break
+
+    if not domain:
+        # Heuristic: use first word or clean slug + .com
+        clean_first = slug.split("_")[0]
+        if clean_first and len(clean_first) > 2:
+            domain = f"{clean_first}.com"
+
+    icon_bytes = None
+
+    # Step A: Google Favicon service
+    if domain:
+        try:
+            fav_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
+            req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = resp.read()
+                # Ensure it's non-trivial (>100 bytes)
+                if len(data) > 100:
+                    icon_bytes = data
+        except Exception:
+            pass
+
+    # Step B: Direct website probe (favicon.ico / common logo paths / HTML parse)
+    if not icon_bytes and domain:
+        ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        direct_candidates = [
+            f"https://www.{domain}/imgs/{domain.split('.')[0]}_logo.png",
+            f"https://www.{domain}/images/logo.png",
+            f"https://www.{domain}/favicon.ico",
+            f"https://{domain}/favicon.ico",
+        ]
+        for candidate_url in direct_candidates:
+            try:
+                req = urllib.request.Request(candidate_url, headers={"User-Agent": ua})
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    data = resp.read()
+                    ctype = resp.headers.get("Content-Type", "")
+                    if len(data) > 100 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))):
+                        icon_bytes = data
+                        break
+            except Exception:
+                continue
+
+        # If direct paths failed, try fetching root homepage to extract link rel="icon" or img src="*logo*"
+        if not icon_bytes:
+            try:
+                home_url = f"https://www.{domain}/"
+                req = urllib.request.Request(home_url, headers={"User-Agent": ua})
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    html = resp.read().decode("utf-8", errors="ignore")
+                found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
+                found_logos = re.findall(r'<img[^>]+src=[\"\']([^\"\']*(?:logo|icon)[^\"\']*)[\"\']', html, re.I)
+                for relative_or_abs in (found_links + found_logos):
+                    target = urljoin(home_url, relative_or_abs)
+                    try:
+                        t_req = urllib.request.Request(target, headers={"User-Agent": ua})
+                        with urllib.request.urlopen(t_req, timeout=4) as t_resp:
+                            t_data = t_resp.read()
+                            if len(t_data) > 100:
+                                icon_bytes = t_data
+                                break
+                    except Exception:
+                        continue
+                    if icon_bytes:
+                        break
+            except Exception:
+                pass
+
+    # Step C: Wikimedia pageimages fallback if direct probe didn't yield anything
+    if not icon_bytes:
+        try:
+            # Query clean name on Wikipedia
+            query_title = manufacturer.split(",")[0].strip()
+            wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&titles={urllib.parse.quote(query_title)}&pithumbsize=64"
+            req = urllib.request.Request(wiki_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"})
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                data = json.loads(resp.read().decode())
+                pages = data.get("query", {}).get("pages", {})
+                thumb_url = None
+                for p in pages.values():
+                    if "thumbnail" in p and "source" in p["thumbnail"]:
+                        thumb_url = p["thumbnail"]["source"]
+                        break
+                if thumb_url:
+                    img_req = urllib.request.Request(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"})
+                    with urllib.request.urlopen(img_req, timeout=4) as img_resp:
+                        img_data = img_resp.read()
+                        if len(img_data) > 100:
+                            icon_bytes = img_data
+        except Exception:
+            pass
+
+    # Save to disk cache if an icon was obtained
+    if icon_bytes:
+        try:
+            with open(dest_path, "wb") as f:
+                f.write(icon_bytes)
+            return f"/static/manufacturer-icons/{slug}.png"
+        except Exception as exc:
+            print(f"[IconCache] Failed to write {dest_path}: {exc}")
+
+    return None
+
+
 def _update_discovery_fields(service_id: int, ip, mac, manufacturer):
     """Persist the three discovery fields for one service."""
-    conn = get_db_connection()
-    conn.execute(
-        "UPDATE services SET discovered_ip=?, discovered_mac=?, "
-        "discovered_manufacturer=? WHERE id=?",
-        (ip, mac, manufacturer, service_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            "UPDATE services SET discovered_ip=?, discovered_mac=?, "
+            "discovered_manufacturer=? WHERE id=?",
+            (ip, mac, manufacturer, service_id),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[Discovery] DB update error: {exc}")
 
 
 def discover_network_info_for_service(service_id: int, hostname: str, prev_mac: str | None = None):
@@ -3680,6 +3891,11 @@ def discover_network_info_for_service(service_id: int, hostname: str, prev_mac: 
 
     manufacturer = _lookup_manufacturer(mac)
     _update_discovery_fields(service_id, ip, mac, manufacturer)
+    if manufacturer and manufacturer != "NONE":
+        try:
+            resolve_and_cache_manufacturer_icon(manufacturer)
+        except Exception:
+            pass
 
 
 def run_discovery_for_all_services():
