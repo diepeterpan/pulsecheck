@@ -3590,27 +3590,26 @@ def _resolve_mac(ip: str) -> str | None:
     """
     Look up MAC address for ip from the local ARP/neighbour cache.
     Works for same-LAN hosts; returns None for remote hosts.
-    Checks /host/proc/net/arp (Docker mount) and /proc/net/arp first,
-    then falls back to 'ip neigh' and 'arp -n'.
+    Checks /proc/net/arp first, then falls back to 'ip neigh' and 'arp -n'.
     """
-    # 1. Direct file lookup in /host/proc/net/arp or /proc/net/arp
-    for arp_path in (Path("/host/proc/net/arp"), Path("/proc/net/arp")):
-        if arp_path.is_file():
-            try:
-                with open(arp_path, "r", encoding="utf-8", errors="ignore") as f:
-                    # Skip header line: IP address HW type Flags HW address Mask Device
-                    lines = f.readlines()
-                    for line in lines[1:]:
-                        parts = line.split()
-                        if len(parts) >= 4 and parts[0] == ip:
-                            flags = parts[2]
-                            hw_addr = parts[3]
-                            # Flags 0x0 indicates incomplete/failed ARP entry
-                            if flags != "0x0" and re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", hw_addr):
-                                if hw_addr != "00:00:00:00:00:00":
-                                    return hw_addr.upper()
-            except Exception:
-                pass
+    # 1. Direct file lookup in /proc/net/arp
+    arp_path = Path("/proc/net/arp")
+    if arp_path.is_file():
+        try:
+            with open(arp_path, "r", encoding="utf-8", errors="ignore") as f:
+                # Skip header line: IP address HW type Flags HW address Mask Device
+                lines = f.readlines()
+                for line in lines[1:]:
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[0] == ip:
+                        flags = parts[2]
+                        hw_addr = parts[3]
+                        # Flags 0x0 indicates incomplete/failed ARP entry
+                        if flags != "0x0" and re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", hw_addr):
+                            if hw_addr != "00:00:00:00:00:00":
+                                return hw_addr.upper()
+        except Exception:
+            pass
 
     # 2. CLI fallback: 'ip neigh'
     try:

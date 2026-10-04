@@ -66,7 +66,6 @@ services:
     volumes:
       - pulsecheck-data:/app/data
       - /etc/localtime:/etc/localtime:ro
-      - /proc/net/arp:/host/proc/net/arp:ro
     restart: unless-stopped
 
 volumes:
