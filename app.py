@@ -2696,8 +2696,14 @@ def send_email(
     <div style="padding: 24px; font-size: 15px; line-height: 1.6; color: #1d2433;">
       {content_html}
     </div>
-    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
-      PulseCheck v{APP_VERSION} &bull; Network &amp; Service Monitoring
+    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center; line-height: 1.5;">
+      PulseCheck v{APP_VERSION}
+      <a href="https://github.com/diepeterpan/pulsecheck" target="_blank" rel="noopener noreferrer" style="display: inline-block; vertical-align: baseline; margin-left: 6px; margin-right: 8px; color: #64748b; text-decoration: none;" title="PulseCheck on GitHub">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display: inline-block; vertical-align: -1px;">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+        </svg>
+      </a>
+      Network &amp; Service Monitoring
     </div>
   </div>
 </body>
@@ -3623,6 +3629,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
     lines.append("---")
     lines.append(f"View live status at: {get_status_url()}")
+    lines.append(f"PulseCheck v{APP_VERSION} (https://github.com/diepeterpan/pulsecheck) - Network & Service Monitoring")
 
     body = "\n".join(lines)
 
@@ -3707,8 +3714,14 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         <a href="{get_status_url()}" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
       </div>
     </div>
-    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center;">
-      PulseCheck v{APP_VERSION} &bull; Network &amp; Service Monitoring
+    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center; line-height: 1.5;">
+      PulseCheck v{APP_VERSION}
+      <a href="https://github.com/diepeterpan/pulsecheck" target="_blank" rel="noopener noreferrer" style="display: inline-block; vertical-align: baseline; margin-left: 6px; margin-right: 8px; color: #64748b; text-decoration: none;" title="PulseCheck on GitHub">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display: inline-block; vertical-align: -1px;">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+        </svg>
+      </a>
+      Network &amp; Service Monitoring
     </div>
   </div>
 </body>
@@ -3722,6 +3735,136 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
     except Exception as exc:
         print(f"[PulseCheck Alert Error] Exception sending state change notification: {exc}")
         return False, str(exc)
+
+
+@app.route("/preview/email")
+def preview_email():
+    """Renders a sample state change alert email for preview and screenshot capture."""
+    sample_changes = [
+        {
+            "name": "bitwarden.dummy.net",
+            "old_status": "online",
+            "new_status": "offline",
+            "port_changes": [
+                "Port 443: ONLINE -> OFFLINE",
+                "Port 80: ONLINE -> OFFLINE",
+            ],
+        },
+        {
+            "name": "beszel-lenovo.dummy.net",
+            "old_status": "online",
+            "new_status": "degraded",
+            "port_changes": [
+                "Port 8080: ONLINE -> DEGRADED (Socket timeout)",
+            ],
+        },
+        {
+            "name": "nextcloud.dummy.net",
+            "old_status": "offline",
+            "new_status": "online",
+            "port_changes": [
+                "Port 443: OFFLINE -> ONLINE (HTTP 200 OK)",
+            ],
+        },
+    ]
+
+    count = len(sample_changes)
+    now_str = get_current_local_time_str()
+
+    def get_status_badge_color(status_str: str) -> str:
+        st = (status_str or "").strip().upper()
+        if st in ("ONLINE", "UP"):
+            return "#16a34a"  # Green
+        elif st in ("OFFLINE", "DOWN"):
+            return "#dc2626"  # Red
+        elif st in ("DEGRADED", "PARTIAL"):
+            return "#ea580c"  # Orange
+        return "#64748b"
+
+    def format_port_change_html(p_change: str) -> str:
+        if ":" in p_change and "->" in p_change:
+            prefix, rest = p_change.split(":", 1)
+            parts = rest.split("->")
+            if len(parts) == 2:
+                old_part = parts[0].strip()
+                new_part = parts[1].strip()
+                old_c = get_status_badge_color(old_part)
+                new_c = get_status_badge_color(new_part)
+                return (
+                    f"<strong style='color: #1e293b;'>{prefix.strip()}:</strong> "
+                    f"<strong style='color: {old_c};'>{old_part}</strong> &rarr; "
+                    f"<strong style='color: {new_c};'>{new_part}</strong>"
+                )
+        return p_change
+
+    cards_html = []
+    for item in sample_changes:
+        target_name = item.get("name")
+        old_st = (item.get("old_status") or "").upper()
+        new_st = (item.get("new_status") or "").upper()
+        badge_color = get_status_badge_color(new_st)
+        old_color = get_status_badge_color(old_st)
+        ports_html = ""
+        if item.get("port_changes"):
+            p_items = "".join(f"<li style='margin: 4px 0;'>{format_port_change_html(str(p))}</li>" for p in item["port_changes"])
+            ports_html = f"<div style='margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; color: #475569;'><strong style='color: #334155;'>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
+        cards_html.append(
+            f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
+  <div style="margin-bottom: 6px;">
+    <strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>
+    <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background-color: {badge_color}; color: #ffffff; vertical-align: middle;">{new_st}</span>
+  </div>
+  <div style="font-size: 13px; color: #475569;">Status changed from <strong style="color: {old_color};">{old_st}</strong> to <strong style="color: {badge_color};">{new_st}</strong></div>
+  {ports_html}
+</div>"""
+        )
+
+    service_cards_str = "\n".join(cards_html)
+    logo_src = url_for("static", filename="logo.png")
+
+    html_body = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PulseCheck Alert Preview</title>
+</head>
+<body style="margin: 0; padding: 32px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; color: #1d2433;">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);">
+    <div style="background: #0f172a; padding: 16px 24px;">
+      <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
+        <tr>
+          <td width="28" style="width: 28px; vertical-align: middle; padding-right: 10px;">
+            <img src="{logo_src}" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
+          </td>
+          <td style="vertical-align: middle;">
+            <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; vertical-align: middle;">PulseCheck</span>
+            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #94a3b8; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
+          </td>
+        </tr>
+      </table>
+    </div>
+    <div style="padding: 24px;">
+      <h2 style="margin: 0 0 8px 0; font-size: 18px; color: #0f172a;">Service State Change Alert</h2>
+      <p style="margin: 0 0 16px 0; font-size: 13px; color: #64748b;">Scan completed: {now_str}</p>
+      <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> services have changed state since the previous scan:</p>
+      {service_cards_str}
+      <div style="margin-top: 20px; text-align: center;">
+        <a href="{get_status_url()}" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
+      </div>
+    </div>
+    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center; line-height: 1.5;">
+      PulseCheck v{APP_VERSION}
+      <a href="https://github.com/diepeterpan/pulsecheck" target="_blank" rel="noopener noreferrer" style="display: inline-block; vertical-align: baseline; margin-left: 6px; margin-right: 8px; color: #64748b; text-decoration: none;" title="PulseCheck on GitHub">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="display: inline-block; vertical-align: -1px;">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+        </svg>
+      </a>
+      Network &amp; Service Monitoring
+    </div>
+  </div>
+</body>
+</html>"""
+    return Response(html_body, mimetype="text/html")
 
 
 def scan_service_with_retries(

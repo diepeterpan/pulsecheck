@@ -267,7 +267,7 @@ try:
     # 5. Settings & SMTP Alerts
     capture("settings", "/settings", height=920)
 
-    # 5. Data Import & Export
+    # 6. Data Import & Export
     js_import = """
     (function() {
       const ta = document.getElementById('services');
@@ -278,6 +278,9 @@ try:
     })();
     """
     capture("import_export", "/import", js_action=js_import, wait=1.2, height=880)
+
+    # 7. State Change Email Alert Notification Preview
+    capture("email_alert", "/preview/email", wait=1.0, height=820)
 
 finally:
     chrome_proc.terminate()

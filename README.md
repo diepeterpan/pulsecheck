@@ -56,7 +56,7 @@ Dedicated tabbed workflow for adding and editing services with ample room for co
 - **Tabbed Port Inspector**: Switch between individual port tabs or the "All Ports" summary table with status indicators, result codes, latency, and local timestamps.
 - **Response Token Highlighting**: Scrollable dark console viewer displaying HTTP headers and response body with matching tokens highlighted in real time.
 
-### 4. System Settings & SMTP Email Alerts
+### 4. System Settings & SMTP Configuration
 Centralized settings for automated notification dispatch, test emails, and HTTP proxy configuration.
 
 <p align="center">
@@ -68,7 +68,19 @@ Centralized settings for automated notification dispatch, test emails, and HTTP 
 - **Send Test Email**: Built-in verification tool to validate SMTP credentials and delivery path immediately.
 - **HTTP Proxy Server**: Centralized proxy configuration with per-service routing toggles.
 
-### 5. Data Import & Export
+### 5. Automated Email Alerts
+Modern responsive HTML alert notifications dispatched to your inbox whenever a monitored service changes state.
+
+<p align="center">
+  <img src="docs/screenshots/email_alert.png" alt="Automated Email Alert Notification" width="100%">
+</p>
+
+- **Instant State Transitions**: Shows previous and updated health statuses with distinct color badges (**ONLINE**, **DEGRADED**, **OFFLINE**).
+- **Per-Port Change Breakdown**: Displays individual port and protocol failure reasons (e.g. Socket timeout, HTTP status code change).
+- **One-Click Portal Access**: Direct "View Live Status" CTA button jumping straight to your PulseCheck dashboard.
+- **Branded Header & Footer**: Clean dark header with embedded logo and version, plus direct GitHub project link in the footer.
+
+### 6. Data Import & Export
 Rapid onboarding and data portability through raw text blocks and standard CSV files.
 
 <p align="center">
