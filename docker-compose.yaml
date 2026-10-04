@@ -28,6 +28,7 @@ services:
             tzdata \
             iproute2 \
             net-tools \
+            iputils-ping \
          && rm -rf /var/lib/apt/lists/*
 
         WORKDIR /app
