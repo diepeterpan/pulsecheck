@@ -2067,7 +2067,7 @@ def export_services_csv() -> tuple[str, int]:
     services = service_list()
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Service", "Match", "URL path", "Comment", "Paused", "Proxy", "Protocol", "Ports"])
+    writer.writerow(["Service", "Comment", "Paused", "Proxy", "Protocol", "Ports", "URL path", "Match"])
     for s in services:
         ports_list: list[dict] = s["ports"]  # list[dict] with port & protocol & match & url_path
         # Separate ICMP from TCP/UDP ports
@@ -2111,13 +2111,13 @@ def export_services_csv() -> tuple[str, int]:
 
         writer.writerow([
             s["name"],
-            match_str,
-            path_str,
             s.get("comment", "") or "",
             "1" if s["paused"] else "0",
             "1" if s.get("use_proxy") else "0",
             proto_str,
             ", ".join(port_nums),
+            path_str,
+            match_str,
         ])
     return output.getvalue(), len(services)
 
