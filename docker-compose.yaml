@@ -17,7 +17,7 @@ services:
             PULSECHECK_HEADLESS=1 \
             PULSECHECK_DB_PATH=/app/data/pulsecheck.db
 
-        # Install system dependencies: Python, pip, venv, curl, ca-certificates, tar, and tzdata
+        # Install system dependencies: Python, pip, venv, curl, ca-certificates, tar, tzdata, and iproute2
         RUN apt-get update && apt-get install -y --no-install-recommends \
             python3 \
             python3-pip \
@@ -26,6 +26,7 @@ services:
             ca-certificates \
             tar \
             tzdata \
+            iproute2 \
          && rm -rf /var/lib/apt/lists/*
 
         WORKDIR /app
