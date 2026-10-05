@@ -180,7 +180,7 @@
                 <td><code>Protocol</code></td>
                 <td><span class="tag-optional">Optional</span></td>
                 <td>
-                  Single protocol (e.g. <code>https</code>) applied to all ports, or a comma-separated list matching each port position (e.g. <code>"http, https, icmp-ping"</code>). Leave blank for auto-detect. Options: <code>http</code>, <code>https</code>, <code>socket</code>, <code>udp</code>, <code>udp-ssl</code>, <code>icmp-ping</code>
+                  Single protocol (e.g. <code>https</code>) applied to all ports, or a comma-separated list matching each port position (e.g. <code>"http, https, icmp-ping"</code>). Leave blank for auto-detect. Options: <code>http</code>, <code>https</code>, <code>tcp</code>, <code>tcp-ssl</code>, <code>udp</code>, <code>udp-ssl</code>, <code>icmp-ping</code>
                 </td>
               </tr>
               <tr>
@@ -191,23 +191,44 @@
                 </td>
               </tr>
               <tr>
+                <td><code>Request Type</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>
+                  <strong>Per-port request mode:</strong> <code>web</code> (WEB Get, default) or <code>custom</code> (raw hex payload request/response). Can be a single value applied to all ports or a comma-separated list positionally matching each port.
+                </td>
+              </tr>
+              <tr>
                 <td><code>URL path</code></td>
                 <td><span class="tag-optional">Optional</span></td>
                 <td>
-                  <strong>Per-port HTTP path(s).</strong> A single path applied to all non-ICMP ports, or a comma-separated list positionally aligned with each port in <code>Ports</code> (e.g. <code>"/, /health"</code>). ICMP ports ignore URL paths. Leave blank for default (<code>/</code>).
+                  <strong>Per-port HTTP path(s).</strong> A single path applied to all non-ICMP ports, or a comma-separated list positionally aligned with each port in <code>Ports</code> (e.g. <code>"/, /health"</code>). Applicable for <code>web</code> request type. Leave blank for default (<code>/</code>).
                 </td>
               </tr>
               <tr>
                 <td><code>Match</code></td>
                 <td><span class="tag-optional">Optional</span></td>
                 <td>
-                  <strong>Per-port token(s).</strong> A single string applied to all non-ICMP ports, or a comma-separated list positionally aligned with each port in <code>Ports</code> (e.g. <code>"welcome, api"</code>). ICMP ports ignore match tokens. Leave blank for none.
+                  <strong>Per-port token(s).</strong> A single string applied to all non-ICMP ports, or a comma-separated list positionally aligned with each port in <code>Ports</code> (e.g. <code>"welcome, api"</code>). Applicable for <code>web</code> request type. Leave blank for none.
+                </td>
+              </tr>
+              <tr>
+                <td><code>Request</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>
+                  <strong>Custom request hex payload.</strong> Space-separated hex bytes sent to the port when Request Type is <code>custom</code> (e.g. <code>"00 01 02 03"</code>).
+                </td>
+              </tr>
+              <tr>
+                <td><code>Response</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>
+                  <strong>Custom expected response hex payload.</strong> Space-separated hex bytes expected in the received bytes when Request Type is <code>custom</code> (e.g. <code>"04 05"</code>). Leave blank to treat any response as online.
                 </td>
               </tr>
             </tbody>
           </table>
           <div style="margin-top: 14px;">
-            <a href="data:text/csv;charset=utf-8,Service%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%2CURL%20path%2CMatch%0Ainternal.corp.local%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%2C%22%2F%2C%20%2Fhealth%22%2C%22welcome%2C%20api%22%0Aapi.example.com%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%2C%2Capi%0Aedge-router.local%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%2C%2C%0Amulti-probe.example%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20https%2C%20icmp-ping%22%2C%2280%2C%20443%2C%20icmp%22%2C%22%2Fping%2C%20%2C%22%2C%22ok%2C%20%2C%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+            <a href="data:text/csv;charset=utf-8,Service%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%2CRequest%20Type%2CURL%20path%2CMatch%2CRequest%2CResponse%0Ainternal.corp.local%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%2Cweb%2C%22%2F%2C%20%2Fhealth%22%2C%22welcome%2C%20api%22%2C%2C%0Aapi.example.com%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%2Cweb%2C%2Capi%2C%2C%0Aedge-router.local%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%2Cweb%2C%2C%2C%2C%0Acustom-device.local%2CHex%20Device%2C0%2C0%2Ctcp%2C%229000%22%2Ccustom%2C%2C%2C%2201%2002%2003%22%2C%2204%2005%22%0Amulti-probe.example%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20tcp%2C%20icmp-ping%22%2C%2280%2C%209000%2C%20icmp%22%2C%22web%2C%20custom%2C%20web%22%2C%22%2Fping%2C%20%2C%22%2C%22ok%2C%20%2C%22%2C%22%2C%2001%2002%2C%20%22%2C%22%2C%2003%2004%2C%20%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download Sample CSV Template
             </a>

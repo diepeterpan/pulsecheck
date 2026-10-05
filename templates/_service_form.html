@@ -111,42 +111,52 @@
           </div>
 
           <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto; margin-bottom: 10px; background: #ffffff;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 620px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 760px;">
               <thead>
                 <tr style="background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 15%;">Port</th>
-                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 23%;">Protocol</th>
-                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 27%;">Match Token</th>
-                  <th style="padding: 10px 14px; text-align: left; font-weight: 600; color: #475569; width: 30%;">URL Path</th>
+                  <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; width: 13%;">Port</th>
+                  <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; width: 18%;">Protocol</th>
+                  <th style="padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; width: 15%;">Type</th>
+                  <th id="th-col-match-hex" style="padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; width: 26%;">Match Token</th>
+                  <th id="th-col-path-resp" style="padding: 10px 12px; text-align: left; font-weight: 600; color: #475569; width: 24%;">URL Path</th>
                   <th style="padding: 10px 8px; width: 36px;"></th>
                 </tr>
               </thead>
               <tbody id="port-rows">
                 {% set tcp_ports = item.ports | selectattr('port', 'defined') | selectattr('port', 'ne', none) | list if item.ports else [] %}
                 {% for p in tcp_ports %}
+                  {% set is_cust = p.request_type == 'custom' %}
                   <tr class="port-config-row" style="border-bottom: 1px solid #f1f5f9;">
-                    <td style="padding: 8px 12px;">
+                    <td style="padding: 8px 10px; vertical-align: top;">
                       <input type="number" class="port-row-num" min="1" max="65535" placeholder="e.g. 80" value="{{ p.port }}" required style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;">
                     </td>
-                    <td style="padding: 8px 12px;">
+                    <td style="padding: 8px 10px; vertical-align: top;">
                       <select class="port-row-proto" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; font-size: 0.85rem;">
                         <option value="" {% if not p.protocol %}selected{% endif %}>Auto-detect</option>
                         <option value="http" {% if p.protocol == 'http' %}selected{% endif %}>HTTP</option>
                         <option value="https" {% if p.protocol == 'https' %}selected{% endif %}>HTTPS</option>
-                        <option value="socket" {% if p.protocol == 'socket' %}selected{% endif %}>SOCKET</option>
-                        <option value="socket-ssl" {% if p.protocol == 'socket-ssl' %}selected{% endif %}>SOCKET SSL</option>
+                        <option value="tcp" {% if p.protocol == 'tcp' %}selected{% endif %}>TCP</option>
+                        <option value="tcp-ssl" {% if p.protocol == 'tcp-ssl' %}selected{% endif %}>TCP SSL</option>
                         <option value="udp" {% if p.protocol == 'udp' %}selected{% endif %}>UDP</option>
                         <option value="udp-ssl" {% if p.protocol == 'udp-ssl' %}selected{% endif %}>UDP SSL</option>
                       </select>
                     </td>
-                    <td style="padding: 8px 12px;">
-                      <input type="text" class="port-row-match" placeholder="Optional token" value="{{ p.match or '' }}" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;">
+                    <td style="padding: 8px 10px; vertical-align: top;">
+                      <select class="port-row-rtype" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; font-size: 0.85rem;">
+                        <option value="web" {% if not is_cust %}selected{% endif %}>WEB Get</option>
+                        <option value="custom" {% if is_cust %}selected{% endif %}>Custom</option>
+                      </select>
                     </td>
-                    <td style="padding: 8px 12px;">
-                      <input type="text" class="port-row-path" placeholder="/path" value="{{ p.url_path or '' }}" style="width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;">
+                    <td style="padding: 8px 10px; vertical-align: top;">
+                      <textarea class="port-row-match" rows="1" placeholder="Match token" style="width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: inherit; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all; {% if is_cust %}display: none;{% endif %}" {% if is_cust %}disabled{% endif %}>{{ p.match or '' }}</textarea>
+                      <textarea class="port-row-req" rows="1" placeholder="Request hex (e.g. 48 65 6c 6c 6f)" style="width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: monospace; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all; {% if not is_cust %}display: none;{% endif %}" {% if not is_cust %}disabled{% endif %}>{{ p.request_payload or '' }}</textarea>
                     </td>
-                    <td style="padding: 8px 8px; text-align: center;">
-                      <button type="button" class="btn-remove-port" title="Remove port" style="background: none; border: none; cursor: pointer; color: #94a3b8; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin: 0 auto;">
+                    <td style="padding: 8px 10px; vertical-align: top;">
+                      <textarea class="port-row-path" rows="1" placeholder="/path" style="width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: inherit; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all; {% if is_cust %}display: none;{% endif %}" {% if is_cust %}disabled{% endif %}>{{ p.url_path or '' }}</textarea>
+                      <textarea class="port-row-resp" rows="1" placeholder="Response hex (optional)" style="width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: monospace; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all; {% if not is_cust %}display: none;{% endif %}" {% if not is_cust %}disabled{% endif %}>{{ p.response_payload or '' }}</textarea>
+                    </td>
+                    <td style="padding: 8px 8px; text-align: center; vertical-align: top;">
+                      <button type="button" class="btn-remove-port" title="Remove port" style="background: none; border: none; cursor: pointer; color: #94a3b8; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin: 4px auto 0;">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                       </button>
                     </td>
@@ -160,7 +170,7 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add Port
             </button>
-            <span class="field-hint" style="font-size: 0.78rem; color: #64748b;">Leave protocol as Auto-detect to have PulseCheck discover it.</span>
+            <span class="field-hint" style="font-size: 0.78rem; color: #64748b;">Configure WEB Get or Custom request payloads with space-separated hex bytes.</span>
           </div>
         </div>
 
@@ -219,7 +229,7 @@
         </div>
         <div class="diag-empty-title">Test Port Probes Live</div>
         <div class="diag-empty-desc">
-          Verify connectivity across HTTP, HTTPS, Socket, UDP, and ICMP protocols with latency and match string highlighting before saving.
+          Verify connectivity across HTTP, HTTPS, TCP, UDP, and ICMP protocols with latency and match string highlighting before saving.
         </div>
         <button type="button" id="btn-placeholder-test" class="button primary" style="display: inline-flex; align-items: center; gap: 8px;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -231,7 +241,7 @@
       <div id="diag-loading" class="diag-loading-state" style="display: none;">
         <div class="diag-spinner"></div>
         <div class="diag-loading-title">Probing configured ports...</div>
-        <div class="diag-loading-hint">Testing HTTP, HTTPS, Socket, UDP, and ICMP protocols and evaluating match string.</div>
+        <div class="diag-loading-hint">Testing HTTP, HTTPS, TCP, UDP, and ICMP protocols and evaluating match string.</div>
       </div>
 
       <!-- State 3: Error State -->
@@ -263,8 +273,8 @@
       { value: "", label: "Auto-detect" },
       { value: "http", label: "HTTP" },
       { value: "https", label: "HTTPS" },
-      { value: "socket", label: "SOCKET" },
-      { value: "socket-ssl", label: "SOCKET SSL" },
+      { value: "tcp", label: "TCP" },
+      { value: "tcp-ssl", label: "TCP SSL" },
       { value: "udp", label: "UDP" },
       { value: "udp-ssl", label: "UDP SSL" },
     ];
@@ -291,25 +301,107 @@
       return sel;
     }
 
+    function makeRTypeSelect(selectedVal) {
+      const sel = document.createElement("select");
+      sel.className = "port-row-rtype";
+      sel.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; font-size: 0.84rem;";
+      const optWeb = document.createElement("option");
+      optWeb.value = "web";
+      optWeb.textContent = "WEB Get";
+      if ((selectedVal || "web") === "web") optWeb.selected = true;
+      sel.appendChild(optWeb);
+
+      const optCustom = document.createElement("option");
+      optCustom.value = "custom";
+      optCustom.textContent = "Custom";
+      if (selectedVal === "custom") optCustom.selected = true;
+      sel.appendChild(optCustom);
+      return sel;
+    }
+
+    function updateHeaderLabels() {
+      const thMatchHex = document.getElementById("th-col-match-hex");
+      const thPathResp = document.getElementById("th-col-path-resp");
+      if (!thMatchHex || !thPathResp) return;
+
+      const rtypeSels = Array.from(portRowsEl.querySelectorAll(".port-row-rtype"));
+      if (rtypeSels.length === 0) {
+        thMatchHex.textContent = "Match Token";
+        thPathResp.textContent = "URL Path";
+        return;
+      }
+
+      const hasCustom = rtypeSels.some(s => s.value === "custom");
+      const hasWeb = rtypeSels.some(s => s.value !== "custom");
+
+      if (hasCustom && !hasWeb) {
+        thMatchHex.textContent = "Hex";
+        thPathResp.textContent = "Response";
+      } else if (hasWeb && !hasCustom) {
+        thMatchHex.textContent = "Match Token";
+        thPathResp.textContent = "URL Path";
+      } else {
+        thMatchHex.textContent = "Match Token / Hex";
+        thPathResp.textContent = "URL Path / Response";
+      }
+    }
+
+    function syncRowFieldVisibility(tr) {
+      const rtypeSel = tr.querySelector(".port-row-rtype");
+      const matchInput = tr.querySelector(".port-row-match");
+      const pathInput = tr.querySelector(".port-row-path");
+      const reqInput = tr.querySelector(".port-row-req");
+      const respInput = tr.querySelector(".port-row-resp");
+      const isCustom = rtypeSel && rtypeSel.value === "custom";
+
+      if (matchInput) {
+        matchInput.style.display = isCustom ? "none" : "";
+        matchInput.disabled = isCustom;
+      }
+      if (pathInput) {
+        pathInput.style.display = isCustom ? "none" : "";
+        pathInput.disabled = isCustom;
+      }
+      if (reqInput) {
+        reqInput.style.display = isCustom ? "" : "none";
+        reqInput.disabled = !isCustom;
+      }
+      if (respInput) {
+        respInput.style.display = isCustom ? "" : "none";
+        respInput.disabled = !isCustom;
+      }
+    }
+
     function wireRowEvents(tr) {
       const delBtn = tr.querySelector("button");
       if (delBtn) {
         delBtn.addEventListener("click", () => {
           tr.remove();
+          updateHeaderLabels();
           updatePortsHidden();
         });
         delBtn.addEventListener("mouseenter", () => { delBtn.style.color = "#dc2626"; });
         delBtn.addEventListener("mouseleave", () => { delBtn.style.color = "#94a3b8"; });
       }
+
+      const rtypeSel = tr.querySelector(".port-row-rtype");
+      if (rtypeSel) {
+        rtypeSel.addEventListener("change", () => {
+          syncRowFieldVisibility(tr);
+          updateHeaderLabels();
+          updatePortsHidden();
+        });
+      }
+      syncRowFieldVisibility(tr);
     }
 
-    function addPortRow(portNum, proto, matchVal, pathVal) {
+    function addPortRow(portNum, proto, matchVal, pathVal, rtypeVal, reqVal, respVal) {
       const tr = document.createElement("tr");
       tr.className = "port-config-row";
       tr.style.cssText = "border-bottom: 1px solid #f1f5f9;";
 
       const tdPort = document.createElement("td");
-      tdPort.style.padding = "6px 8px";
+      tdPort.style.cssText = "padding: 8px 10px; vertical-align: top;";
       const portInput = document.createElement("input");
       portInput.type = "number";
       portInput.className = "port-row-num";
@@ -317,51 +409,73 @@
       portInput.max = "65535";
       portInput.placeholder = "e.g. 80";
       portInput.value = portNum != null ? portNum : "";
-      portInput.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;";
+      portInput.style.cssText = "width: 100%; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; box-sizing: border-box;";
       portInput.required = true;
       tdPort.appendChild(portInput);
 
       const tdProto = document.createElement("td");
-      tdProto.style.padding = "6px 8px";
+      tdProto.style.cssText = "padding: 8px 10px; vertical-align: top;";
       tdProto.appendChild(makeProtoSelect(proto || ""));
 
-      const tdMatch = document.createElement("td");
-      tdMatch.style.padding = "6px 8px";
-      const matchInput = document.createElement("input");
-      matchInput.type = "text";
-      matchInput.className = "port-row-match";
-      matchInput.placeholder = "Optional token";
-      matchInput.value = matchVal || "";
-      matchInput.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;";
-      tdMatch.appendChild(matchInput);
+      const tdRType = document.createElement("td");
+      tdRType.style.cssText = "padding: 8px 10px; vertical-align: top;";
+      tdRType.appendChild(makeRTypeSelect(rtypeVal || "web"));
 
-      const tdPath = document.createElement("td");
-      tdPath.style.padding = "6px 8px";
-      const pathInput = document.createElement("input");
-      pathInput.type = "text";
+      const tdCol4 = document.createElement("td");
+      tdCol4.style.cssText = "padding: 8px 10px; vertical-align: top;";
+      const matchInput = document.createElement("textarea");
+      matchInput.className = "port-row-match";
+      matchInput.rows = 1;
+      matchInput.placeholder = "Match token";
+      matchInput.value = matchVal || "";
+      matchInput.style.cssText = "width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: inherit; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all;";
+      tdCol4.appendChild(matchInput);
+
+      const reqInput = document.createElement("textarea");
+      reqInput.className = "port-row-req";
+      reqInput.rows = 1;
+      reqInput.placeholder = "Request hex (e.g. 48 65 6c 6c 6f)";
+      reqInput.value = reqVal || "";
+      reqInput.style.cssText = "width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: monospace; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all;";
+      tdCol4.appendChild(reqInput);
+
+      const tdCol5 = document.createElement("td");
+      tdCol5.style.cssText = "padding: 8px 10px; vertical-align: top;";
+      const pathInput = document.createElement("textarea");
       pathInput.className = "port-row-path";
+      pathInput.rows = 1;
       pathInput.placeholder = "/path";
       pathInput.value = pathVal || "";
-      pathInput.style.cssText = "width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 5px; font-size: 0.84rem; box-sizing: border-box;";
-      tdPath.appendChild(pathInput);
+      pathInput.style.cssText = "width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: inherit; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all;";
+      tdCol5.appendChild(pathInput);
+
+      const respInput = document.createElement("textarea");
+      respInput.className = "port-row-resp";
+      respInput.rows = 1;
+      respInput.placeholder = "Response hex (optional)";
+      respInput.value = respVal || "";
+      respInput.style.cssText = "width: 100%; min-height: 35px; height: 35px; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-family: monospace; line-height: 1.35; resize: vertical; box-sizing: border-box; overflow-y: auto; white-space: pre-wrap; word-break: break-all;";
+      tdCol5.appendChild(respInput);
 
       const tdDel = document.createElement("td");
-      tdDel.style.cssText = "padding: 6px 6px; text-align: center;";
+      tdDel.style.cssText = "padding: 8px 8px; text-align: center; vertical-align: top;";
       const delBtn = document.createElement("button");
       delBtn.type = "button";
       delBtn.title = "Remove port";
-      delBtn.style.cssText = "background: none; border: none; cursor: pointer; color: #94a3b8; padding: 3px; border-radius: 4px; display: flex; align-items: center;";
-      delBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+      delBtn.style.cssText = "background: none; border: none; cursor: pointer; color: #94a3b8; padding: 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; margin: 4px auto 0;";
+      delBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
       tdDel.appendChild(delBtn);
 
       tr.appendChild(tdPort);
       tr.appendChild(tdProto);
-      tr.appendChild(tdMatch);
-      tr.appendChild(tdPath);
+      tr.appendChild(tdRType);
+      tr.appendChild(tdCol4);
+      tr.appendChild(tdCol5);
       tr.appendChild(tdDel);
       portRowsEl.appendChild(tr);
 
       wireRowEvents(tr);
+      updateHeaderLabels();
       updatePortsHidden();
     }
 
@@ -372,15 +486,22 @@
       rows.forEach(row => {
         const portInput = row.querySelector(".port-row-num");
         const protoSel = row.querySelector(".port-row-proto");
+        const rtypeSel = row.querySelector(".port-row-rtype");
         const matchInput = row.querySelector(".port-row-match");
         const pathInput = row.querySelector(".port-row-path");
+        const reqInput = row.querySelector(".port-row-req");
+        const respInput = row.querySelector(".port-row-resp");
         const portVal = parseInt(portInput.value);
+        const rtypeVal = (rtypeSel && rtypeSel.value === "custom") ? "custom" : "web";
         if (portVal >= 1 && portVal <= 65535) {
           result.push({
             port: portVal,
             protocol: protoSel ? protoSel.value : "",
-            match: matchInput ? matchInput.value.trim() : "",
-            url_path: pathInput ? pathInput.value.trim() : "",
+            request_type: rtypeVal,
+            match: rtypeVal === "web" && matchInput ? matchInput.value.trim() : "",
+            url_path: rtypeVal === "web" && pathInput ? pathInput.value.trim() : "",
+            request_payload: rtypeVal === "custom" && reqInput ? reqInput.value.trim() : "",
+            response_payload: rtypeVal === "custom" && respInput ? respInput.value.trim() : "",
           });
           numList.push(portVal);
         }
@@ -394,6 +515,7 @@
 
     // Attach listeners to server-rendered rows
     portRowsEl.querySelectorAll(".port-config-row").forEach(wireRowEvents);
+    updateHeaderLabels();
 
     const isAdd = {{ 'true' if is_add else 'false' }};
 
@@ -408,11 +530,19 @@
     if (portRowsEl.querySelectorAll(".port-config-row").length === 0) {
       const tcpPorts = serverPorts.filter(p => p.port != null);
       if (tcpPorts.length > 0) {
-        tcpPorts.forEach(p => addPortRow(p.port, p.protocol || "", p.match || "", p.url_path || ""));
+        tcpPorts.forEach(p => addPortRow(
+          p.port,
+          p.protocol || "",
+          p.match || "",
+          p.url_path || "",
+          p.request_type || "web",
+          p.request_payload || "",
+          p.response_payload || ""
+        ));
       }
     }
 
-    btnAddPort.addEventListener("click", () => addPortRow(null, "", "", ""));
+    btnAddPort.addEventListener("click", () => addPortRow(null, "", "", "", "web", "", ""));
 
     // Serialize before submit
     form.addEventListener("submit", () => {
@@ -534,8 +664,8 @@
       const map = {
         "http": "HTTP",
         "https": "HTTPS",
-        "socket": "SOCKET",
-        "socket-ssl": "SOCKET SSL",
+        "tcp": "TCP",
+        "tcp-ssl": "TCP SSL",
         "udp": "UDP",
         "udp-ssl": "UDP SSL",
         "icmp": "ICMP PING",
@@ -552,15 +682,22 @@
       rows.forEach(row => {
         const portInput = row.querySelector(".port-row-num");
         const protoSel = row.querySelector(".port-row-proto");
+        const rtypeSel = row.querySelector(".port-row-rtype");
         const matchInput = row.querySelector(".port-row-match");
         const pathInput = row.querySelector(".port-row-path");
+        const reqInput = row.querySelector(".port-row-req");
+        const respInput = row.querySelector(".port-row-resp");
         const portVal = parseInt(portInput.value);
+        const rtypeVal = (rtypeSel && rtypeSel.value === "custom") ? "custom" : "web";
         if (portVal >= 1 && portVal <= 65535) {
           result.push({
             port: portVal,
             protocol: protoSel ? protoSel.value : "",
-            match: matchInput ? matchInput.value.trim() : "",
-            url_path: pathInput ? pathInput.value.trim() : "",
+            request_type: rtypeVal,
+            match: rtypeVal === "web" && matchInput ? matchInput.value.trim() : "",
+            url_path: rtypeVal === "web" && pathInput ? pathInput.value.trim() : "",
+            request_payload: rtypeVal === "custom" && reqInput ? reqInput.value.trim() : "",
+            response_payload: rtypeVal === "custom" && respInput ? respInput.value.trim() : "",
           });
         }
       });
@@ -784,20 +921,26 @@
             `;
           }
         } else if (p.match_found) {
+          const matchDesc = p.request_type === "custom"
+            ? `Expected hex response <code>"${escapeHtml(p.match_token)}"</code> was detected in the received bytes.`
+            : `Expected token <code>"${escapeHtml(p.match_token)}"</code> was detected <strong>${p.match_count}</strong> time${p.match_count > 1 ? "s" : ""} in response.`;
           bannerHtml = `
             <div class="diag-match-banner found">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               <div>
-                <strong>Matching token found:</strong> Expected token <code>"${escapeHtml(p.match_token)}"</code> was detected <strong>${p.match_count}</strong> time${p.match_count > 1 ? "s" : ""} in response.
+                <strong>${p.request_type === "custom" ? "Matching response hex found:" : "Matching token found:"}</strong> ${matchDesc}
               </div>
             </div>
           `;
         } else if (p.response_snippet) {
+          const notFoundDesc = p.request_type === "custom"
+            ? (p.match_token ? `Target responded, but expected hex <code>"${escapeHtml(p.match_token)}"</code> was not present in the received payload.` : `Target responded (${p.status_text || "Received bytes"}).`)
+            : (p.match_token ? `Target responded, but token <code>"${escapeHtml(p.match_token)}"</code> was not present in the headers or body.` : `Target responded.`);
           bannerHtml = `
             <div class="diag-match-banner not-found">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               <div>
-                <strong>Matching token not found:</strong> Target responded, but token <code>"${escapeHtml(p.match_token)}"</code> was not present in the headers or body.
+                <strong>${p.match_token ? (p.request_type === "custom" ? "Matching hex not found:" : "Matching token not found:") : "Target responded:"}</strong> ${notFoundDesc}
               </div>
             </div>
           `;

@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import socket
 import tempfile
@@ -141,7 +142,7 @@ class ServiceTests(unittest.TestCase):
         export_resp = self.client.get("/services/export.csv")
         self.assertEqual(export_resp.status_code, 200)
         self.assertIn("attachment; filename=pulsecheck_services.csv", export_resp.headers["Content-Disposition"])
-        self.assertIn(b"Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match", export_resp.data)
+        self.assertIn(b"Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response", export_resp.data)
         self.assertIn(b"portal.service.local", export_resp.data)
 
         # POST /services/<id>/delete
@@ -501,10 +502,10 @@ invalid service host,,,,,
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 3)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match")
-        self.assertIn("dns-server.local,,0,0,udp,53,,dns", lines)
-        self.assertIn("vpn-gateway.local,,0,0,udp-ssl,4433,,vpn", lines)
-        self.assertIn("core-router.local,,0,0,icmp-ping,1,,router", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response")
+        self.assertIn("dns-server.local,,0,0,udp,53,web,,dns,,", lines)
+        self.assertIn("vpn-gateway.local,,0,0,udp-ssl,4433,web,,vpn,,", lines)
+        self.assertIn("core-router.local,,0,0,icmp-ping,1,web,,router,,", lines)
 
         # 3. Clean DB and import the CSV
         conn = pulsecheck_app.get_db_connection()
@@ -917,8 +918,134 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
         # Verify Export CSV output
         export_csv, count = pulsecheck_app.export_services_csv()
         self.assertGreaterEqual(count, 2)
-        self.assertIn('hybrid-import.example,Hybrid Test,0,1,"http, https, icmp-ping","80, 443, icmp",/health,welcome', export_csv)
-        self.assertIn("router-import.example,Router Test,0,0,icmp-ping,icmp,,", export_csv)
+        self.assertIn('hybrid-import.example,Hybrid Test,0,1,"http, https, icmp-ping","80, 443, icmp",web,/health,welcome,,', export_csv)
+        self.assertIn("router-import.example,Router Test,0,0,icmp-ping,icmp,web,,,,", export_csv)
+
+    def test_hex_byte_helpers(self):
+        # parse_hex_bytes valid
+        self.assertEqual(pulsecheck_app.parse_hex_bytes("48 65 6c 6c 6f"), b"Hello")
+        self.assertEqual(pulsecheck_app.parse_hex_bytes("0x48 0x65, 0x6C"), b"Hel")
+        self.assertEqual(pulsecheck_app.parse_hex_bytes(""), b"")
+        self.assertEqual(pulsecheck_app.parse_hex_bytes(None), b"")
+        # parse_hex_bytes invalid
+        with self.assertRaises(ValueError):
+            pulsecheck_app.parse_hex_bytes("48 zz 6c")
+        with self.assertRaises(ValueError):
+            pulsecheck_app.parse_hex_bytes("485")
+
+        # format_hex_bytes
+        self.assertEqual(pulsecheck_app.format_hex_bytes("48 65 6c 6c 6f"), "48 65 6C 6C 6F")
+        self.assertEqual(pulsecheck_app.format_hex_bytes(b"Hello"), "48 65 6C 6C 6F")
+        self.assertEqual(pulsecheck_app.format_hex_bytes(""), "")
+
+    def test_custom_request_probing(self):
+        # Test scan_service with custom request type over TCP
+        conn = pulsecheck_app.get_db_connection()
+        p_data = pulsecheck_app.port_protocol_to_json([{
+            "port": 9000,
+            "protocol": "tcp",
+            "request_type": "custom",
+            "request_payload": "01 02 03",
+            "response_payload": "04 05",
+        }])
+        cursor = conn.execute(
+            "INSERT INTO services (name, request_type, port_protocol) VALUES (?, 'custom', ?)",
+            ("custom.service.local", p_data),
+        )
+        conn.commit()
+        service_id = cursor.lastrowid
+        conn.close()
+
+        # Mock fetch_tcp_response returning bytes containing b"\x04\x05"
+        with patch("app.fetch_tcp_response", return_value=b"\x00\x04\x05\x09") as mock_tcp:
+            pulsecheck_app.scan_service(
+                service_id,
+                "custom.service.local",
+                [{
+                    "port": 9000,
+                    "protocol": "tcp",
+                    "request_type": "custom",
+                    "request_payload": "01 02 03",
+                    "response_payload": "04 05",
+                }]
+            )
+            # Verify fetch_tcp_response was called with custom_request_bytes=b"\x01\x02\x03"
+            mock_tcp.assert_called_once_with("custom.service.local", 9000, "", custom_request_bytes=b"\x01\x02\x03")
+
+        conn = pulsecheck_app.get_db_connection()
+        check = conn.execute("SELECT status FROM port_checks WHERE service_id = ? AND port = 9000", (service_id,)).fetchone()
+        conn.close()
+        self.assertEqual(check["status"], "online")
+
+    def test_custom_request_clears_opposite_fields_in_port_json(self):
+        # Custom request should clear match and url_path
+        port_entry = {
+            "port": 8080,
+            "protocol": "tcp",
+            "request_type": "custom",
+            "match": "some_token",
+            "url_path": "/some_path",
+            "request_payload": "aa bb",
+            "response_payload": "cc dd",
+        }
+        json_str = pulsecheck_app.port_protocol_to_json([port_entry])
+        parsed = json.loads(json_str)[0]
+        self.assertEqual(parsed["request_type"], "custom")
+        self.assertEqual(parsed["match"], "")
+        self.assertEqual(parsed["url_path"], "")
+        self.assertEqual(parsed["request_payload"], "AA BB")
+        self.assertEqual(parsed["response_payload"], "CC DD")
+
+        # WEB request should clear request_payload and response_payload
+        web_entry = {
+            "port": 80,
+            "protocol": "http",
+            "request_type": "web",
+            "match": "token",
+            "url_path": "/path",
+            "request_payload": "aa bb",
+            "response_payload": "cc dd",
+        }
+        json_web = pulsecheck_app.port_protocol_to_json([web_entry])
+        parsed_web = json.loads(json_web)[0]
+        self.assertEqual(parsed_web["request_type"], "web")
+        self.assertEqual(parsed_web["match"], "token")
+        self.assertEqual(parsed_web["url_path"], "/path")
+        self.assertEqual(parsed_web["request_payload"], "")
+        self.assertEqual(parsed_web["response_payload"], "")
+
+    @patch("app.discover_ports", return_value=[{"port": 80, "protocol": "http"}])
+    @patch("app.scan_service")
+    def test_quick_text_import_defaults_to_web(self, mock_scan, mock_discover):
+        summary = pulsecheck_app.import_service_names(["new-quick-service.local"])
+        self.assertEqual(summary["imported"], 1)
+
+        services = {s["name"]: s for s in pulsecheck_app.service_list()}
+        svc = services["new-quick-service.local"]
+        self.assertEqual(svc["request_type"], "web")
+        self.assertEqual(len(svc["ports"]), 1)
+        self.assertEqual(svc["ports"][0]["request_type"], "web")
+
+    @patch("app.scan_service")
+    def test_csv_import_export_custom_requests(self, mock_scan):
+        csv_content = """Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response
+custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
+"""
+        summary = pulsecheck_app.import_services_from_csv(csv_content)
+        self.assertEqual(summary["imported"], 1)
+
+        services = {s["name"]: s for s in pulsecheck_app.service_list()}
+        svc = services["custom-app.local"]
+        port_entry = svc["ports"][0]
+        self.assertEqual(port_entry["request_type"], "custom")
+        self.assertEqual(port_entry["request_payload"], "01 02 03")
+        self.assertEqual(port_entry["response_payload"], "04 05")
+        self.assertEqual(port_entry["match"], "")
+        self.assertEqual(port_entry["url_path"], "")
+
+        # Export and verify roundtrip
+        exported, _ = pulsecheck_app.export_services_csv()
+        self.assertIn("custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05", exported)
 
 
 if __name__ == "__main__":

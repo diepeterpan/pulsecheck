@@ -323,9 +323,9 @@ class SettingsTests(unittest.TestCase):
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match")
-        self.assertIn('service-a.com,Internal gateway,0,0,,"80, 443",/test,service', lines)
-        self.assertIn("service-b.com,,1,0,,8080,,other", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response")
+        self.assertIn('service-a.com,Internal gateway,0,0,,"80, 443",web,/test,service,,', lines)
+        self.assertIn("service-b.com,,1,0,,8080,web,,other,,", lines)
 
     @patch("app.scan_service")
     def test_import_services_from_csv_success_and_skip_duplicates(self, mock_scan):
@@ -382,8 +382,8 @@ bad site!!,bad,,0,80
         self.assertEqual(response.content_type, "text/csv; charset=utf-8")
         self.assertIn("attachment; filename=pulsecheck_services.csv", response.headers["Content-Disposition"])
         self.assertEqual(response.headers["X-Exported-Count"], "1")
-        self.assertIn(b"Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match", response.data)
-        self.assertIn(b"test.org,,0,0,,443,,test", response.data)
+        self.assertIn(b"Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response", response.data)
+        self.assertIn(b"test.org,,0,0,,443,web,,test,,", response.data)
 
     @patch("app.scan_service")
     def test_import_route_csv_upload(self, mock_scan):
@@ -1105,9 +1105,9 @@ direct.example,direct,,Direct site,0,0,8080
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match")
-        self.assertIn('proxied.example,Gateway,0,1,,"80, 443",/health,proxied', lines)
-        self.assertIn("direct.example,Direct site,0,0,,8080,,direct", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response")
+        self.assertIn('proxied.example,Gateway,0,1,,"80, 443",web,/health,proxied,,', lines)
+        self.assertIn("direct.example,Direct site,0,0,,8080,web,,direct,,", lines)
 
     def test_fetch_response_http_uses_proxy_server(self):
         class FakeResponse:
@@ -1232,9 +1232,9 @@ direct.example,direct,,Direct site,0,0,8080
             )
         self.assertIn("requires proxy access", str(ctx.exception))
 
-    @patch("app.fetch_socket_response")
+    @patch("app.fetch_tcp_response")
     @patch("app.fetch_response")
-    def test_scan_service_uses_proxy_and_skips_socket_fallback(self, mock_fetch, mock_socket):
+    def test_scan_service_uses_proxy_and_skips_tcp_fallback(self, mock_fetch, mock_tcp):
         # Configure service in DB with use_proxy=1
         conn = pulsecheck_app.get_db_connection()
         cur = conn.execute(
@@ -1254,8 +1254,8 @@ direct.example,direct,,Direct site,0,0,8080
         mock_fetch.assert_called_once()
         self.assertTrue(mock_fetch.call_args.kwargs.get("use_proxy"))
 
-        # Verify direct socket fallback was NOT attempted
-        mock_socket.assert_not_called()
+        # Verify direct TCP fallback was NOT attempted
+        mock_tcp.assert_not_called()
 
     def test_fetch_response_concatenates_headers_to_body(self):
         class FakeResponse:
