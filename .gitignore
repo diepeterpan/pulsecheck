@@ -4,3 +4,4 @@ __pycache__/
 *.db
 .DS_Store
 manufacturer_icons/
+service_icons/
