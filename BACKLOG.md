@@ -170,13 +170,13 @@ Use this format for new entries:
 4) Remove the shared hard coded HTML get.
 5) Defaults to the current hard coded implementation for HTTP GET per port:protocol.
 6) Do not add the [request] value to the Status and Services list screens
-- Status: pending
+- Status: completed
 
 OpenWrt/Linux SSH integration for list of DNS/Services
 - Status: pending
 
 Predefined [request] defintions to be selected from when adding or editing a service
-- Status: pending
+- Status: cancelled
 
 Display of IP, MAC and Manufacturer on the Status and List screen
-- Status: pending
+- Status: completed
