@@ -171,7 +171,6 @@
                       <div class="status-port-chip {{ port_st }}" tabindex="0">
                         {{ (entry.protocol | protocol_icon(entry.port)) | safe }}
                         <strong class="chip-port-text status-port">{% if entry.port is none %}ICMP{% else %}{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}{% endif %}</strong>
-                        <span class="chip-status-text">{{ port_st|upper }}</span>
 
                         <!-- Rich hover / focus tooltip -->
                         <div class="chip-tooltip status-hover-box-ports cell-hover-box-ports" role="tooltip">
