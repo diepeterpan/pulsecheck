@@ -45,7 +45,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.7")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.8")
 __version__ = APP_VERSION
 
 
@@ -4115,6 +4115,17 @@ def _resolve_mac(ip: str) -> str | None:
 _MANUFACTURER_NAME_ALIASES = {
     "routerboard.com": "MikroTik",
     "routerboard": "MikroTik",
+    "beijing xiaomi": "Xiaomi",
+    "xiaomi": "Xiaomi",
+    "shenzhen cudy": "Cudy",
+    "cudy technology": "Cudy",
+    "cudy": "Cudy",
+    "shenzhen jehe": "Giada",
+    "jehe technology": "Giada",
+    "giada": "Giada",
+    "d&m holdings": "Marantz",
+    "d and m holdings": "Marantz",
+    "marantz": "Marantz",
 }
 
 
@@ -4228,6 +4239,22 @@ _KNOWN_MANUFACTURER_DOMAINS = {
     "canon": "canon.com",
     "epson": "epson.com",
     "xerox": "xerox.com",
+    "xiaomi": "mi.com",
+    "beijing xiaomi": "mi.com",
+    "cudy": "cudy.com",
+    "shenzhen cudy": "cudy.com",
+    "giada": "giadatech.com",
+    "jehe": "giadatech.com",
+    "shenzhen jehe": "giadatech.com",
+    "marantz": "marantz.com",
+    "d&m holdings": "marantz.com",
+    "d and m holdings": "marantz.com",
+}
+
+# Known regional/geographical prefixes commonly prepending company names in corporate registrations
+_REGIONAL_PREFIXES = {
+    "shenzhen", "beijing", "shanghai", "hangzhou", "guangzhou", "dongguan",
+    "chengdu", "wuhan", "nanjing", "taipei", "hong kong", "hongkong"
 }
 
 
@@ -4254,52 +4281,69 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
             domain = dom
             break
 
-    if not domain:
-        # Heuristic: use first word or clean slug + .com
-        clean_first = slug.split("_")[0]
-        if clean_first and len(clean_first) > 2:
-            domain = f"{clean_first}.com"
+    candidate_domains = []
+    if domain:
+        candidate_domains.append(domain)
+    else:
+        # Heuristic: extract clean slug tokens
+        tokens = [t for t in slug.split("_") if t and t not in ("technology", "electronics", "information", "networks", "network", "telecom", "telecommunication", "digital", "system", "systems", "group", "holdings", "holding")]
+        # If the first token is a known regional prefix (e.g. Shenzhen, Hangzhou, Beijing), try the second token first
+        if len(tokens) > 1 and tokens[0] in _REGIONAL_PREFIXES:
+            second_token = tokens[1]
+            if len(second_token) > 2:
+                candidate_domains.append(f"{second_token}.com")
+                candidate_domains.append(f"{second_token}tech.com")
+
+        # Fallback to the first token
+        if tokens and len(tokens[0]) > 2:
+            candidate_domains.append(f"{tokens[0]}.com")
+
+    # Filter out generic regional city domains (e.g., shenzhen.com, beijing.com) from being treated as tech vendor sites
+    candidate_domains = [d for d in candidate_domains if not any(d == f"{reg}.com" for reg in _REGIONAL_PREFIXES)]
 
     icon_bytes = None
 
     # Step A: Google Favicon service
-    if domain:
+    for test_dom in candidate_domains:
         try:
-            fav_url = f"https://www.google.com/s2/favicons?domain={domain}&sz=64"
+            fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
             req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
             with urllib.request.urlopen(req, timeout=4) as resp:
                 data = resp.read()
                 # Ensure it's non-trivial (>100 bytes)
                 if len(data) > 100:
                     icon_bytes = data
+                    break
         except Exception:
             pass
 
     # Step B: Direct website probe (favicon.ico / common logo paths / HTML parse)
-    if not icon_bytes and domain:
+    if not icon_bytes:
         ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-        direct_candidates = [
-            f"https://www.{domain}/imgs/{domain.split('.')[0]}_logo.png",
-            f"https://www.{domain}/images/logo.png",
-            f"https://www.{domain}/favicon.ico",
-            f"https://{domain}/favicon.ico",
-        ]
-        for candidate_url in direct_candidates:
-            try:
-                req = urllib.request.Request(candidate_url, headers={"User-Agent": ua})
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    data = resp.read()
-                    ctype = resp.headers.get("Content-Type", "")
-                    if len(data) > 100 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))):
-                        icon_bytes = data
-                        break
-            except Exception:
-                continue
+        for test_dom in candidate_domains:
+            direct_candidates = [
+                f"https://www.{test_dom}/imgs/{test_dom.split('.')[0]}_logo.png",
+                f"https://www.{test_dom}/images/logo.png",
+                f"https://www.{test_dom}/favicon.ico",
+                f"https://{test_dom}/favicon.ico",
+            ]
+            for candidate_url in direct_candidates:
+                try:
+                    req = urllib.request.Request(candidate_url, headers={"User-Agent": ua})
+                    with urllib.request.urlopen(req, timeout=4) as resp:
+                        data = resp.read()
+                        ctype = resp.headers.get("Content-Type", "")
+                        if len(data) > 100 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))):
+                            icon_bytes = data
+                            break
+                except Exception:
+                    continue
+            if icon_bytes:
+                break
 
-        # If direct paths failed, try fetching root homepage to extract link rel="icon" or img src="*logo*"
-        if not icon_bytes:
+            # If direct paths failed, try fetching root homepage to extract link rel="icon" or img src="*logo*"
             try:
-                home_url = f"https://www.{domain}/"
+                home_url = f"https://www.{test_dom}/"
                 req = urllib.request.Request(home_url, headers={"User-Agent": ua})
                 with urllib.request.urlopen(req, timeout=4) as resp:
                     html = resp.read().decode("utf-8", errors="ignore")
@@ -4320,6 +4364,8 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
                         break
             except Exception:
                 pass
+            if icon_bytes:
+                break
 
     # Step C: Wikimedia pageimages fallback if direct probe didn't yield anything
     if not icon_bytes:
@@ -4457,6 +4503,86 @@ def trigger_discovery_async(service_id: int, hostname: str, prev_mac: str | None
     t.start()
 
 
+def resolve_missing_manufacturers_and_icons():
+    """
+    Task run on startup and every 12 hours:
+    1. Resolve manufacturer names for services with a MAC address but no valid manufacturer name.
+    2. Resolve/fetch manufacturer icons for any stored manufacturer lacking a local cached icon.
+    """
+    print("[MfgJob] Starting scheduled check for missing manufacturers and icons...")
+    # --- Part 1: Resolve missing manufacturer names ---
+    try:
+        conn = get_db_connection()
+        missing_mfg_services = conn.execute(
+            "SELECT id, name, discovered_mac, discovered_manufacturer "
+            "FROM services "
+            "WHERE discovered_mac IS NOT NULL "
+            "  AND trim(discovered_mac) != '' "
+            "  AND (discovered_manufacturer IS NULL OR trim(discovered_manufacturer) = '' OR upper(trim(discovered_manufacturer)) = 'NONE')"
+        ).fetchall()
+        conn.close()
+
+        if missing_mfg_services:
+            print(f"[MfgJob] Found {len(missing_mfg_services)} service(s) needing manufacturer resolution.")
+            for svc in missing_mfg_services:
+                svc_id = svc["id"]
+                mac = svc["discovered_mac"]
+                try:
+                    mfg = _lookup_manufacturer(mac)
+                    if mfg and mfg.strip().upper() != "NONE":
+                        conn = get_db_connection()
+                        conn.execute(
+                            "UPDATE services SET discovered_manufacturer = ? WHERE id = ?",
+                            (mfg, svc_id),
+                        )
+                        conn.commit()
+                        conn.close()
+                        print(f"[MfgJob] Resolved manufacturer for '{svc['name']}' (ID {svc_id}, MAC {mac}) -> {mfg}")
+                        # Immediately attempt to cache the icon as well
+                        try:
+                            resolve_and_cache_manufacturer_icon(mfg)
+                        except Exception as icon_err:
+                            print(f"[MfgJob] Error caching icon for {mfg}: {icon_err}")
+                    else:
+                        print(f"[MfgJob] Could not resolve manufacturer for MAC {mac} ('{svc['name']}')")
+                except Exception as lookup_err:
+                    print(f"[MfgJob] Error looking up MAC {mac} for service ID {svc_id}: {lookup_err}")
+        else:
+            print("[MfgJob] All services with MAC addresses already have resolved manufacturers.")
+    except Exception as exc:
+        print(f"[MfgJob] Database error checking missing manufacturers: {exc}")
+
+    # --- Part 2: Resolve missing manufacturer icons ---
+    try:
+        conn = get_db_connection()
+        mfg_rows = conn.execute(
+            "SELECT DISTINCT discovered_manufacturer "
+            "FROM services "
+            "WHERE discovered_manufacturer IS NOT NULL "
+            "  AND trim(discovered_manufacturer) != '' "
+            "  AND upper(trim(discovered_manufacturer)) != 'NONE'"
+        ).fetchall()
+        conn.close()
+
+        for row in mfg_rows:
+            mfg = row["discovered_manufacturer"].strip()
+            # Check if icon already exists on disk
+            if not get_manufacturer_icon_url(mfg):
+                print(f"[MfgJob] Missing icon for manufacturer '{mfg}', attempting to resolve...")
+                try:
+                    icon_url = resolve_and_cache_manufacturer_icon(mfg)
+                    if icon_url:
+                        print(f"[MfgJob] Successfully cached icon for '{mfg}': {icon_url}")
+                    else:
+                        print(f"[MfgJob] Could not find/download icon for '{mfg}'")
+                except Exception as icon_err:
+                    print(f"[MfgJob] Error fetching icon for '{mfg}': {icon_err}")
+    except Exception as exc:
+        print(f"[MfgJob] Database error checking manufacturer icons: {exc}")
+
+    print("[MfgJob] Scheduled check for missing manufacturers and icons completed.")
+
+
 def run_background_tasks():
     global GLOBAL_SCHEDULER
     scheduler = BackgroundScheduler(daemon=True)
@@ -4466,6 +4592,13 @@ def run_background_tasks():
         "interval",
         hours=1,
         id="pulsecheck_discovery",
+        next_run_time=datetime.now(),
+    )
+    scheduler.add_job(
+        resolve_missing_manufacturers_and_icons,
+        "interval",
+        hours=12,
+        id="pulsecheck_manufacturer_and_icon_sync",
         next_run_time=datetime.now(),
     )
     scheduler.start()
