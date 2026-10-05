@@ -3321,6 +3321,19 @@ button:disabled {
 .chip-dot.skipped,
 .chip-dot.none { background-color: #94a3b8; }
 
+.chip-proto-icon {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+.chip-proto-icon.online { color: #10b981; }
+.chip-proto-icon.degraded { color: #f59e0b; }
+.chip-proto-icon.offline { color: #ef4444; }
+.chip-proto-icon.skipped,
+.chip-proto-icon.none { color: #94a3b8; }
+
 .chip-port-text {
     font-weight: 700;
 }

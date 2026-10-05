@@ -62,6 +62,9 @@
             <button type="button" class="btn-sort-toggle" id="sort-status-btn" data-sort-col="status" aria-sort="none" title="Sort by status severity">
               Status <span class="sort-indicator" aria-hidden="true">⇅</span>
             </button>
+            <button type="button" class="btn-sort-toggle btn-toggle-all" id="toggle-all-cards-btn" title="Toggle expanding and collapsing all tiles" aria-pressed="false" style="margin-left: 8px;">
+              <span id="toggle-all-icon" aria-hidden="true">⤢</span> <span id="toggle-all-text">Expand all</span>
+            </button>
           </div>
         </div>
       </div>
@@ -141,12 +144,32 @@
 
               <!-- Expanded Details Section (hidden by default) -->
               <div class="status-card-body" hidden>
+                {% if first_entry.discovered_ip or first_entry.discovered_mac or first_entry.discovered_manufacturer %}
+                  <div class="status-card-network-info" style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.82rem; color: #475569;">
+                    {% if first_entry.discovered_ip %}
+                      <span class="status-net-ip" style="font-family: monospace; color: #0f172a; font-weight: 500;" title="IP Address">{{ first_entry.discovered_ip }}</span>
+                    {% endif %}
+                    {% if first_entry.discovered_mac %}
+                      <span class="status-net-mac" style="font-family: monospace; color: #334155;" title="MAC Address">{{ first_entry.discovered_mac }}</span>
+                    {% endif %}
+                    {% if first_entry.discovered_manufacturer and first_entry.discovered_manufacturer != 'NONE' %}
+                      <span class="status-net-mfg" style="display: inline-flex; align-items: center; gap: 5px; color: #1e293b; font-weight: 500;" title="Manufacturer">
+                        {% set icon_url = get_manufacturer_icon_url(first_entry.discovered_manufacturer) %}
+                        {% if icon_url %}
+                          <img src="{{ icon_url }}" alt="" style="height: 1.65em; width: auto; max-width: 2.25em; object-fit: contain; vertical-align: middle; border-radius: 2px;" loading="lazy">
+                        {% endif %}
+                        {{ first_entry.discovered_manufacturer }}
+                      </span>
+                    {% endif %}
+                  </div>
+                {% endif %}
+
                 <div class="status-card-chips">
                   {% if valid_ports %}
                     {% for entry in valid_ports %}
                       {% set port_st = entry.status or 'offline' %}
                       <div class="status-port-chip {{ port_st }}" tabindex="0">
-                        <span class="chip-dot {{ port_st }}"></span>
+                        {{ (entry.protocol | protocol_icon(entry.port)) | safe }}
                         <strong class="chip-port-text status-port">{% if entry.port is none %}ICMP{% else %}{{ entry.port }}{% if entry.protocol %}:{{ ((entry.protocol or '') | protocol_label)|replace(' ', '') }}{% endif %}{% endif %}</strong>
                         <span class="chip-status-text">{{ port_st|upper }}</span>
 
@@ -235,6 +258,9 @@
               (status === currentStatusFilter);
             card.hidden = !(matchesQuery && matchesStatus);
           });
+          if (typeof updateToggleAllButton === 'function') {
+            updateToggleAllButton();
+          }
         }
 
         function setStatusFilter(filterVal) {
@@ -298,6 +324,7 @@
               else expandedSet.delete(serviceId);
               saveExpandedState();
             }
+            updateToggleAllButton();
           }
 
           header.addEventListener('click', toggleCard);
@@ -308,6 +335,60 @@
             }
           });
         });
+
+        // 3b. Collapse / Expand All Functionality
+        const toggleAllBtn = document.getElementById('toggle-all-cards-btn');
+        const toggleAllIcon = document.getElementById('toggle-all-icon');
+        const toggleAllText = document.getElementById('toggle-all-text');
+
+        function updateToggleAllButton() {
+          if (!toggleAllBtn) return;
+          // Check visible or all cards
+          const visibleCards = statusCards.filter(c => !c.hidden);
+          const targetCards = visibleCards.length > 0 ? visibleCards : statusCards;
+          const allExpanded = targetCards.length > 0 && targetCards.every(c => c.dataset.expanded === 'true');
+
+          if (allExpanded) {
+            toggleAllBtn.setAttribute('aria-pressed', 'true');
+            if (toggleAllIcon) toggleAllIcon.textContent = '⤡';
+            if (toggleAllText) toggleAllText.textContent = 'Collapse all';
+            toggleAllBtn.title = 'Collapse all tiles';
+          } else {
+            toggleAllBtn.setAttribute('aria-pressed', 'false');
+            if (toggleAllIcon) toggleAllIcon.textContent = '⤢';
+            if (toggleAllText) toggleAllText.textContent = 'Expand all';
+            toggleAllBtn.title = 'Expand all tiles';
+          }
+        }
+
+        if (toggleAllBtn) {
+          toggleAllBtn.addEventListener('click', () => {
+            const visibleCards = statusCards.filter(c => !c.hidden);
+            const targetCards = visibleCards.length > 0 ? visibleCards : statusCards;
+            const allExpanded = targetCards.length > 0 && targetCards.every(c => c.dataset.expanded === 'true');
+            const targetState = !allExpanded;
+
+            targetCards.forEach(card => {
+              const header = card.querySelector('.status-card-header');
+              const body = card.querySelector('.status-card-body');
+              const serviceId = card.dataset.serviceId;
+              card.dataset.expanded = targetState ? 'true' : 'false';
+              card.classList.toggle('is-expanded', targetState);
+              if (header) header.setAttribute('aria-expanded', targetState ? 'true' : 'false');
+              if (body) body.hidden = !targetState;
+
+              if (serviceId) {
+                if (targetState) expandedSet.add(serviceId);
+                else expandedSet.delete(serviceId);
+              }
+            });
+            saveExpandedState();
+            updateToggleAllButton();
+          });
+        }
+
+        // Initialize toggle button label based on loaded state
+        updateToggleAllButton();
 
         // 4. Sorting Logic on Cards
         const sortButtons = Array.from(document.querySelectorAll('.btn-sort-toggle'));

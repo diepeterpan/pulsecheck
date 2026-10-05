@@ -45,7 +45,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.3")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.4")
 __version__ = APP_VERSION
 
 
@@ -925,8 +925,67 @@ def format_ports_column(ports: list[dict] | None) -> str:
     return " ".join(items)
 
 
+def get_protocol_icon_svg(protocol: str | None, port: int | None = None) -> str:
+    """Return inline SVG micro-icon (12x12) representing the protocol."""
+    p = str(protocol or "").strip().lower()
+    if port is None or p in ("icmp", "icmp-ping"):
+        # EKG / Heartbeat wave
+        return (
+            '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M1 8h3l2-5 3 10 2-5h4"/>'
+            '</svg>'
+        )
+    if p == "https":
+        # Padlock (SSL/TLS secure web)
+        return (
+            '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">'
+            '<path d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-.5V4.5A3.5 3.5 0 0 0 8 1zm2 5H6V4.5a2 2 0 1 1 4 0V6z"/>'
+            '</svg>'
+        )
+    if p in ("socket-ssl", "tcp-ssl"):
+        # Plug with lock badge
+        return (
+            '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">'
+            '<path d="M6 0a1 1 0 0 1 1 1v2h2V1a1 1 0 1 1 2 0v2h.5A2.5 2.5 0 0 1 14 5.5v1A2.5 2.5 0 0 1 11.5 9H9.5l-.5 4.5a1 1 0 0 1-2 0L6.5 9H4.5A2.5 2.5 0 0 1 2 6.5v-1A2.5 2.5 0 0 1 4.5 3H5V1a1 1 0 0 1 1-1zM11 10a2 2 0 0 0-2 2v.5h-.5a.5.5 0 0 0-.5.5v2.5a.5.5 0 0 0 .5.5h5a.5.5 0 0 0 .5-.5V13a.5.5 0 0 0-.5-.5h-.5V12a2 2 0 0 0-2-2zm1 2.5h-2V12a1 1 0 1 1 2 0v.5z"/>'
+            '</svg>'
+        )
+    if p in ("socket", "tcp"):
+        # Network 2-pin plug
+        return (
+            '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">'
+            '<path d="M6 1a1 1 0 0 1 1 1v2h2V2a1 1 0 1 1 2 0v2h.5A2.5 2.5 0 0 1 14 6.5v1A2.5 2.5 0 0 1 11.5 10H9l-.5 5a1 1 0 0 1-2 0L6 10H4.5A2.5 2.5 0 0 1 2 7.5v-1A2.5 2.5 0 0 1 4.5 4H5V2a1 1 0 0 1 1-1z"/>'
+            '</svg>'
+        )
+    if p in ("udp-ssl", "dtls"):
+        # Lightning bolt with lock badge
+        return (
+            '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">'
+            '<path d="M9.5 0 2 8h5l-1.5 7L13 7H8l1.5-7z"/>'
+            '<rect x="9" y="10" width="6" height="5" rx="1" fill="currentColor"/>'
+            '<path d="M10.5 10v-1a1.5 1.5 0 0 1 3 0v1" fill="none" stroke="currentColor" stroke-width="1.2"/>'
+            '</svg>'
+        )
+    if p == "udp":
+        # Lightning bolt (fast datagram)
+        return (
+            '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="currentColor" aria-hidden="true">'
+            '<path d="M9.5 0 2 9h5.5l-2 7L14 7H8.5l2-7h-1z"/>'
+            '</svg>'
+        )
+    # Default: HTTP (Globe / Web Sphere)
+    return (
+        '<svg class="chip-proto-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        '<circle cx="8" cy="8" r="6.5"/>'
+        '<path d="M1.5 8h13"/>'
+        '<ellipse cx="8" cy="8" rx="3.2" ry="6.5"/>'
+        '</svg>'
+    )
+
+
 app.jinja_env.filters["protocol_label"] = format_protocol_label
 app.jinja_env.globals["format_protocol_label"] = format_protocol_label
+app.jinja_env.filters["protocol_icon"] = get_protocol_icon_svg
+app.jinja_env.globals["get_protocol_icon_svg"] = get_protocol_icon_svg
 app.jinja_env.filters["format_ports_column"] = format_ports_column
 app.jinja_env.globals["format_ports_column"] = format_ports_column
 
@@ -2549,7 +2608,8 @@ def get_status_rows():
 
     service_rows = conn.execute(
         """
-        SELECT id, name, comment, paused, use_proxy, port_protocol
+        SELECT id, name, comment, paused, use_proxy, port_protocol,
+               discovered_ip, discovered_mac, discovered_manufacturer
         FROM services
         WHERE paused = 0
         ORDER BY name ASC
@@ -2560,6 +2620,10 @@ def get_status_rows():
     result = []
     for s in service_rows:
         ports_list: list[dict] = parse_port_protocol(s["port_protocol"])
+        disc_ip = s["discovered_ip"] if "discovered_ip" in s.keys() else None
+        disc_mac = s["discovered_mac"] if "discovered_mac" in s.keys() else None
+        disc_mfg = s["discovered_manufacturer"] if "discovered_manufacturer" in s.keys() else None
+
         if not ports_list:
             result.append({
                 "id": s["id"],
@@ -2575,6 +2639,9 @@ def get_status_rows():
                 "last_response_ms": None,
                 "checked_at": None,
                 "checked_at_local": "",
+                "discovered_ip": disc_ip,
+                "discovered_mac": disc_mac,
+                "discovered_manufacturer": disc_mfg,
             })
             continue
 
@@ -2614,6 +2681,9 @@ def get_status_rows():
                 "last_response_ms": last_response_ms,
                 "checked_at": checked_at,
                 "checked_at_local": checked_at_local,
+                "discovered_ip": disc_ip,
+                "discovered_mac": disc_mac,
+                "discovered_manufacturer": disc_mfg,
             })
     return result
 
@@ -3637,6 +3707,13 @@ def _resolve_mac(ip: str) -> str | None:
     return None
 
 
+# Known manufacturer name aliases / rebrands
+_MANUFACTURER_NAME_ALIASES = {
+    "routerboard.com": "MikroTik",
+    "routerboard": "MikroTik",
+}
+
+
 def _lookup_manufacturer(mac: str) -> str:
     """
     Query maclookup.app for the NIC manufacturer.
@@ -3653,7 +3730,14 @@ def _lookup_manufacturer(mac: str) -> str:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read().decode())
                 vendor = (data.get("company") or "").strip()
-                return vendor if vendor else "NONE"
+                if not vendor:
+                    return "NONE"
+                # Check for known rebrands / name aliases (e.g. Routerboard.com -> MikroTik)
+                v_lower = vendor.lower()
+                for alias_key, canon_name in _MANUFACTURER_NAME_ALIASES.items():
+                    if alias_key == v_lower or alias_key in v_lower:
+                        return canon_name
+                return vendor
         except Exception:
             return "NONE"
         finally:
@@ -3663,6 +3747,11 @@ def _lookup_manufacturer(mac: str) -> str:
 def slugify_manufacturer(name: str) -> str:
     """Normalize a manufacturer name into a safe filesystem slug."""
     s = (name or "").lower().strip()
+    # Normalize aliases first
+    for alias_key, canon_name in _MANUFACTURER_NAME_ALIASES.items():
+        if alias_key == s or alias_key in s:
+            s = canon_name.lower()
+            break
     # Strip common corporate suffixes
     s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|gmbh|sa|bv|s\.p\.a|s\.a|n\.v)\b\.?", "", s)
     # Remove punctuation / special characters
@@ -3720,6 +3809,8 @@ _KNOWN_MANUFACTURER_DOMAINS = {
     "supermicro": "supermicro.com",
     "qnap": "qnap.com",
     "mikrotik": "mikrotik.com",
+    "routerboard": "mikrotik.com",
+    "routerboard.com": "mikrotik.com",
     "fortinet": "fortinet.com",
     "palo alto": "paloaltonetworks.com",
     "juniper": "juniper.net",
