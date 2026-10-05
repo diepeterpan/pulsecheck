@@ -114,6 +114,10 @@
               <!-- Collapsed Header Row (always visible) -->
               <div class="status-card-header" role="button" tabindex="0" aria-expanded="false" aria-label="Toggle details for {{ service_name }}">
                 <div class="status-card-header-left cell-truncate-wrapper">
+                  {% set svc_icon_url = get_service_icon_url(service_name) %}
+                  {% if svc_icon_url %}
+                    <img src="{{ svc_icon_url }}" alt="" class="status-service-icon" loading="lazy">
+                  {% endif %}
                   <a class="status-card-name-link truncate-text" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}" onclick="event.stopPropagation();">
                     {{ service_name }}
                   </a>
@@ -153,12 +157,12 @@
                       <span class="status-net-mac" style="font-family: monospace; color: #334155;" title="MAC Address">{{ first_entry.discovered_mac }}</span>
                     {% endif %}
                     {% if first_entry.discovered_manufacturer and first_entry.discovered_manufacturer != 'NONE' %}
-                      <span class="status-net-mfg" style="display: inline-flex; align-items: center; gap: 5px; color: #1e293b; font-weight: 500;" title="Manufacturer">
+                      <span class="status-net-mfg" title="Manufacturer: {{ first_entry.discovered_manufacturer }}">
                         {% set icon_url = get_manufacturer_icon_url(first_entry.discovered_manufacturer) %}
                         {% if icon_url %}
-                          <img src="{{ icon_url }}" alt="" style="height: 1.65em; width: auto; max-width: 2.25em; object-fit: contain; vertical-align: middle; border-radius: 2px;" loading="lazy">
+                          <img src="{{ icon_url }}" alt="" style="height: 1.65em; width: auto; max-width: 2.25em; flex-shrink: 0; object-fit: contain; vertical-align: middle; border-radius: 2px;" loading="lazy">
                         {% endif %}
-                        {{ first_entry.discovered_manufacturer }}
+                        <span class="status-net-mfg-text">{{ first_entry.discovered_manufacturer }}</span>
                       </span>
                     {% endif %}
                   </div>

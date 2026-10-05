@@ -35,6 +35,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
 MANUFACTURER_ICONS_DIR = DB_PATH.parent / "manufacturer_icons"
 MANUFACTURER_ICONS_DIR.mkdir(parents=True, exist_ok=True)
+SERVICE_ICONS_DIR = DB_PATH.parent / "service_icons"
+SERVICE_ICONS_DIR.mkdir(parents=True, exist_ok=True)
 COMMON_PORTS = [80, 443, 22, 21, 25, 53, 110, 143, 587, 993, 995, 8080, 8443, 8444, 3306, 5432, 27017, 3000, 9000]
 HTTPS_PORTS = {443, 8443, 8444}
 DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
@@ -77,6 +79,7 @@ def inject_version():
         "app_version": APP_VERSION,
         "version": APP_VERSION,
         "get_manufacturer_icon_url": get_manufacturer_icon_url,
+        "get_service_icon_url": get_service_icon_url,
     }
 
 
@@ -3553,6 +3556,7 @@ def add_service_route():
             flash("That service already exists.")
             return redirect(url_for("services"))
         trigger_discovery_async(result, normalize_service(name))
+        trigger_service_icon_resolution_async(name)
         flash(f"Added service {name}.")
         return redirect(url_for("services"))
 
@@ -3645,6 +3649,7 @@ def edit_service(service_id):
             svc = get_service_by_id(service_id)
             trigger_discovery_async(service_id, normalize_service(name),
                                     prev_mac=svc.get("discovered_mac") if svc else None)
+        trigger_service_icon_resolution_async(name)
         flash(f"Updated service {name}.")
         return redirect(return_to or url_for("services"))
 
@@ -4126,6 +4131,10 @@ _MANUFACTURER_NAME_ALIASES = {
     "d&m holdings": "Marantz",
     "d and m holdings": "Marantz",
     "marantz": "Marantz",
+    "hangzhou gubei": "BroadLink",
+    "gubei electronics": "BroadLink",
+    "gubei": "BroadLink",
+    "broadlink": "BroadLink",
 }
 
 
@@ -4194,6 +4203,42 @@ def serve_manufacturer_icon(filename):
     return send_from_directory(MANUFACTURER_ICONS_DIR, filename)
 
 
+def extract_service_product_name(service_name: str) -> str:
+    """Extract the primary product / application name from a service hostname or label."""
+    if not service_name:
+        return ""
+    # Strip protocol scheme if present (http://, https://)
+    raw = re.sub(r"^https?://", "", service_name.strip(), flags=re.I)
+    # Split on first dot, colon, slash, whitespace or delimiter
+    first_part = re.split(r"[.:/\s_-]", raw)[0].strip().lower()
+    return first_part
+
+
+def slugify_service_name(service_name: str) -> str:
+    """Normalize a service / product name into a safe filesystem slug."""
+    product = extract_service_product_name(service_name)
+    s = re.sub(r"[^\w-]", "", product).strip("_")
+    return s or "unknown"
+
+
+def get_service_icon_url(service_name: str | None) -> str | None:
+    """Return local cached URL for service / product icon if it exists on disk."""
+    if not service_name or service_name.strip().upper() in ("", "NONE"):
+        return None
+    slug = slugify_service_name(service_name)
+    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
+        icon_path = SERVICE_ICONS_DIR / f"{slug}{ext}"
+        if icon_path.is_file() and icon_path.stat().st_size > 0:
+            return f"/static/service-icons/{slug}{ext}"
+    return None
+
+
+@app.route("/static/service-icons/<path:filename>")
+def serve_service_icon(filename):
+    """Serve service / product logos cached on disk."""
+    return send_from_directory(SERVICE_ICONS_DIR, filename)
+
+
 # Well-known hardware & networking manufacturers to official domains
 _KNOWN_MANUFACTURER_DOMAINS = {
     "apple": "apple.com",
@@ -4249,6 +4294,9 @@ _KNOWN_MANUFACTURER_DOMAINS = {
     "marantz": "marantz.com",
     "d&m holdings": "marantz.com",
     "d and m holdings": "marantz.com",
+    "broadlink": "ibroadlink.com",
+    "hangzhou gubei": "ibroadlink.com",
+    "gubei": "ibroadlink.com",
 }
 
 # Known regional/geographical prefixes commonly prepending company names in corporate registrations
@@ -4401,6 +4449,278 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
             print(f"[IconCache] Failed to write {dest_path}: {exc}")
 
     return None
+
+
+# Well-known self-hosted & server applications to official domains
+_KNOWN_SERVICE_DOMAINS = {
+    "bitwarden": "bitwarden.com",
+    "vaultwarden": "vaultwarden.net",
+    "plex": "plex.tv",
+    "jellyfin": "jellyfin.org",
+    "emby": "emby.media",
+    "homeassistant": "home-assistant.io",
+    "hass": "home-assistant.io",
+    "nextcloud": "nextcloud.com",
+    "owncloud": "owncloud.com",
+    "adguard": "adguard.com",
+    "pihole": "pi-hole.net",
+    "portainer": "portainer.io",
+    "proxmox": "proxmox.com",
+    "pve": "proxmox.com",
+    "truenas": "truenas.com",
+    "unraid": "unraid.net",
+    "synology": "synology.com",
+    "qnap": "qnap.com",
+    "grafana": "grafana.com",
+    "prometheus": "prometheus.io",
+    "uptime": "kuma.pet",
+    "kuma": "kuma.pet",
+    "traefik": "traefik.io",
+    "caddy": "caddyserver.com",
+    "nginx": "nginx.org",
+    "apache": "apache.org",
+    "wireguard": "wireguard.com",
+    "tailscale": "tailscale.com",
+    "zerotier": "zerotier.com",
+    "openvpn": "openvpn.net",
+    "cockpit": "cockpit-project.org",
+    "beszel": "beszel.com",
+    "bazarr": "bazarr.media",
+    "radarr": "radarr.video",
+    "sonarr": "sonarr.tv",
+    "lidarr": "lidarr.audio",
+    "prowlarr": "prowlarr.com",
+    "qbittorrent": "qbittorrent.org",
+    "transmission": "transmissionbt.com",
+    "deluge": "deluge-torrent.org",
+    "authelia": "authelia.com",
+    "authentik": "goauthentik.io",
+    "keycloak": "keycloak.org",
+    "bookstack": "bookstackapp.com",
+    "cloudbeaver": "cloudbeaver.io",
+    "cups": "cups.org",
+    "homebridge": "homebridge.io",
+    "zigbee2mqtt": "zigbee2mqtt.io",
+    "mosquitto": "mosquitto.org",
+    "node-red": "nodered.org",
+    "nodered": "nodered.org",
+    "paperless": "paperless-ngx.com",
+    "immich": "immich.app",
+    "photoprism": "photoprism.app",
+    "gitea": "gitea.com",
+    "forgejo": "forgejo.org",
+    "gitlab": "gitlab.com",
+    "github": "github.com",
+    "guacamole": "guacamole.apache.org",
+    "rustdesk": "rustdesk.com",
+    "netdata": "netdata.cloud",
+    "glances": "nicolargo.github.io",
+    "zabbix": "zabbix.com",
+    "nagios": "nagios.org",
+    "esphome": "esphome.io",
+    "tasmota": "tasmota.github.io",
+    "wled": "kno.wled.ge",
+    "mikrotik": "mikrotik.com",
+    "routerboard": "mikrotik.com",
+    "openwrt": "openwrt.org",
+    "opnsense": "opnsense.org",
+    "pfsense": "pfsense.org",
+}
+
+
+def resolve_and_cache_service_icon(service_name: str) -> str | None:
+    """
+    Find, download, and cache an icon for the product/service in SERVICE_ICONS_DIR.
+    1. Primary Method: Access service name directly as a site via https:// then http://.
+    2. Fallback Method: Use first word/token of service name for product domain / Wikimedia lookups.
+    """
+    if not service_name or service_name.strip().upper() in ("", "NONE"):
+        return None
+
+    product = extract_service_product_name(service_name)
+    if not product or len(product) < 2:
+        return None
+
+    slug = slugify_service_name(service_name)
+    dest_path = SERVICE_ICONS_DIR / f"{slug}.png"
+
+    # Disk Cache hit
+    if dest_path.is_file() and dest_path.stat().st_size > 0:
+        return f"/static/service-icons/{slug}.png"
+
+    icon_bytes = None
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+
+    # =========================================================================
+    # Method 1 (Primary): Direct Site Probe (https:// then http://)
+    # =========================================================================
+    clean_host = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
+    if clean_host:
+        import ssl
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        for proto in ("https", "http"):
+            base_url = f"{proto}://{clean_host}"
+            ctx = ssl_ctx if proto == "https" else None
+
+            # 1. Direct /favicon.ico probe
+            try:
+                fav_url = f"{base_url}/favicon.ico"
+                req = urllib.request.Request(fav_url, headers={"User-Agent": ua})
+                with urllib.request.urlopen(req, timeout=1.5, context=ctx) as resp:
+                    data = resp.read()
+                    ctype = resp.headers.get("Content-Type", "").lower()
+                    if len(data) > 100 and ("html" not in ctype):
+                        icon_bytes = data
+                        break
+            except Exception:
+                pass
+
+            # 2. Inspect root homepage HTML for <link rel="icon">
+            if not icon_bytes:
+                try:
+                    home_req = urllib.request.Request(f"{base_url}/", headers={"User-Agent": ua})
+                    with urllib.request.urlopen(home_req, timeout=1.5, context=ctx) as resp:
+                        html = resp.read().decode("utf-8", errors="ignore")
+                    found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
+                    for link_href in found_links:
+                        target = urljoin(f"{base_url}/", link_href)
+                        try:
+                            t_req = urllib.request.Request(target, headers={"User-Agent": ua})
+                            with urllib.request.urlopen(t_req, timeout=1.5, context=ctx) as t_resp:
+                                t_data = t_resp.read()
+                                t_ctype = t_resp.headers.get("Content-Type", "").lower()
+                                if len(t_data) > 100 and ("html" not in t_ctype):
+                                    icon_bytes = t_data
+                                    break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+
+            if icon_bytes:
+                break
+
+    # =========================================================================
+    # Method 2 (Fallback): Product Name Lookup
+    # =========================================================================
+    if not icon_bytes:
+        candidate_domains = []
+        if product in _KNOWN_SERVICE_DOMAINS:
+            candidate_domains.append(_KNOWN_SERVICE_DOMAINS[product])
+
+        # General domain guesses for the product name
+        for tld in (".com", ".io", ".org", ".net", ".app", ".dev", ".media"):
+            guess = f"{product}{tld}"
+            if guess not in candidate_domains:
+                candidate_domains.append(guess)
+
+        # Step 2A: Google Favicon service (very fast, doesn't block on DNS of unowned domains)
+        for test_dom in candidate_domains:
+            try:
+                fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
+                req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    data = resp.read()
+                    if len(data) > 100:
+                        icon_bytes = data
+                        break
+            except Exception:
+                pass
+
+        # Step 2B: Wikimedia pageimages fallback (only for recognized product tokens)
+        if not icon_bytes and len(product) > 2:
+            try:
+                wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&titles={urllib.parse.quote(product.capitalize())}&pithumbsize=64"
+                req = urllib.request.Request(wiki_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    data = json.loads(resp.read().decode())
+                    pages = data.get("query", {}).get("pages", {})
+                    thumb_url = None
+                    for p in pages.values():
+                        if "thumbnail" in p and "source" in p["thumbnail"]:
+                            thumb_url = p["thumbnail"]["source"]
+                            break
+                    if thumb_url:
+                        img_req = urllib.request.Request(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"})
+                        with urllib.request.urlopen(img_req, timeout=2) as img_resp:
+                            img_data = img_resp.read()
+                            if len(img_data) > 100:
+                                icon_bytes = img_data
+            except Exception:
+                pass
+
+    # Save to disk cache if an icon was obtained
+    if icon_bytes:
+        try:
+            with open(dest_path, "wb") as f:
+                f.write(icon_bytes)
+            return f"/static/service-icons/{slug}.png"
+        except Exception as exc:
+            print(f"[ServiceIconCache] Failed to write {dest_path}: {exc}")
+
+    return None
+
+
+def trigger_service_icon_resolution_async(service_name: str):
+    """Fire-and-forget service icon lookup on add or edit."""
+    if not service_name:
+        return
+    t = threading.Thread(
+        target=resolve_and_cache_service_icon,
+        args=(service_name,),
+        daemon=True,
+    )
+    t.start()
+
+
+def resolve_missing_service_icons():
+    """
+    Startup-only task:
+    Checks all distinct services in the database and obtains icons for those lacking a cached icon.
+    Runs once at startup in a background thread pool (up to 4 parallel workers).
+    No recurring schedule.
+    """
+    print("[ServiceIconJob] Starting startup check for missing service icons...")
+    try:
+        conn = get_db_connection()
+        rows = conn.execute(
+            "SELECT DISTINCT name FROM services WHERE name IS NOT NULL AND trim(name) != ''"
+        ).fetchall()
+        conn.close()
+
+        missing = [row["name"] for row in rows if not get_service_icon_url(row["name"])]
+        if not missing:
+            print("[ServiceIconJob] All services already have cached icons.")
+            return
+
+        print(f"[ServiceIconJob] Found {len(missing)} service(s) missing icons. Resolving in background...")
+        cached_count = 0
+
+        def _resolve_one(name):
+            try:
+                res = resolve_and_cache_service_icon(name)
+                if res:
+                    print(f"[ServiceIconJob] Cached icon for '{name}' -> {res}")
+                    return True
+            except Exception as exc:
+                print(f"[ServiceIconJob] Error resolving icon for '{name}': {exc}")
+            return False
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(_resolve_one, name) for name in missing]
+            for f in futures:
+                try:
+                    if f.result():
+                        cached_count += 1
+                except Exception:
+                    pass
+
+        print(f"[ServiceIconJob] Startup scan completed: cached {cached_count}/{len(missing)} icon(s).")
+    except Exception as exc:
+        print(f"[ServiceIconJob] Startup scan database error: {exc}")
 
 
 def _update_discovery_fields(service_id: int, ip, mac, manufacturer):
@@ -4603,6 +4923,14 @@ def run_background_tasks():
     )
     scheduler.start()
     GLOBAL_SCHEDULER = scheduler
+
+    # One-time startup task for missing service product icons (no recurring schedule)
+    threading.Thread(
+        target=resolve_missing_service_icons,
+        name="StartupServiceIconResolver",
+        daemon=True,
+    ).start()
+
     return scheduler
 
 
