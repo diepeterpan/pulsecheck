@@ -11,7 +11,7 @@
         <div class="status-meta-group" title="{{ overall_status.tooltip }}">
           <span class="status-meta-label">Overall:</span>
           <span class="badge status-badge {{ overall_status.badge_class }}" id="overall-status-badge">
-            <span class="status-indicator-dot {{ overall_status.status }}"></span>
+            <span id="overall-status-icon-wrap">{{ (overall_status.status | overall_status_icon) | safe }}</span>
             <span id="overall-status-text">{{ overall_status.label }}</span>
           </span>
         </div>

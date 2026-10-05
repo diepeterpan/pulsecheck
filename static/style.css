@@ -944,27 +944,27 @@ button.danger {
 /* GREEN: ONLINE */
 .btn-filter-pill.pill-online {
     background: #f0fdf4;
-    border-color: #16a34a;
-    color: #15803d;
+    border: 2px solid #15803d;
+    color: #14532d;
 }
 
 .btn-filter-pill.pill-online .pill-count {
     background: #dcfce7;
     color: #14532d;
-    border: 1px solid #bbf7d0;
+    border: 1px solid #15803d;
 }
 
 .btn-filter-pill.pill-online:hover {
     background: #dcfce7;
-    border-color: #15803d;
-    box-shadow: 0 2px 6px rgba(22, 163, 74, 0.2);
+    border-color: #14532d;
+    box-shadow: 0 2px 6px rgba(21, 128, 61, 0.25);
 }
 
 .btn-filter-pill.pill-online.active {
     background: #16a34a;
-    border-color: #15803d;
+    border: 2px solid #14532d;
     color: #ffffff;
-    box-shadow: 0 2px 8px rgba(22, 163, 74, 0.35);
+    box-shadow: 0 2px 8px rgba(21, 128, 61, 0.35);
 }
 
 .btn-filter-pill.pill-online.active .pill-count {
@@ -976,27 +976,27 @@ button.danger {
 /* ORANGE: DEGRADED */
 .btn-filter-pill.pill-degraded {
     background: #fff7ed;
-    border-color: #ea580c;
-    color: #c2410c;
+    border: 2px solid #c2410c;
+    color: #9a3412;
 }
 
 .btn-filter-pill.pill-degraded .pill-count {
     background: #ffedd5;
     color: #9a3412;
-    border: 1px solid #fed7aa;
+    border: 1px solid #c2410c;
 }
 
 .btn-filter-pill.pill-degraded:hover {
     background: #ffedd5;
-    border-color: #c2410c;
-    box-shadow: 0 2px 6px rgba(234, 88, 12, 0.2);
+    border-color: #9a3412;
+    box-shadow: 0 2px 6px rgba(194, 65, 12, 0.25);
 }
 
 .btn-filter-pill.pill-degraded.active {
     background: #ea580c;
-    border-color: #c2410c;
+    border: 2px solid #9a3412;
     color: #ffffff;
-    box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35);
+    box-shadow: 0 2px 8px rgba(194, 65, 12, 0.35);
 }
 
 .btn-filter-pill.pill-degraded.active .pill-count {
@@ -1008,27 +1008,27 @@ button.danger {
 /* RED: OFFLINE */
 .btn-filter-pill.pill-offline {
     background: #fef2f2;
-    border-color: #dc2626;
-    color: #b91c1c;
+    border: 2px solid #b91c1c;
+    color: #991b1b;
 }
 
 .btn-filter-pill.pill-offline .pill-count {
     background: #fee2e2;
-    color: #7f1d1d;
-    border: 1px solid #fecaca;
+    color: #991b1b;
+    border: 1px solid #b91c1c;
 }
 
 .btn-filter-pill.pill-offline:hover {
     background: #fee2e2;
-    border-color: #b91c1c;
-    box-shadow: 0 2px 6px rgba(220, 38, 38, 0.2);
+    border-color: #991b1b;
+    box-shadow: 0 2px 6px rgba(185, 28, 28, 0.25);
 }
 
 .btn-filter-pill.pill-offline.active {
     background: #dc2626;
-    border-color: #b91c1c;
+    border: 2px solid #7f1d1d;
     color: #ffffff;
-    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+    box-shadow: 0 2px 8px rgba(185, 28, 28, 0.35);
 }
 
 .btn-filter-pill.pill-offline.active .pill-count {
@@ -1072,27 +1072,51 @@ button.danger {
 
 .badge.status-badge.online {
     background: #ecfdf5;
-    color: #047857;
-    border: 1px solid #a7f3d0;
+    color: #14532d;
+    border: 1.5px solid #15803d;
 }
 
 .badge.status-badge.degraded {
-    background: #fffbeb;
-    color: #b45309;
-    border: 1px solid #fde68a;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1.5px solid #c2410c;
 }
 
 .badge.status-badge.offline {
     background: #fef2f2;
-    color: #dc2626;
-    border: 1px solid #fecaca;
+    color: #991b1b;
+    border: 1.5px solid #b91c1c;
 }
 
 .badge.status-badge.none {
     background: #f1f5f9;
-    color: #64748b;
-    border: 1px solid #e2e8f0;
+    color: #475569;
+    border: 1.5px solid #64748b;
 }
+
+/* OVERALL Status Pill - 50% larger */
+#overall-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    padding: 5px 14px;
+    letter-spacing: 0.04em;
+    border-radius: 9999px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.overall-status-icon {
+    display: inline-block;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+.overall-status-icon.online { color: #15803d; }
+.overall-status-icon.degraded { color: #c2410c; }
+.overall-status-icon.offline { color: #b91c1c; }
+.overall-status-icon.none { color: #64748b; }
 
 /* Status Table Layout and Column Optimization */
 .status-table {
@@ -3285,27 +3309,27 @@ button:disabled {
 
 .status-port-chip.online {
     background: #ecfdf5;
-    color: #047857;
-    border-color: #a7f3d0;
+    color: #14532d;
+    border: 1.5px solid #15803d;
 }
 
 .status-port-chip.degraded {
-    background: #fffbeb;
-    color: #b45309;
-    border-color: #fde68a;
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1.5px solid #c2410c;
 }
 
 .status-port-chip.offline {
     background: #fef2f2;
-    color: #dc2626;
-    border-color: #fecaca;
+    color: #991b1b;
+    border: 1.5px solid #b91c1c;
 }
 
 .status-port-chip.skipped,
 .status-port-chip.none {
     background: #f1f5f9;
-    color: #64748b;
-    border-color: #e2e8f0;
+    color: #475569;
+    border: 1.5px solid #64748b;
 }
 
 .chip-dot {

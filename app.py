@@ -982,10 +982,46 @@ def get_protocol_icon_svg(protocol: str | None, port: int | None = None) -> str:
     )
 
 
+def get_overall_status_icon_svg(status: str | None) -> str:
+    """Return inline SVG icon for overall system health (15x15)."""
+    st = str(status or "").strip().lower()
+    if st == "online":
+        # Bold checkmark
+        return (
+            '<svg class="overall-status-icon online" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M2.5 8.5 6 12l7.5-8"/>'
+            '</svg>'
+        )
+    if st == "degraded":
+        # Warning triangle with exclamation
+        return (
+            '<svg class="overall-status-icon degraded" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M8 1.5 1 14h14L8 1.5z"/>'
+            '<path d="M8 6v4" stroke-width="2"/>'
+            '<circle cx="8" cy="12" r="0.8" fill="currentColor"/>'
+            '</svg>'
+        )
+    if st == "offline":
+        # Bold cross / X-mark
+        return (
+            '<svg class="overall-status-icon offline" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+            '<path d="M3.5 3.5 12.5 12.5M12.5 3.5 3.5 12.5"/>'
+            '</svg>'
+        )
+    # None / unknown / skipped: circle dot
+    return (
+        '<svg class="overall-status-icon none" viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">'
+        '<circle cx="8" cy="8" r="4"/>'
+        '</svg>'
+    )
+
+
 app.jinja_env.filters["protocol_label"] = format_protocol_label
 app.jinja_env.globals["format_protocol_label"] = format_protocol_label
 app.jinja_env.filters["protocol_icon"] = get_protocol_icon_svg
 app.jinja_env.globals["get_protocol_icon_svg"] = get_protocol_icon_svg
+app.jinja_env.filters["overall_status_icon"] = get_overall_status_icon_svg
+app.jinja_env.globals["get_overall_status_icon_svg"] = get_overall_status_icon_svg
 app.jinja_env.filters["format_ports_column"] = format_ports_column
 app.jinja_env.globals["format_ports_column"] = format_ports_column
 
