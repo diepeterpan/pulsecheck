@@ -141,7 +141,7 @@ class ServiceTests(unittest.TestCase):
         export_resp = self.client.get("/services/export.csv")
         self.assertEqual(export_resp.status_code, 200)
         self.assertIn("attachment; filename=pulsecheck_services.csv", export_resp.headers["Content-Disposition"])
-        self.assertIn(b"Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports", export_resp.data)
+        self.assertIn(b"Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match", export_resp.data)
         self.assertIn(b"portal.service.local", export_resp.data)
 
         # POST /services/<id>/delete
@@ -501,10 +501,10 @@ invalid service host,,,,,
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 3)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports")
-        self.assertIn("dns-server.local,dns,,,0,0,udp,53", lines)
-        self.assertIn("vpn-gateway.local,vpn,,,0,0,udp-ssl,4433", lines)
-        self.assertIn("core-router.local,router,,,0,0,icmp-ping,1", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match")
+        self.assertIn("dns-server.local,,0,0,udp,53,,dns", lines)
+        self.assertIn("vpn-gateway.local,,0,0,udp-ssl,4433,,vpn", lines)
+        self.assertIn("core-router.local,,0,0,icmp-ping,1,,router", lines)
 
         # 3. Clean DB and import the CSV
         conn = pulsecheck_app.get_db_connection()
@@ -917,8 +917,8 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
         # Verify Export CSV output
         export_csv, count = pulsecheck_app.export_services_csv()
         self.assertGreaterEqual(count, 2)
-        self.assertIn("hybrid-import.example,welcome,/health,Hybrid Test,0,1,\"http, https, icmp-ping\",\"80, 443, icmp\"", export_csv)
-        self.assertIn("router-import.example,,,Router Test,0,0,icmp-ping,icmp", export_csv)
+        self.assertIn('hybrid-import.example,Hybrid Test,0,1,"http, https, icmp-ping","80, 443, icmp",/health,welcome', export_csv)
+        self.assertIn("router-import.example,Router Test,0,0,icmp-ping,icmp,,", export_csv)
 
 
 if __name__ == "__main__":

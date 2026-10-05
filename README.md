@@ -15,17 +15,19 @@ PulseCheck is a lightweight, Linux-friendly web application and monitoring daemo
 ## Interface & Key Functions
 
 ### 1. Live Status Dashboard
-Real-time monitoring overview displaying service availability, countdown timer to the next background scan, two-tone filter pills, and per-port latency metrics.
+Real-time monitoring overview displaying service availability, countdown timer to the next background scan, two-tone filter pills, expandable service tiles, network discovery metadata, and per-port protocol micro-badges.
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Live Status Dashboard" width="100%">
 </p>
 
-- **Overall Health Indicator**: Header status badge (**GREEN = ALL ONLINE**, **ORANGE = SOME DEGRADED**, **RED = SOME OFFLINE**).
+- **Enlarged Overall Health Indicator**: Prominent header status badge with dedicated status SVGs (**✓ GREEN = ALL ONLINE**, **⚠ ORANGE = SOME DEGRADED**, **✕ RED = SOME OFFLINE**), sized 50% larger with dark contrasting borders.
 - **Next Check Countdown**: Digital countdown timer updated every second showing time remaining until the next scan run.
-- **Status Filter Pills**: Quick one-click state filtering (**All**, **Online**, **Degraded**, **Offline**) with live count badges.
-- **Service & Port Badges**: Per-port status badges with response latency in milliseconds and server-local check timestamps.
-- **Rich Status Hover Tooltips**: Hovering over the STATUS column displays each monitored port's protocol, probe result code, round-trip latency, individual URL path, and configured match string.
+- **Status Filter Pills**: Quick one-click state filtering (**All**, **Online**, **Degraded**, **Offline**, **Skipped**) with live count badges and dark borders.
+- **Sort & Collapse Controls**: One-click sorting by **Service** or **Status** severity, plus an **Expand all / Collapse all** (`⤢` / `⤡`) toggle button with persistent session memory.
+- **Expandable Service Tiles with Network Discovery**: Click any tile to reveal resolved **IP address**, Layer 2 **MAC address**, and **Manufacturer name with brand logo** alongside monitored port chips.
+- **Clean Protocol Micro-Icons**: Status port chips feature protocol micro-icons (`🌐 HTTP`, `🔒 HTTPS`, `🔌 Socket`, `⚡ UDP`, `ﮩ٨ـ ICMP Ping`) with clean status color coding, keeping cards clutter-free without repetitive status text.
+- **Rich Status Hover Tooltips**: Hovering or focusing any port chip displays latency in milliseconds, probe result code, server-local check timestamp, URL path, and configured match string.
 
 ### 2. Service Inventory & Management
 Centralized directory for viewing and maintaining all monitored services with instant column-based search and bulk controls.
@@ -39,8 +41,8 @@ Centralized directory for viewing and maintaining all monitored services with in
 - **Bulk Port Operations**: Batch add or remove ports across multiple selected services simultaneously.
 - **Pause & Resume**: Temporarily bypass monitoring for specific services without deleting records or historical data.
 
-### 3. Service Workflows & Live Diagnostics ("Test Probes")
-Dedicated tabbed workflow for adding and editing services with ample room for configuring multi-port protocols and instant pre-flight diagnostic probing before saving.
+### 3. Service Workflows, Network Discovery & Live Diagnostics
+Dedicated tabbed workflow for adding and editing services with automated network discovery (IP, MAC, hardware manufacturer and cached logos), multi-port protocol configuration, and pre-flight diagnostic probing.
 
 <p align="center">
   <img src="docs/screenshots/edit_service.png" alt="Service Configuration Tab" width="100%">
@@ -51,6 +53,7 @@ Dedicated tabbed workflow for adding and editing services with ample room for co
 </p>
 
 - **Dedicated Tabbed Interface**: Clean segmented tabs separate **Service Configuration** from **Port Diagnostics**, giving full card width to the Ports & Protocols table.
+- **Automatic Network Discovery**: Shows resolved **IP**, **MAC address**, and NIC **Manufacturer** with brand logo (with local disk caching and smart vendor aliases e.g. Routerboard &rarr; MikroTik).
 - **Per-Port Match & URL Path Configuration**: Configure independent **Protocol**, **Match strings**, and **URL paths** for every individual TCP/UDP port in the spacious Ports table without horizontal scrolling.
 - **Pre-Flight Probe Testing**: Test connectivity, HTTP response codes, latency, and match string tokens directly against unsaved form inputs — clicking "Test Probes" automatically navigates to Port Diagnostics.
 - **Tabbed Port Inspector**: Switch between individual port tabs or the "All Ports" summary table with status indicators, result codes, latency, and local timestamps.
@@ -88,7 +91,7 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
 </p>
 
 - **Quick Text Block Import**: Paste raw lists of service hostnames for rapid onboarding with automatic multi-port discovery and default per-port settings.
-- **CSV Import & Export**: Import service inventories with per-port match tokens and URL paths positionally aligned to ports, or export complete service configurations.
+- **CSV Import & Export**: Import and export service inventories with per-port match tokens, URL paths, and protocols positionally aligned to ports.
 
 ---
 
@@ -101,6 +104,13 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
   - Prepending of response headers to decompressed response bodies for full-header keyword matching (e.g. matching `Server`, `X-Powered-By`, or custom response headers).
   - Automatic gzip payload decompression and legacy TLS handshake fallback for older appliances.
   - Optional raw TCP socket fallback for non-HTTP services.
+  - Integrated ICMP ping probe option for hosts without open listening TCP/UDP ports.
+
+- **Network Discovery & Hardware Manufacturer Identification**:
+  - Automatic resolution of local host IP addresses and Layer 2 ARP MAC addresses.
+  - Identification of NIC manufacturer with automated brand logo retrieval and local caching (`/manufacturer_icons`).
+  - Pre-cached assets and direct fallbacks for major networking and server brands (Apple, MikroTik, Realtek, Dell, HP, Intel, Cisco, Ubiquiti, etc.).
+  - Displayed inline on Add/Edit service configuration and inside expanded Status tiles.
 
 - **HTTP Proxy Support**:
   - Global HTTP proxy server configuration (host/IP, port, optional username, and password).
@@ -130,20 +140,22 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
   - Pause individual services to temporarily bypass monitoring without deleting records.
 
 - **Live Status Dashboard & Real-Time Schedule**:
-  - Responsive layout displaying all active services and their monitored ports.
-  - **Header Status Bar** (aligned on the same line as the Service Status title):
-    - **Overall Health Indicator**: Color-coded system badge (**GREEN = ALL ONLINE**, **ORANGE = SOME DEGRADED**, **RED = SOME OFFLINE**), ignoring services without ports listed.
+  - Responsive grid layout displaying all active services and their monitored ports with tile expand/collapse.
+  - **Header Status Bar**:
+    - **Overall Health Indicator**: Enlarged (50% larger) color-coded system badge with status SVGs (**✓ GREEN = ALL ONLINE**, **⚠ ORANGE = SOME DEGRADED**, **✕ RED = SOME OFFLINE**), ignoring services without ports listed.
     - **Last Scheduled Check**: Server local timezone formatted timestamp of the most recent background run.
     - **Next Check Countdown**: Digital countdown timer updated every second showing time remaining until the next scan.
     - **Automatic Screen Refresh**: Seamlessly polls and reloads the screen as soon as the scheduled background run finishes and database records are updated.
-  - **Color-Coded Status Filter Pills**: Two-tone shaded pills with dark outlines for quick filtering and live counts: **BLUE = ALL**, **GREEN = ONLINE**, **ORANGE = DEGRADED**, and **RED = OFFLINE**.
-  - Visual status badges: **Online** (green), **Degraded** (amber), and **Offline** (red).
+  - **Color-Coded Status Filter Pills**: Two-tone shaded pills with dark outlines for quick filtering and live counts: **BLUE = ALL**, **GREEN = ONLINE**, **ORANGE = DEGRADED**, **RED = OFFLINE**, and **GRAY = SKIPPED**.
+  - **Expand all / Collapse all Toggle**: Expand or collapse all service cards simultaneously with session persistence.
+  - **Visual Protocol Port Badges**: Clean port pills with inline protocol symbols and status border/background styling.
+  - **Discovered Host Details**: Compact display of IP address, MAC address, and manufacturer logo/name directly below service names.
   - Interactive tooltips showing the last successful check timestamp, round-trip response latency (in ms), configured URL path, and Match token.
-  - Application version display (`v1.0.8`) in the web UI header and alert notification emails, configurable via environment variable.
+  - Application version display (`v1.1.5`) in the web UI header and alert notification emails, configurable via environment variable.
 
 - **Data Import & Export**:
-  - **CSV File Export**: Download all saved services and configurations in a single standard CSV file with per-port Match tokens and URL paths positionally mapped to ports.
-  - **CSV File Import**: Upload service lists with duplicate skipping, positional per-port Match and URL path parsing, and background progress tracking with cancel capability.
+  - **CSV File Export**: Download all saved services and configurations in a single standard CSV file with per-port Match tokens, URL paths, and protocols.
+  - **CSV File Import**: Upload service lists with duplicate skipping, positional per-port parsing, and background progress tracking with cancel capability.
   - **Quick Text Block Import**: Paste raw lists of service hostnames for rapid onboarding with automatic port discovery.
 
 ---
@@ -248,23 +260,24 @@ PulseCheck menu
 PulseCheck supports importing and exporting services via CSV.
 
 ### Columns
-`Service, Match, URL path, Comment, Paused, Proxy, Protocol, Ports`
+`Service, Comment, Paused, Proxy, Protocol, Ports, URL path, Match`
 
 ### Example
 ```csv
-Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports
-internal.corp.local,"welcome, api","/, /health",Main API Gateway,0,1,"http, https","80, 443"
-api.example.com,api,,Production API,0,0,http,"443, 8443"
-edge-router.local,,,Edge Router,0,0,icmp-ping,icmp
-backup-portal.example,backup,/login,DR Site,1,0,udp-ssl,"80"
+Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match
+internal.corp.local,Main API Gateway,0,1,"http, https","80, 443","/, /health","welcome, api"
+api.example.com,Production API,0,0,http,"443, 8443",,api
+edge-router.local,Edge Router,0,0,icmp-ping,icmp,,
+backup-portal.example,DR Site,1,0,udp-ssl,"80",/login,backup
 ```
 
-- **Match**: Per-port verification string(s). A single string applies to all non-ICMP ports. If ports have different match tokens, provide a comma-separated list positionally matching each port in `Ports`. Ignored for portless ICMP ping.
-- **URL path**: Per-port HTTP health check path(s). A single path applies to all non-ICMP ports. When ports require distinct paths, provide a comma-separated list matching each port position (e.g. `"\"/, /health\""`). Ignored for portless ICMP ping.
+- **Comment**: Optional reference note or system description.
 - **Paused**: `1` (or `true`) to pause, `0` (or `false`) to monitor actively.
 - **Proxy**: `1` (or `true`) to route requests through the configured HTTP proxy, `0` (or `false`) for direct access.
 - **Protocol**: Optional preferred protocol (`http`, `https`, `socket`, `udp`, `udp-ssl`, `icmp-ping`). Can be a single protocol or a comma-separated list aligned with ports. Auto-detected if empty.
 - **Ports**: Comma-separated list of numeric ports (enclosed in quotes if containing spaces). Portless ICMP ping is represented as `icmp`.
+- **URL path**: Per-port HTTP health check path(s). A single path applies to all non-ICMP ports. When ports require distinct paths, provide a comma-separated list matching each port position (e.g. `"\"/, /health\""`). Ignored for portless ICMP ping.
+- **Match**: Per-port verification string(s). A single string applies to all non-ICMP ports. If ports have different match tokens, provide a comma-separated list positionally matching each port in `Ports`. Ignored for portless ICMP ping.
 
 ---
 

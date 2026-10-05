@@ -323,9 +323,9 @@ class SettingsTests(unittest.TestCase):
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports")
-        self.assertIn('service-a.com,service,/test,Internal gateway,0,0,,"80, 443"', lines)
-        self.assertIn("service-b.com,other,,,1,0,,8080", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match")
+        self.assertIn('service-a.com,Internal gateway,0,0,,"80, 443",/test,service', lines)
+        self.assertIn("service-b.com,,1,0,,8080,,other", lines)
 
     @patch("app.scan_service")
     def test_import_services_from_csv_success_and_skip_duplicates(self, mock_scan):
@@ -382,8 +382,8 @@ bad site!!,bad,,0,80
         self.assertEqual(response.content_type, "text/csv; charset=utf-8")
         self.assertIn("attachment; filename=pulsecheck_services.csv", response.headers["Content-Disposition"])
         self.assertEqual(response.headers["X-Exported-Count"], "1")
-        self.assertIn(b"Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports", response.data)
-        self.assertIn(b"test.org,test,,,0,0,,443", response.data)
+        self.assertIn(b"Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match", response.data)
+        self.assertIn(b"test.org,,0,0,,443,,test", response.data)
 
     @patch("app.scan_service")
     def test_import_route_csv_upload(self, mock_scan):
@@ -1105,9 +1105,9 @@ direct.example,direct,,Direct site,0,0,8080
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Match,URL path,Comment,Paused,Proxy,Protocol,Ports")
-        self.assertIn('proxied.example,proxied,/health,Gateway,0,1,,"80, 443"', lines)
-        self.assertIn("direct.example,direct,,Direct site,0,0,,8080", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match")
+        self.assertIn('proxied.example,Gateway,0,1,,"80, 443",/health,proxied', lines)
+        self.assertIn("direct.example,Direct site,0,0,,8080,,direct", lines)
 
     def test_fetch_response_http_uses_proxy_server(self):
         class FakeResponse:
@@ -1629,7 +1629,7 @@ direct.example,direct,,Direct site,0,0,8080
             self.assertEqual(resp.status_code, 200)
             html = resp.data.decode("utf-8")
             self.assertIn("ALL ONLINE", html)
-            self.assertIn("status-indicator-dot online", html)
+            self.assertIn("overall-status-icon online", html)
             # Local timezone timestamp (12:10 UTC -> 14:10 SAST)
             self.assertIn("2026-09-30 14:10:00 SAST", html)
 
@@ -1653,7 +1653,7 @@ direct.example,direct,,Direct site,0,0,8080
             resp_deg = self.client.get("/status")
             html_deg = resp_deg.data.decode("utf-8")
             self.assertIn("SOME DEGRADED", html_deg)
-            self.assertIn("status-indicator-dot degraded", html_deg)
+            self.assertIn("overall-status-icon degraded", html_deg)
 
             # Add Service 5: Offline (port 9000 offline)
             conn = pulsecheck_app.get_db_connection()
@@ -1668,7 +1668,7 @@ direct.example,direct,,Direct site,0,0,8080
             resp_off = self.client.get("/status")
             html_off = resp_off.data.decode("utf-8")
             self.assertIn("SOME OFFLINE", html_off)
-            self.assertIn("status-indicator-dot offline", html_off)
+            self.assertIn("overall-status-icon offline", html_off)
 
     def test_status_check_state_api(self):
         # Set up a known scan completion time

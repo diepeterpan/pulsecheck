@@ -99,6 +99,11 @@ row = cursor.fetchone()
 if row:
     cursor.execute("UPDATE port_checks SET status = 'offline', is_online = 0, last_response_ms = NULL WHERE service_id = ?", (row[0],))
 
+# Seed network discovery metadata with demo IP/MAC/manufacturers
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.50', discovered_mac = 'B8:27:EB:12:34:56', discovered_manufacturer = 'Realtek Semiconductor' WHERE name = 'bitwarden.dummy.net'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.1', discovered_mac = '64:D1:54:88:99:AA', discovered_manufacturer = 'MikroTik' WHERE name = 'edge-gateway.dummy.net' OR comment LIKE '%Edge Gateway%'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.102', discovered_mac = 'A4:83:E7:33:44:55', discovered_manufacturer = 'Apple' WHERE name = 'cockpit.dummy.net'")
+
 conn.commit()
 
 # Verify no galleon occurrences remain anywhere in the database
@@ -204,7 +209,17 @@ try:
     send_cmd("Page.enable")
 
     # 1. Live Status Dashboard
-    capture("dashboard", "/status", height=880)
+    # Expand first card to showcase the discovery metadata and port chips with protocol micro-icons
+    js_dashboard = """
+    (function() {
+      const firstCard = document.querySelector('.status-card[data-service="bitwarden.dummy.net"]') || document.querySelector('.status-card');
+      if (firstCard) {
+        const header = firstCard.querySelector('.status-card-header');
+        if (header) header.click();
+      }
+    })();
+    """
+    capture("dashboard", "/status", js_action=js_dashboard, height=920)
 
     # 2. Services Inventory & Management
     capture("services", "/services", height=880)
