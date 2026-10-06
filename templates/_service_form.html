@@ -767,8 +767,8 @@
               const inp = row.querySelector(".port-row-num");
               const sel = row.querySelector(".port-row-proto");
               if (inp && parseInt(inp.value) === portResult.port) {
-                // Only update if currently on auto-detect
-                if (!sel.value && portResult.protocol) {
+                // Only update if currently on auto-detect and probe was strictly online
+                if (!sel.value && portResult.status === "online" && portResult.protocol) {
                   sel.value = portResult.protocol;
                   updatePortsHidden();
                 }

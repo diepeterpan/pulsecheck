@@ -1315,12 +1315,10 @@ def scan_service(
     port_statuses: dict = {}
     for port_entry in ports:
         port = port_entry.get("port")  # None for ICMP
-        # Per-port preferred protocol; fall back to legacy service-level protocol arg
+        # Per-port preferred protocol; fall back to legacy service-level protocol arg only if explicitly passed
         per_port_pref = (port_entry.get("protocol") or "").strip().lower()
-        if not per_port_pref and protocol is not None:
+        if not per_port_pref and protocol is not None and not any(p.get("protocol") for p in ports if p != port_entry):
             per_port_pref = (protocol or "").strip().lower()
-        if not per_port_pref and service:
-            per_port_pref = (service.get("protocol") or "").strip().lower()
 
         start = time.monotonic()
         status = "offline"
@@ -2001,12 +1999,17 @@ def probe_single_port_diagnostics(
                 match_found = True
                 match_count = lower_snip.count(lower_match)
 
+    # If probing in auto-detect mode and port failed / is offline, no protocol was detected
+    reported_protocol = protocol_used
+    if not pref and status == "offline":
+        reported_protocol = ""
+
     return {
         "port": port,
         "status": status,
         "status_code": status_code,
         "status_text": status_text or (error_message if error_message else "No response"),
-        "protocol": protocol_used,
+        "protocol": reported_protocol,
         "request_type": req_type,
         "request_payload": format_hex_bytes(request_payload),
         "response_payload": format_hex_bytes(response_payload),
@@ -2431,6 +2434,45 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
                 p["match"] = ""
                 p["url_path"] = ""
 
+        # Pre-insert port diagnostics: determine and save online protocol per port
+        if detected_entries:
+            if cancelled_check is not None and cancelled_check():
+                raise ImportCancelled("Import cancelled")
+            if progress_callback is not None:
+                progress_callback({
+                    "index": index,
+                    "total": total,
+                    "service": normalized,
+                    "port": None,
+                    "status": "diagnosing",
+                    "message": f"Diagnosing protocols for {normalized}",
+                })
+
+            diag_results = diagnose_service_ports(
+                normalized,
+                detected_entries,
+                match=derived,
+                url_path="",
+            )
+
+            if cancelled_check is not None and cancelled_check():
+                raise ImportCancelled("Import cancelled")
+
+            diag_ports = {
+                p_res.get("port"): p_res
+                for p_res in (diag_results.get("ports") or [])
+            }
+
+            for p in detected_entries:
+                p_num = p.get("port")
+                diag = diag_ports.get(p_num)
+                if diag and diag.get("status") == "online":
+                    proto = (diag.get("protocol") or "").strip().lower()
+                    if proto == "ssl-handshake":
+                        proto = "https" if p_num in HTTPS_PORTS else "tcp-ssl"
+                    if proto:
+                        p["protocol"] = proto
+
         conn = get_db_connection()
         cursor = conn.execute(
             "INSERT INTO services (name, paused, request_type, port_protocol) VALUES (?, 0, 'web', ?)",
@@ -2440,6 +2482,7 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
         service_id = cursor.lastrowid
         conn.close()
         trigger_discovery_async(service_id, normalized)
+        trigger_service_icon_resolution_async(normalized)
         scan_service(service_id, normalized, detected_entries, derived, url_path="")
         summary["imported"] += 1
 
@@ -2791,6 +2834,7 @@ def import_services_from_csv(
         service_id = cursor.lastrowid
         conn.close()
         trigger_discovery_async(service_id, normalized)
+        trigger_service_icon_resolution_async(normalized)
 
         if not paused_val and ports_val:
             if progress_callback is not None:

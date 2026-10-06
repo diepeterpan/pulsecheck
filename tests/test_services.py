@@ -1026,6 +1026,74 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
         self.assertEqual(len(svc["ports"]), 1)
         self.assertEqual(svc["ports"][0]["request_type"], "web")
 
+    @patch("app.discover_ports", return_value=[{"port": 80, "protocol": ""}, {"port": 443, "protocol": ""}, {"port": 8080, "protocol": ""}, {"port": 9000, "protocol": ""}])
+    @patch("app.diagnose_service_ports")
+    @patch("app.scan_service")
+    def test_quick_text_import_diagnoses_and_saves_online_protocols_only(self, mock_scan, mock_diag, mock_discover):
+        # Port 80: online with http -> saved
+        # Port 443: online with ssl-handshake -> normalized to https and saved
+        # Port 8080: degraded with http -> NOT saved (strictly online rule)
+        # Port 9000: offline -> NOT saved
+        mock_diag.return_value = {
+            "success": True,
+            "ports": [
+                {"port": 80, "status": "online", "protocol": "http"},
+                {"port": 443, "status": "online", "protocol": "ssl-handshake"},
+                {"port": 8080, "status": "degraded", "protocol": "http"},
+                {"port": 9000, "status": "offline", "protocol": "tcp"},
+            ],
+        }
+
+        summary = pulsecheck_app.import_service_names(["diag-service.local"])
+        self.assertEqual(summary["imported"], 1)
+
+        services = {s["name"]: s for s in pulsecheck_app.service_list()}
+        svc = services["diag-service.local"]
+        ports_by_num = {p["port"]: p for p in svc["ports"]}
+
+        self.assertEqual(ports_by_num[80]["protocol"], "http")
+        self.assertEqual(ports_by_num[443]["protocol"], "https")
+        self.assertEqual(ports_by_num[8080]["protocol"], "")
+        self.assertEqual(ports_by_num[9000]["protocol"], "")
+
+        # Verify scan_service was called with the updated entries
+        mock_scan.assert_called_once()
+        passed_entries = mock_scan.call_args[0][2]
+        scan_ports_by_num = {p["port"]: p for p in passed_entries}
+        self.assertEqual(scan_ports_by_num[80]["protocol"], "http")
+        self.assertEqual(scan_ports_by_num[443]["protocol"], "https")
+        self.assertEqual(scan_ports_by_num[8080]["protocol"], "")
+        self.assertEqual(scan_ports_by_num[9000]["protocol"], "")
+
+    @patch("app.discover_ports", return_value=[{"port": 80, "protocol": ""}])
+    @patch("app.diagnose_service_ports")
+    def test_quick_text_import_cancelled_during_diagnostics_aborts_before_db_insert(self, mock_diag, mock_discover):
+        cancelled_flag = [False]
+
+        def fake_diagnose(*args, **kwargs):
+            cancelled_flag[0] = True
+            return {"success": True, "ports": [{"port": 80, "status": "online", "protocol": "http"}]}
+
+        mock_diag.side_effect = fake_diagnose
+
+        with self.assertRaises(pulsecheck_app.ImportCancelled):
+            pulsecheck_app.import_service_names(
+                ["cancelled-service.local"],
+                cancelled_check=lambda: cancelled_flag[0],
+            )
+
+        # Service must not exist in DB because cancellation checked right after diagnostics
+        self.assertFalse(pulsecheck_app.service_exists("cancelled-service.local"))
+
+    @patch("app.trigger_service_icon_resolution_async")
+    @patch("app.discover_ports", return_value=[{"port": 80, "protocol": ""}])
+    @patch("app.diagnose_service_ports", return_value={"success": True, "ports": [{"port": 80, "status": "online", "protocol": "http"}]})
+    @patch("app.scan_service")
+    def test_quick_text_import_triggers_service_icon_resolution(self, mock_scan, mock_diag, mock_discover, mock_icon):
+        summary = pulsecheck_app.import_service_names(["icon-imported.service.local"])
+        self.assertEqual(summary["imported"], 1)
+        mock_icon.assert_called_once_with("icon-imported.service.local")
+
     @patch("app.scan_service")
     def test_csv_import_export_custom_requests(self, mock_scan):
         csv_content = """Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response
