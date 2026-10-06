@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import gzip
+import hashlib
 import http.client
 import io
 import json
@@ -4135,6 +4136,11 @@ _MANUFACTURER_NAME_ALIASES = {
     "gubei electronics": "BroadLink",
     "gubei": "BroadLink",
     "broadlink": "BroadLink",
+    "jm zengge": "MagicHue",
+    "zengge": "MagicHue",
+    "magichue": "MagicHue",
+    "magic home": "MagicHue",
+    "magic home pro": "MagicHue",
 }
 
 
@@ -4185,6 +4191,24 @@ def slugify_manufacturer(name: str) -> str:
     return s or "unknown"
 
 
+# Known hashes of generic GoDaddy parked page favicons across multiple sizes and CDNs
+_GODADDY_PARKED_ICON_HASHES = {
+    "0f51e723b5ea18cf223bd66aaf0bda85",  # Google Favicon 64px (1045 bytes)
+    "6bceda3c3c8d58b353b71a1641a3e73d",  # Google Favicon 32px (510 bytes)
+    "8379b3a54a273ff25f7ec28c565341e8",  # Google Favicon 16px (302 bytes)
+    "b01122b8efe9b9022ddb161443198081",  # Google Favicon 128px (1965 bytes)
+    "d9e87c52cf05be95fb7a09ff01080983",  # GoDaddy CDN img1.wsimg.com direct favicon (2238 bytes)
+}
+
+
+def is_godaddy_or_parked_icon(data: bytes | None) -> bool:
+    """Return True if image data matches known GoDaddy parked domain favicon signatures."""
+    if not data or len(data) < 50:
+        return True
+    h = hashlib.md5(data).hexdigest()
+    return h in _GODADDY_PARKED_ICON_HASHES
+
+
 def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
     """Return local cached URL for manufacturer icon if it exists on disk."""
     if not manufacturer or manufacturer.strip().upper() in ("", "NONE"):
@@ -4193,6 +4217,13 @@ def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
     for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
         icon_path = MANUFACTURER_ICONS_DIR / f"{slug}{ext}"
         if icon_path.is_file() and icon_path.stat().st_size > 0:
+            try:
+                data = icon_path.read_bytes()
+                if is_godaddy_or_parked_icon(data):
+                    icon_path.unlink(missing_ok=True)
+                    continue
+            except Exception:
+                pass
             return f"/static/manufacturer-icons/{slug}{ext}"
     return None
 
@@ -4200,6 +4231,14 @@ def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
 @app.route("/static/manufacturer-icons/<path:filename>")
 def serve_manufacturer_icon(filename):
     """Serve manufacturer logos cached on disk."""
+    icon_path = MANUFACTURER_ICONS_DIR / filename
+    if icon_path.is_file():
+        try:
+            if is_godaddy_or_parked_icon(icon_path.read_bytes()):
+                icon_path.unlink(missing_ok=True)
+                abort(404)
+        except Exception:
+            pass
     return send_from_directory(MANUFACTURER_ICONS_DIR, filename)
 
 
@@ -4221,6 +4260,27 @@ def slugify_service_name(service_name: str) -> str:
     return s or "unknown"
 
 
+def detect_image_extension(data: bytes, content_type: str = "") -> str:
+    """Detect appropriate file extension (.svg, .png, .ico, .jpg, .gif, .webp) from payload and Content-Type."""
+    if not data:
+        return ".png"
+    ct = (content_type or "").lower()
+    stripped = data.lstrip()
+    if "svg" in ct or stripped.startswith((b"<svg", b"<?xml", b"<!DOCTYPE svg")):
+        return ".svg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if data.startswith((b"\xff\xd8\xff", b"\xff\xd8")):
+        return ".jpg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
+        return ".webp"
+    if data.startswith((b"\x00\x00\x01\x00", b"\x00\x00\x02\x00")) or "ico" in ct or "icon" in ct:
+        return ".ico"
+    return ".png"
+
+
 def get_service_icon_url(service_name: str | None) -> str | None:
     """Return local cached URL for service / product icon if it exists on disk."""
     if not service_name or service_name.strip().upper() in ("", "NONE"):
@@ -4229,6 +4289,13 @@ def get_service_icon_url(service_name: str | None) -> str | None:
     for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
         icon_path = SERVICE_ICONS_DIR / f"{slug}{ext}"
         if icon_path.is_file() and icon_path.stat().st_size > 0:
+            try:
+                data = icon_path.read_bytes()
+                if is_godaddy_or_parked_icon(data):
+                    icon_path.unlink(missing_ok=True)
+                    continue
+            except Exception:
+                pass
             return f"/static/service-icons/{slug}{ext}"
     return None
 
@@ -4236,6 +4303,14 @@ def get_service_icon_url(service_name: str | None) -> str | None:
 @app.route("/static/service-icons/<path:filename>")
 def serve_service_icon(filename):
     """Serve service / product logos cached on disk."""
+    icon_path = SERVICE_ICONS_DIR / filename
+    if icon_path.is_file():
+        try:
+            if is_godaddy_or_parked_icon(icon_path.read_bytes()):
+                icon_path.unlink(missing_ok=True)
+                abort(404)
+        except Exception:
+            pass
     return send_from_directory(SERVICE_ICONS_DIR, filename)
 
 
@@ -4297,6 +4372,11 @@ _KNOWN_MANUFACTURER_DOMAINS = {
     "broadlink": "ibroadlink.com",
     "hangzhou gubei": "ibroadlink.com",
     "gubei": "ibroadlink.com",
+    "magichue": "web.magichue.net",
+    "jm zengge": "web.magichue.net",
+    "zengge": "web.magichue.net",
+    "magic home": "web.magichue.net",
+    "magic home pro": "web.magichue.net",
 }
 
 # Known regional/geographical prefixes commonly prepending company names in corporate registrations
@@ -4315,11 +4395,11 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
         return None
 
     slug = slugify_manufacturer(manufacturer)
-    dest_path = MANUFACTURER_ICONS_DIR / f"{slug}.png"
-
-    # 1. Disk Cache hit
-    if dest_path.is_file() and dest_path.stat().st_size > 0:
-        return f"/static/manufacturer-icons/{slug}.png"
+    # 1. Disk Cache hit (check all supported image formats)
+    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
+        cached_file = MANUFACTURER_ICONS_DIR / f"{slug}{ext}"
+        if cached_file.is_file() and cached_file.stat().st_size > 0:
+            return f"/static/manufacturer-icons/{slug}{ext}"
 
     # Determine domain to check
     m_lower = manufacturer.lower()
@@ -4358,8 +4438,8 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
             req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
             with urllib.request.urlopen(req, timeout=4) as resp:
                 data = resp.read()
-                # Ensure it's non-trivial (>100 bytes)
-                if len(data) > 100:
+                # Ensure it's non-trivial (>100 bytes) and not a parked GoDaddy icon
+                if len(data) > 100 and not is_godaddy_or_parked_icon(data):
                     icon_bytes = data
                     break
         except Exception:
@@ -4381,7 +4461,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
                     with urllib.request.urlopen(req, timeout=4) as resp:
                         data = resp.read()
                         ctype = resp.headers.get("Content-Type", "")
-                        if len(data) > 100 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))):
+                        if len(data) > 100 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))) and not is_godaddy_or_parked_icon(data):
                             icon_bytes = data
                             break
                 except Exception:
@@ -4403,7 +4483,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
                         t_req = urllib.request.Request(target, headers={"User-Agent": ua})
                         with urllib.request.urlopen(t_req, timeout=4) as t_resp:
                             t_data = t_resp.read()
-                            if len(t_data) > 100:
+                            if len(t_data) > 100 and not is_godaddy_or_parked_icon(t_data):
                                 icon_bytes = t_data
                                 break
                     except Exception:
@@ -4434,19 +4514,21 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
                     img_req = urllib.request.Request(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"})
                     with urllib.request.urlopen(img_req, timeout=4) as img_resp:
                         img_data = img_resp.read()
-                        if len(img_data) > 100:
+                        if len(img_data) > 100 and not is_godaddy_or_parked_icon(img_data):
                             icon_bytes = img_data
         except Exception:
             pass
 
-    # Save to disk cache if an icon was obtained
-    if icon_bytes:
+    # Save to disk cache if a valid non-parked icon was obtained
+    if icon_bytes and not is_godaddy_or_parked_icon(icon_bytes):
+        ext = detect_image_extension(icon_bytes)
+        actual_path = MANUFACTURER_ICONS_DIR / f"{slug}{ext}"
         try:
-            with open(dest_path, "wb") as f:
+            with open(actual_path, "wb") as f:
                 f.write(icon_bytes)
-            return f"/static/manufacturer-icons/{slug}.png"
+            return f"/static/manufacturer-icons/{slug}{ext}"
         except Exception as exc:
-            print(f"[IconCache] Failed to write {dest_path}: {exc}")
+            print(f"[IconCache] Failed to write {actual_path}: {exc}")
 
     return None
 
@@ -4525,7 +4607,65 @@ _KNOWN_SERVICE_DOMAINS = {
     "openwrt": "openwrt.org",
     "opnsense": "opnsense.org",
     "pfsense": "pfsense.org",
+    "serviio": "serviio.org",
 }
+
+# Known HTML content signatures mapped to platform/vendor domains or absolute icon URLs
+_HTML_CONTENT_ICON_MAPPINGS = [
+    (r"\b(?:luci|lua configuration interface)\b", "https://raw.githubusercontent.com/openwrt/branding/refs/heads/master/favicon/favicon.ico"),
+    (r"\b(?:proxmox virtual environment|proxmox ve)\b", "proxmox.com"),
+    (r"\b(?:truenas core|truenas scale)\b", "truenas.com"),
+    (r"\b(?:synology dsm|diskstation manager)\b", "synology.com"),
+    (r"\b(?:qts|qnap)\b", "qnap.com"),
+    (r"\b(?:pi-hole)\b", "pi-hole.net"),
+    (r"\b(?:adguard home)\b", "adguard.com"),
+    (r"\b(?:portainer ce|portainer business)\b", "portainer.io"),
+]
+
+
+def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | None:
+    """
+    Retrieve the landing page HTML of a service across https:// and http://,
+    following redirects and accepting self-signed TLS certificates.
+    Limits downloaded content to 64KB for speed and resource efficiency.
+    """
+    clean_host = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
+    if not clean_host:
+        return None
+
+    import ssl
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+
+    for proto in ("https", "http"):
+        current_url = f"{proto}://{clean_host}/"
+        redirect_count = 0
+        while current_url and redirect_count <= max_redirects:
+            try:
+                is_https = current_url.lower().startswith("https://")
+                ctx = ssl_ctx if is_https else None
+                req = urllib.request.Request(current_url, headers={"User-Agent": ua})
+                with urllib.request.urlopen(req, timeout=2.5, context=ctx) as resp:
+                    raw_data = resp.read(65536)  # Read up to 64 KB
+                    ctype = resp.headers.get("Content-Type", "").lower()
+                    if "text" in ctype or "html" in ctype or b"<html" in raw_data or b"<body" in raw_data:
+                        return raw_data.decode("utf-8", errors="ignore")
+                break
+            except urllib.error.HTTPError as he:
+                if he.code in (301, 302, 303, 307, 308):
+                    loc = he.headers.get("Location")
+                    if loc:
+                        current_url = urljoin(current_url, loc)
+                        redirect_count += 1
+                        continue
+                break
+            except Exception:
+                break
+
+    return None
 
 
 def resolve_and_cache_service_icon(service_name: str) -> str | None:
@@ -4533,6 +4673,7 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
     Find, download, and cache an icon for the product/service in SERVICE_ICONS_DIR.
     1. Primary Method: Access service name directly as a site via https:// then http://.
     2. Fallback Method: Use first word/token of service name for product domain / Wikimedia lookups.
+    3. Deep Fallback Method: Fetch landing HTML, follow redirects, and match content signatures (e.g. LuCI -> openwrt.org).
     """
     if not service_name or service_name.strip().upper() in ("", "NONE"):
         return None
@@ -4542,11 +4683,18 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
         return None
 
     slug = slugify_service_name(service_name)
-    dest_path = SERVICE_ICONS_DIR / f"{slug}.png"
-
-    # Disk Cache hit
-    if dest_path.is_file() and dest_path.stat().st_size > 0:
-        return f"/static/service-icons/{slug}.png"
+    # Check disk cache first across all extensions, discarding corrupted/parked icons
+    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
+        cached_file = SERVICE_ICONS_DIR / f"{slug}{ext}"
+        if cached_file.is_file() and cached_file.stat().st_size > 0:
+            try:
+                data = cached_file.read_bytes()
+                if is_godaddy_or_parked_icon(data):
+                    cached_file.unlink(missing_ok=True)
+                    continue
+            except Exception:
+                pass
+            return f"/static/service-icons/{slug}{ext}"
 
     icon_bytes = None
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
@@ -4572,7 +4720,7 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
                 with urllib.request.urlopen(req, timeout=1.5, context=ctx) as resp:
                     data = resp.read()
                     ctype = resp.headers.get("Content-Type", "").lower()
-                    if len(data) > 100 and ("html" not in ctype):
+                    if len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
                         icon_bytes = data
                         break
             except Exception:
@@ -4592,7 +4740,7 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
                             with urllib.request.urlopen(t_req, timeout=1.5, context=ctx) as t_resp:
                                 t_data = t_resp.read()
                                 t_ctype = t_resp.headers.get("Content-Type", "").lower()
-                                if len(t_data) > 100 and ("html" not in t_ctype):
+                                if len(t_data) > 100 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
                                     icon_bytes = t_data
                                     break
                         except Exception:
@@ -4624,7 +4772,7 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
                 req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
                 with urllib.request.urlopen(req, timeout=2) as resp:
                     data = resp.read()
-                    if len(data) > 100:
+                    if len(data) > 100 and not is_godaddy_or_parked_icon(data):
                         icon_bytes = data
                         break
             except Exception:
@@ -4647,19 +4795,69 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
                         img_req = urllib.request.Request(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"})
                         with urllib.request.urlopen(img_req, timeout=2) as img_resp:
                             img_data = img_resp.read()
-                            if len(img_data) > 100:
+                            if len(img_data) > 100 and not is_godaddy_or_parked_icon(img_data):
                                 icon_bytes = img_data
             except Exception:
                 pass
 
-    # Save to disk cache if an icon was obtained
-    if icon_bytes:
+    # =========================================================================
+    # Method 3 (Deep Fallback): HTML Content Signature Matching
+    # =========================================================================
+    if not icon_bytes:
+        html_page = fetch_service_html_body(service_name)
+        if html_page:
+            matched_domain = None
+            for pattern, dom in _HTML_CONTENT_ICON_MAPPINGS:
+                if re.search(pattern, html_page, re.I):
+                    matched_domain = dom
+                    break
+
+            if matched_domain:
+                # If matched target is an absolute URL (e.g. raw GitHub URL or CDN link), fetch it directly
+                if matched_domain.lower().startswith(("http://", "https://")):
+                    try:
+                        req = urllib.request.Request(matched_domain, headers={"User-Agent": ua})
+                        with urllib.request.urlopen(req, timeout=3.5) as resp:
+                            data = resp.read()
+                            if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                                icon_bytes = data
+                    except Exception:
+                        pass
+                else:
+                    # 3A: Google Favicon lookup for the matched platform domain
+                    try:
+                        fav_url = f"https://www.google.com/s2/favicons?domain={matched_domain}&sz=64"
+                        req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
+                        with urllib.request.urlopen(req, timeout=2) as resp:
+                            data = resp.read()
+                            if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                                icon_bytes = data
+                    except Exception:
+                        pass
+
+                    # 3B: Direct probe to matched platform domain if Google Favicon didn't succeed
+                    if not icon_bytes:
+                        for probe_url in (f"https://www.{matched_domain}/favicon.ico", f"https://{matched_domain}/favicon.ico"):
+                            try:
+                                req = urllib.request.Request(probe_url, headers={"User-Agent": ua})
+                                with urllib.request.urlopen(req, timeout=2.5) as resp:
+                                    data = resp.read()
+                                    if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                                        icon_bytes = data
+                                        break
+                            except Exception:
+                                continue
+
+    # Save to disk cache if a valid non-parked icon was obtained
+    if icon_bytes and not is_godaddy_or_parked_icon(icon_bytes):
+        ext = detect_image_extension(icon_bytes)
+        actual_path = SERVICE_ICONS_DIR / f"{slug}{ext}"
         try:
-            with open(dest_path, "wb") as f:
+            with open(actual_path, "wb") as f:
                 f.write(icon_bytes)
-            return f"/static/service-icons/{slug}.png"
+            return f"/static/service-icons/{slug}{ext}"
         except Exception as exc:
-            print(f"[ServiceIconCache] Failed to write {dest_path}: {exc}")
+            print(f"[ServiceIconCache] Failed to write {actual_path}: {exc}")
 
     return None
 
