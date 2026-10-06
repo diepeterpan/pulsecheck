@@ -48,7 +48,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.8")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.9")
 __version__ = APP_VERSION
 
 
@@ -3109,6 +3109,15 @@ DEFAULT_SETTINGS = {
     "proxy_port": "8080",
     "proxy_username": "",
     "proxy_password": "",
+    "remote_source_type": "ssh",
+    "remote_source_host": "",
+    "remote_source_port": "22",
+    "remote_source_username": "",
+    "remote_source_auth_type": "password",
+    "remote_source_password": "",
+    "remote_source_key": "",
+    "remote_source_command": "",
+    "remote_source_timeout": "10",
 }
 
 
@@ -3126,7 +3135,7 @@ def save_settings(new_settings: dict[str, str]) -> None:
     conn = get_db_connection()
     for key, value in new_settings.items():
         if key in DEFAULT_SETTINGS:
-            val_to_save = str(value) if key in ("smtp_password", "proxy_password") else str(value).strip()
+            val_to_save = str(value) if key in ("smtp_password", "proxy_password", "remote_source_password", "remote_source_key") else str(value).strip()
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (key, val_to_save),
@@ -3264,6 +3273,241 @@ def send_email(
         return True, f"Test email sent successfully to {to_email}."
     except Exception as exc:
         return False, f"Failed to send email: {exc}"
+
+
+# ── Remote Service Source Execution (SSH / Telnet) ───────────────────────────
+_DANGEROUS_REMOTE_COMMAND_PATTERNS = [
+    r"\brm\s+-[rf]+",
+    r"\brmdir\b",
+    r"\bmkfs(?:\.[a-z0-9]+)?\b",
+    r"\bdd\s+if=",
+    r"\b(?:reboot|poweroff|shutdown|halt|init\s+[06])\b",
+    r"\bchmod\s+-[rR]\b",
+    r"\bchown\s+-[rR]\b",
+    r">\s*/dev/(?:sd[a-z]|nvme|hd[a-z]|null|zero)",
+    r"\btruncate\b",
+    r"\bwipefs\b",
+    r":\(\)\s*\{\s*:\|:&\s*\};:",
+]
+
+
+def is_safe_remote_command(command: str) -> tuple[bool, str]:
+    """Validate that the remote command does not match dangerous system disruption or wipe patterns."""
+    if not command or not command.strip():
+        return False, "Command cannot be empty."
+    cmd = command.strip()
+    for pattern in _DANGEROUS_REMOTE_COMMAND_PATTERNS:
+        if re.search(pattern, cmd, re.I):
+            return False, f"Command contains restricted pattern for safety: {pattern}"
+    return True, ""
+
+
+def parse_remote_service_names(raw_output: str) -> list[str]:
+    """Parse remote command output into a clean list of unique service hostnames."""
+    if not raw_output:
+        return []
+    services: list[str] = []
+    seen = set()
+    for line in raw_output.splitlines():
+        cleaned = line.strip()
+        # Remove common shell prompt artifacts, quotes, or table headers
+        cleaned = re.sub(r"^https?://", "", cleaned, flags=re.I)
+        cleaned = cleaned.split("/")[0].strip()
+        cleaned = cleaned.strip("\"' \t\r\n")
+        if not cleaned or cleaned.startswith(("#", "//", ";", "NAME", "CONTAINER ID")):
+            continue
+        # Split on whitespace if multiple hostnames were output on a single line
+        tokens = cleaned.split()
+        for tok in tokens:
+            tok_clean = tok.strip("\"' \t\r\n")
+            if tok_clean and tok_clean not in seen:
+                seen.add(tok_clean)
+                services.append(tok_clean)
+    return services
+
+
+def execute_remote_ssh(
+    host: str,
+    port: int,
+    username: str,
+    auth_type: str,
+    password: str = "",
+    key_content: str = "",
+    command: str = "",
+    timeout: int = 10,
+) -> tuple[bool, str, list[str]]:
+    """Execute a command on a remote server using Paramiko SSH."""
+    import paramiko
+    import io
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        connect_kwargs: dict = {
+            "hostname": host,
+            "port": port,
+            "username": username or None,
+            "timeout": timeout,
+            "banner_timeout": timeout,
+            "auth_timeout": timeout,
+        }
+
+        if auth_type == "key" and key_content:
+            pkey = None
+            key_errs = []
+            for pkey_cls in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+                try:
+                    pkey = pkey_cls.from_private_key(io.StringIO(key_content.strip()))
+                    break
+                except Exception as ex:
+                    key_errs.append(str(ex))
+            if not pkey:
+                return False, f"Could not parse private key: {key_errs[0] if key_errs else 'Unknown key format'}", []
+            connect_kwargs["pkey"] = pkey
+        else:
+            connect_kwargs["password"] = password
+
+        client.connect(**connect_kwargs)
+        stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
+        out_bytes = stdout.read()
+        err_bytes = stderr.read()
+        out_text = out_bytes.decode("utf-8", errors="replace")
+        err_text = err_bytes.decode("utf-8", errors="replace")
+
+        full_output = out_text
+        if err_text:
+            full_output += ("\n" if full_output else "") + err_text
+
+        services = parse_remote_service_names(out_text or full_output)
+        return True, full_output, services
+    except Exception as exc:
+        return False, f"SSH Error: {exc}", []
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def execute_remote_telnet(
+    host: str,
+    port: int,
+    username: str = "",
+    password: str = "",
+    command: str = "",
+    timeout: int = 10,
+) -> tuple[bool, str, list[str]]:
+    """Execute a command on a remote server using a Telnet RFC 854 socket client."""
+    try:
+        s = socket.create_connection((host, int(port)), timeout=timeout)
+        s.settimeout(timeout)
+    except Exception as exc:
+        return False, f"Telnet Connection Error: {exc}", []
+
+    try:
+        def read_until(targets: list[str], max_wait: float = 3.0) -> str:
+            start = time.time()
+            collected = bytearray()
+            while time.time() - start < max_wait:
+                try:
+                    chunk = s.recv(1024)
+                    if not chunk:
+                        break
+                    i = 0
+                    while i < len(chunk):
+                        if chunk[i] == 255 and i + 2 < len(chunk):  # IAC negotiation
+                            cmd = chunk[i + 1]
+                            opt = chunk[i + 2]
+                            if cmd in (251, 252):  # WILL / WONT -> Respond DONT
+                                s.sendall(bytes([255, 254, opt]))
+                            elif cmd in (253, 254):  # DO / DONT -> Respond WONT
+                                s.sendall(bytes([255, 252, opt]))
+                            i += 3
+                        else:
+                            collected.append(chunk[i])
+                            i += 1
+                    text = collected.decode("utf-8", errors="ignore")
+                    for t in targets:
+                        if t.lower() in text.lower():
+                            return text
+                except socket.timeout:
+                    break
+            return collected.decode("utf-8", errors="ignore")
+
+        # Handle login prompt if required
+        prompt = read_until(["login:", "username:", "password:", "#", "$", ">"], max_wait=2.5)
+        if any(p in prompt.lower() for p in ("login:", "username:")) and username:
+            s.sendall((username + "\n").encode("utf-8"))
+            prompt = read_until(["password:", "#", "$", ">"], max_wait=2.5)
+        if "password:" in prompt.lower() and password:
+            s.sendall((password + "\n").encode("utf-8"))
+            prompt = read_until(["#", "$", ">", "%"], max_wait=2.5)
+
+        # Issue remote command
+        s.sendall((command + "\n").encode("utf-8"))
+        time.sleep(0.5)
+        s.sendall(b"exit\n")
+
+        raw_output = read_until([], max_wait=timeout)
+        services = parse_remote_service_names(raw_output)
+        return True, raw_output, services
+    except Exception as exc:
+        return False, f"Telnet Execution Error: {exc}", []
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def execute_remote_source(params: dict[str, str]) -> tuple[bool, str, list[str]]:
+    """Execute configured remote source command via SSH or Telnet with safety validation."""
+    conn_type = (params.get("remote_source_type") or "ssh").lower().strip()
+    host = (params.get("remote_source_host") or "").strip()
+    port_raw = (params.get("remote_source_port") or ("22" if conn_type == "ssh" else "23")).strip()
+    username = (params.get("remote_source_username") or "").strip()
+    auth_type = (params.get("remote_source_auth_type") or "password").lower().strip()
+    password = params.get("remote_source_password") or ""
+    key_content = params.get("remote_source_key") or ""
+    command = (params.get("remote_source_command") or "").strip()
+    timeout_raw = (params.get("remote_source_timeout") or "10").strip()
+
+    if not host:
+        return False, "Remote hostname / IP address is required.", []
+    try:
+        port = int(port_raw)
+    except ValueError:
+        return False, f"Invalid port: {port_raw}", []
+    try:
+        timeout = int(timeout_raw)
+    except ValueError:
+        timeout = 10
+
+    safe, err_msg = is_safe_remote_command(command)
+    if not safe:
+        return False, err_msg, []
+
+    if conn_type == "telnet":
+        return execute_remote_telnet(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            command=command,
+            timeout=timeout,
+        )
+    else:
+        return execute_remote_ssh(
+            host=host,
+            port=port,
+            username=username,
+            auth_type=auth_type,
+            password=password,
+            key_content=key_content,
+            command=command,
+            timeout=timeout,
+        )
 
 
 @app.route("/")
@@ -4014,11 +4258,27 @@ def settings_route():
             "proxy_port": request.form.get("proxy_port", "8080").strip(),
             "proxy_username": request.form.get("proxy_username", "").strip(),
             "proxy_password": request.form.get("proxy_password", ""),
+            "remote_source_type": request.form.get("remote_source_type", "ssh").strip().lower(),
+            "remote_source_host": request.form.get("remote_source_host", "").strip(),
+            "remote_source_port": request.form.get("remote_source_port", "").strip(),
+            "remote_source_username": request.form.get("remote_source_username", "").strip(),
+            "remote_source_auth_type": request.form.get("remote_source_auth_type", "password").strip().lower(),
+            "remote_source_password": request.form.get("remote_source_password", ""),
+            "remote_source_key": request.form.get("remote_source_key", ""),
+            "remote_source_command": request.form.get("remote_source_command", "").strip(),
+            "remote_source_timeout": request.form.get("remote_source_timeout", "10").strip(),
         }
+        if not updated["remote_source_port"]:
+            updated["remote_source_port"] = "22" if updated["remote_source_type"] == "ssh" else "23"
+
         if not updated["smtp_password"] and current_settings.get("smtp_password"):
             updated["smtp_password"] = current_settings["smtp_password"]
         if not updated["proxy_password"] and current_settings.get("proxy_password"):
             updated["proxy_password"] = current_settings["proxy_password"]
+        if not updated["remote_source_password"] and current_settings.get("remote_source_password"):
+            updated["remote_source_password"] = current_settings["remote_source_password"]
+        if not updated["remote_source_key"] and current_settings.get("remote_source_key"):
+            updated["remote_source_key"] = current_settings["remote_source_key"]
 
         save_settings(updated)
 
@@ -4047,9 +4307,81 @@ def settings_route():
         else:
             flash("Settings saved successfully.", "success")
 
-        return redirect(url_for("settings_route"))
+        # Redirect back to tab if specified
+        active_tab = request.form.get("active_tab", "")
+        redirect_url = url_for("settings_route")
+        if active_tab in ("smtp", "proxy", "source"):
+            redirect_url += f"#{active_tab}"
+        return redirect(redirect_url)
 
     return render_template("settings.html", settings=current_settings)
+
+
+@app.route("/api/settings/remote-source/test", methods=["POST"])
+def api_test_remote_source():
+    """Test connection to remote source and execute command, returning stdout and parsed services."""
+    stored = get_settings()
+    data = request.get_json(silent=True) or request.form.to_dict()
+
+    params = {
+        "remote_source_type": (data.get("remote_source_type") or stored.get("remote_source_type") or "ssh").strip().lower(),
+        "remote_source_host": (data.get("remote_source_host") if "remote_source_host" in data else stored.get("remote_source_host") or "").strip(),
+        "remote_source_port": (data.get("remote_source_port") if "remote_source_port" in data else stored.get("remote_source_port") or "").strip(),
+        "remote_source_username": (data.get("remote_source_username") if "remote_source_username" in data else stored.get("remote_source_username") or "").strip(),
+        "remote_source_auth_type": (data.get("remote_source_auth_type") or stored.get("remote_source_auth_type") or "password").strip().lower(),
+        "remote_source_password": data.get("remote_source_password") or stored.get("remote_source_password") or "",
+        "remote_source_key": data.get("remote_source_key") or stored.get("remote_source_key") or "",
+        "remote_source_command": (data.get("remote_source_command") if "remote_source_command" in data else stored.get("remote_source_command") or "").strip(),
+        "remote_source_timeout": (data.get("remote_source_timeout") or stored.get("remote_source_timeout") or "10").strip(),
+    }
+
+    if not params["remote_source_port"]:
+        params["remote_source_port"] = "22" if params["remote_source_type"] == "ssh" else "23"
+
+    success, output, services = execute_remote_source(params)
+    return jsonify({
+        "success": success,
+        "output": output,
+        "services": services,
+        "count": len(services),
+        "error": "" if success else output,
+    })
+
+
+@app.route("/api/services/remote-fetch", methods=["POST", "GET"])
+def api_fetch_remote_services():
+    """Execute configured remote source command and return services for Quick Text Import."""
+    stored = get_settings()
+    if not stored.get("remote_source_host"):
+        return jsonify({
+            "success": False,
+            "error": "No remote source host configured. Please configure it in Settings -> Service source.",
+            "services": [],
+            "count": 0,
+        }), 400
+    if not stored.get("remote_source_command"):
+        return jsonify({
+            "success": False,
+            "error": "No remote command configured. Please configure it in Settings -> Service source.",
+            "services": [],
+            "count": 0,
+        }), 400
+
+    success, output, services = execute_remote_source(stored)
+    if not success:
+        return jsonify({
+            "success": False,
+            "error": output,
+            "services": [],
+            "count": 0,
+        }), 400
+
+    return jsonify({
+        "success": True,
+        "output": output,
+        "services": services,
+        "count": len(services),
+    })
 
 
 # ── Network discovery ─────────────────────────────────────────────────────────

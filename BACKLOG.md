@@ -173,7 +173,7 @@ Use this format for new entries:
 - Status: completed
 
 OpenWrt/Linux SSH integration for list of DNS/Services
-- Status: pending
+- Status: completed
 
 Predefined [request] defintions to be selected from when adding or editing a service
 - Status: cancelled

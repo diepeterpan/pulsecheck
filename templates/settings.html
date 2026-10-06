@@ -19,10 +19,15 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
           HTTP Proxy Server
         </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-source" aria-selected="false" aria-controls="panel-source" data-tab="source">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          Service source
+        </button>
       </div>
     </div>
 
     <form method="post" action="{{ url_for('settings_route') }}" class="settings-form" id="settings-form">
+      <input type="hidden" name="active_tab" id="active_tab_input" value="smtp">
       <!-- TAB A: E-mail & SMTP Settings -->
       <div id="panel-smtp" class="import-tab-panel" role="tabpanel" aria-labelledby="tab-smtp">
         <div class="tab-2col-layout">
@@ -268,6 +273,163 @@
           </div>
         </div>
       </div>
+
+      <!-- TAB C: Service source (SSH / Telnet) -->
+      <div id="panel-source" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-source">
+        <div class="tab-2col-layout">
+          <!-- Main Form Column -->
+          <div class="tab-main-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                Remote Service Source Configuration
+              </h3>
+              <span class="hub-tag">Remote Inventory</span>
+            </div>
+            <p class="tab-card-subtitle">Execute a remote command over SSH or Telnet to dynamically fetch service names into the Quick Text Import tool.</p>
+
+            <!-- Section 1: Connection Protocol & Host -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">Connection Parameters</h3>
+
+              <div class="form-group">
+                <label>Connection Protocol</label>
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 6px;">
+                  <label style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.875rem; font-weight: 500; white-space: nowrap; background: #f8fafc; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 6px; user-select: none;">
+                    <input type="radio" name="remote_source_type" value="ssh" id="proto-ssh" {% if settings.remote_source_type != 'telnet' %}checked{% endif %} style="margin-right: 8px; cursor: pointer;">
+                    SSH (Secure Shell)
+                  </label>
+                  <label style="display: inline-flex; align-items: center; cursor: pointer; font-size: 0.875rem; font-weight: 500; white-space: nowrap; background: #f8fafc; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 6px; user-select: none;">
+                    <input type="radio" name="remote_source_type" value="telnet" id="proto-telnet" {% if settings.remote_source_type == 'telnet' %}checked{% endif %} style="margin-right: 8px; cursor: pointer;">
+                    Telnet
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="remote_source_host">Remote Host / IP Address</label>
+                  <input type="text" id="remote_source_host" name="remote_source_host" value="{{ settings.remote_source_host }}" placeholder="e.g. 192.168.1.1 or server.local" autocomplete="off">
+                  <span class="field-hint">Target server hostname or IP address.</span>
+                </div>
+
+                <div class="form-group">
+                  <label for="remote_source_port">Port</label>
+                  <input type="number" id="remote_source_port" name="remote_source_port" value="{{ settings.remote_source_port or '22' }}" placeholder="22" min="1" max="65535">
+                  <span class="field-hint" id="source-port-hint">Standard port: 22 (SSH), 23 (Telnet). Editable as required.</span>
+                </div>
+              </div>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="remote_source_username">Username</label>
+                  <input type="text" id="remote_source_username" name="remote_source_username" value="{{ settings.remote_source_username }}" placeholder="e.g. root or admin" autocomplete="username">
+                  <span class="field-hint">Remote user account for execution.</span>
+                </div>
+
+                <div class="form-group" id="group-auth-type">
+                  <label for="remote_source_auth_type">Authentication Method</label>
+                  <select id="remote_source_auth_type" name="remote_source_auth_type">
+                    <option value="password" {% if settings.remote_source_auth_type != 'key' %}selected{% endif %}>Password</option>
+                    <option value="key" {% if settings.remote_source_auth_type == 'key' %}selected{% endif %}>SSH Private Key</option>
+                  </select>
+                  <span class="field-hint">Choose password or private key authentication.</span>
+                </div>
+              </div>
+
+              <div class="form-group" id="group-password">
+                <label for="remote_source_password">Password</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="remote_source_password" name="remote_source_password" placeholder="{% if settings.remote_source_password %}•••••••• (saved, leave blank to keep){% else %}Enter remote password{% endif %}" autocomplete="current-password">
+                  <button type="button" id="toggle-source-pwd-btn" class="btn-pwd-toggle" aria-label="Toggle password visibility">Show</button>
+                </div>
+                <span class="field-hint">{% if settings.remote_source_password %}A password is saved. Leave blank to keep existing password.{% else %}Password for authentication.{% endif %}</span>
+              </div>
+
+              <div class="form-group hidden" id="group-key">
+                <label for="remote_source_key">SSH Private Key (PEM / OpenSSH)</label>
+                <textarea id="remote_source_key" name="remote_source_key" rows="5" class="code-textarea" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----" spellcheck="false">{% if settings.remote_source_key %}{{ settings.remote_source_key }}{% endif %}</textarea>
+                <span class="field-hint">Paste your unencrypted private key (RSA, Ed25519, or ECDSA).</span>
+              </div>
+            </div>
+
+            <!-- Section 2: Remote Command -->
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">Command Execution</h3>
+
+              <div class="form-group">
+                <label for="remote_source_command">Command to Execute</label>
+                <input type="text" id="remote_source_command" name="remote_source_command" value="{{ settings.remote_source_command }}" placeholder='e.g. docker ps --format "{{"{{"}}.Names{{"}}"}}" or uci show dhcp' autocomplete="off">
+                <span class="field-hint">Command will be executed remotely; output lines will populate the import textarea.</span>
+
+                <!-- Command Presets -->
+                <div class="preset-pills-row" style="margin-top: 8px;">
+                  <span style="font-size: 0.75rem; color: #64748b; margin-right: 4px; align-self: center;">Presets:</span>
+                  <button type="button" class="btn-preset-pill btn-cmd-preset" data-cmd='docker ps --format "{{"{{"}}.Names{{"}}"}}"'>Docker Containers</button>
+                  <button type="button" class="btn-preset-pill btn-cmd-preset" data-cmd="uci show dhcp | grep -oE 'name=[^ ]+' | cut -d= -f2">OpenWrt DHCP</button>
+                  <button type="button" class="btn-preset-pill btn-cmd-preset" data-cmd="uci show dhcp | grep &quot;\.name=&quot; | cut -d&quot;'&quot; -f2 | sed '/\./! s/$/.yourdomain.gohere/' | sort -f">OpenWrt DHCP (alternate)</button>
+                  <button type="button" class="btn-preset-pill btn-cmd-preset" data-cmd="cat /etc/hosts | grep -vE '^(#|127|::)' | awk '{print $2}'">Hosts File</button>
+                  <button type="button" class="btn-preset-pill btn-cmd-preset" data-cmd="kubectl get pods -A -o custom-columns=:metadata.name --no-headers">K8s Pods</button>
+                </div>
+              </div>
+
+              <div class="form-row-2col">
+                <div class="form-group">
+                  <label for="remote_source_timeout">Timeout (seconds)</label>
+                  <input type="number" id="remote_source_timeout" name="remote_source_timeout" value="{{ settings.remote_source_timeout or '10' }}" min="2" max="60" placeholder="10">
+                  <span class="field-hint">Maximum wait time for remote connection and execution.</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 3: Test Connection & Preview Output -->
+            <div class="settings-section-block">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 class="settings-section-title" style="margin-bottom: 0;">Output Preview</h3>
+                <button type="button" id="btn-test-remote-source" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span id="test-remote-btn-text">Test Connection &amp; Command</span>
+                </button>
+              </div>
+
+              <div id="remote-test-banner" class="hidden" style="margin-bottom: 10px; padding: 10px 14px; border-radius: 6px; font-size: 0.85rem;"></div>
+
+              <pre id="remote-test-output" style="background: #0f172a; color: #f8fafc; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.8rem; padding: 12px; border-radius: 8px; min-height: 80px; max-height: 220px; overflow-y: auto; white-space: pre-wrap; margin: 0; border: 1px solid #334155;">Click "Test Connection &amp; Command" above to execute and preview remote output.</pre>
+              <div id="remote-detected-count" style="margin-top: 8px; font-size: 0.8rem; color: #64748b; font-weight: 500;"></div>
+            </div>
+
+            <!-- Actions Bar -->
+            <div class="settings-actions">
+              <button type="submit" name="action" value="save" class="button primary">Save Settings</button>
+            </div>
+          </div>
+
+          <!-- Guidance Column -->
+          <div class="tab-side-card guide-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                Remote Source Guidance
+              </h3>
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>1. Safe Execution Guard</strong>
+              Destructive commands (such as <code>rm</code>, <code>mkfs</code>, <code>reboot</code>, <code>shutdown</code>, <code>dd</code>, etc.) are strictly prohibited and will be rejected automatically.
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>2. Clean Output Format</strong>
+              Your remote command should print one service hostname per line. Blank lines and protocol headers (<code>http://</code>, <code>https://</code>) are automatically parsed and stripped.
+            </div>
+
+            <div class="proxy-flow-step">
+              <strong>3. Quick Text Import</strong>
+              Once saved, go to <strong>Import &gt; Quick Text Import</strong> and click <strong>[Load from remote]</strong> to retrieve and populate the services textarea with one click.
+            </div>
+          </div>
+        </div>
+      </div>
     </form>
   </section>
 
@@ -277,7 +439,9 @@
     const tabPanels = {
       'smtp': document.getElementById('panel-smtp'),
       'proxy': document.getElementById('panel-proxy'),
+      'source': document.getElementById('panel-source'),
     };
+    const activeTabInput = document.getElementById('active_tab_input');
 
     function activateTab(tabKey) {
       if (!tabPanels[tabKey]) tabKey = 'smtp';
@@ -295,6 +459,9 @@
         }
       });
 
+      if (activeTabInput) {
+        activeTabInput.value = tabKey;
+      }
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, '', `#${tabKey}`);
       }
@@ -306,11 +473,13 @@
       });
     });
 
-    // Deep-linking via URL hash (e.g. #proxy, #http-proxy, #smtp, #email)
+    // Deep-linking via URL hash (e.g. #proxy, #source, #smtp)
     window.addEventListener('DOMContentLoaded', () => {
       const hash = (window.location.hash || '').replace('#', '').toLowerCase();
       if (hash === 'proxy' || hash === 'http-proxy' || hash === 'httpproxy') {
         activateTab('proxy');
+      } else if (hash === 'source' || hash === 'service-source' || hash === 'servicesource') {
+        activateTab('source');
       } else {
         activateTab('smtp');
       }
@@ -345,7 +514,144 @@
       });
     }
 
-    // Auto-fill sensible default port when security method changes
+    const sourcePwdInput = document.getElementById('remote_source_password');
+    const toggleSourceBtn = document.getElementById('toggle-source-pwd-btn');
+    if (toggleSourceBtn && sourcePwdInput) {
+      toggleSourceBtn.addEventListener('click', () => {
+        if (sourcePwdInput.type === 'password') {
+          sourcePwdInput.type = 'text';
+          toggleSourceBtn.textContent = 'Hide';
+        } else {
+          sourcePwdInput.type = 'password';
+          toggleSourceBtn.textContent = 'Show';
+        }
+      });
+    }
+
+    // Protocol switcher (SSH vs Telnet) and Port management
+    const protoSsh = document.getElementById('proto-ssh');
+    const protoTelnet = document.getElementById('proto-telnet');
+    const sourcePortInput = document.getElementById('remote_source_port');
+    const groupAuthType = document.getElementById('group-auth-type');
+    const groupPassword = document.getElementById('group-password');
+    const groupKey = document.getElementById('group-key');
+    const authTypeSelect = document.getElementById('remote_source_auth_type');
+    let userEditedSourcePort = false;
+
+    if (sourcePortInput) {
+      sourcePortInput.addEventListener('input', () => {
+        userEditedSourcePort = true;
+      });
+    }
+
+    function updateProtocolUI() {
+      const isSsh = protoSsh && protoSsh.checked;
+      if (groupAuthType) groupAuthType.style.display = isSsh ? 'block' : 'none';
+
+      if (!isSsh) {
+        if (groupPassword) groupPassword.classList.remove('hidden');
+        if (groupKey) groupKey.classList.add('hidden');
+        if (!userEditedSourcePort && sourcePortInput && (sourcePortInput.value === '22' || !sourcePortInput.value)) {
+          sourcePortInput.value = '23';
+        }
+      } else {
+        updateAuthTypeUI();
+        if (!userEditedSourcePort && sourcePortInput && (sourcePortInput.value === '23' || !sourcePortInput.value)) {
+          sourcePortInput.value = '22';
+        }
+      }
+    }
+
+    function updateAuthTypeUI() {
+      const isSsh = protoSsh && protoSsh.checked;
+      if (!isSsh) return;
+      const isKey = authTypeSelect && authTypeSelect.value === 'key';
+      if (groupPassword) groupPassword.classList.toggle('hidden', isKey);
+      if (groupKey) groupKey.classList.toggle('hidden', !isKey);
+    }
+
+    if (protoSsh) protoSsh.addEventListener('change', () => { userEditedSourcePort = false; updateProtocolUI(); });
+    if (protoTelnet) protoTelnet.addEventListener('change', () => { userEditedSourcePort = false; updateProtocolUI(); });
+    if (authTypeSelect) authTypeSelect.addEventListener('change', updateAuthTypeUI);
+    updateProtocolUI();
+
+    // Command Presets
+    const cmdInput = document.getElementById('remote_source_command');
+    document.querySelectorAll('.btn-cmd-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (cmdInput && btn.dataset.cmd) {
+          cmdInput.value = btn.dataset.cmd;
+          cmdInput.focus();
+        }
+      });
+    });
+
+    // Test Remote Source Handler
+    const testRemoteBtn = document.getElementById('btn-test-remote-source');
+    const testRemoteText = document.getElementById('test-remote-btn-text');
+    const testRemoteBanner = document.getElementById('remote-test-banner');
+    const testRemoteOutput = document.getElementById('remote-test-output');
+    const detectedCountEl = document.getElementById('remote-detected-count');
+
+    if (testRemoteBtn) {
+      testRemoteBtn.addEventListener('click', async () => {
+        testRemoteBtn.disabled = true;
+        testRemoteText.textContent = 'Testing connection...';
+        testRemoteBanner.className = 'hidden';
+        testRemoteOutput.textContent = 'Connecting and executing command...';
+        detectedCountEl.textContent = '';
+
+        const payload = {
+          remote_source_type: protoTelnet && protoTelnet.checked ? 'telnet' : 'ssh',
+          remote_source_host: document.getElementById('remote_source_host')?.value || '',
+          remote_source_port: document.getElementById('remote_source_port')?.value || '',
+          remote_source_username: document.getElementById('remote_source_username')?.value || '',
+          remote_source_auth_type: authTypeSelect?.value || 'password',
+          remote_source_password: sourcePwdInput?.value || '',
+          remote_source_key: document.getElementById('remote_source_key')?.value || '',
+          remote_source_command: cmdInput?.value || '',
+          remote_source_timeout: document.getElementById('remote_source_timeout')?.value || '10',
+        };
+
+        try {
+          const resp = await fetch('/api/settings/remote-source/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await resp.json();
+
+          if (data.success) {
+            testRemoteBanner.className = '';
+            testRemoteBanner.style.backgroundColor = '#ecfdf5';
+            testRemoteBanner.style.color = '#065f46';
+            testRemoteBanner.style.border = '1px solid #a7f3d0';
+            testRemoteBanner.textContent = `Connection succeeded! Executed remote command successfully. Found ${data.count} service(s).`;
+            testRemoteOutput.textContent = data.output || '(Command produced no output)';
+            detectedCountEl.textContent = `Parsed ${data.count} service name(s): ${data.services.slice(0, 10).join(', ')}${data.count > 10 ? '...' : ''}`;
+          } else {
+            testRemoteBanner.className = '';
+            testRemoteBanner.style.backgroundColor = '#fef2f2';
+            testRemoteBanner.style.color = '#991b1b';
+            testRemoteBanner.style.border = '1px solid #fecaca';
+            testRemoteBanner.textContent = `Connection failed: ${data.error || 'Unknown error'}`;
+            testRemoteOutput.textContent = data.output || data.error || 'No output.';
+          }
+        } catch (err) {
+          testRemoteBanner.className = '';
+          testRemoteBanner.style.backgroundColor = '#fef2f2';
+          testRemoteBanner.style.color = '#991b1b';
+          testRemoteBanner.style.border = '1px solid #fecaca';
+          testRemoteBanner.textContent = `Network error contacting PulseCheck: ${err.message}`;
+          testRemoteOutput.textContent = String(err);
+        } finally {
+          testRemoteBtn.disabled = false;
+          testRemoteText.textContent = 'Test Connection & Command';
+        }
+      });
+    }
+
+    // Auto-fill sensible default port when security method changes (SMTP)
     const securitySelect = document.getElementById('smtp_security');
     const portInput = document.getElementById('smtp_port');
     if (securitySelect && portInput) {
@@ -362,9 +668,9 @@
       });
     }
 
-    // Provider Presets
+    // Provider Presets (SMTP)
     const hostInput = document.getElementById('smtp_host');
-    const presetButtons = Array.from(document.querySelectorAll('.btn-preset-pill'));
+    const presetButtons = Array.from(document.querySelectorAll('.btn-preset-pill:not(.btn-cmd-preset)'));
     presetButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         if (hostInput) hostInput.value = btn.dataset.host || '';

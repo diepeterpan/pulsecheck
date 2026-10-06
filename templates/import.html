@@ -47,6 +47,10 @@
                 Start Text Import
               </button>
               <div class="tab-actions-left">
+                <button type="button" id="load-remote-text-btn" class="button secondary btn-sm" title="Fetch service names from predefined SSH/Telnet remote source">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px; vertical-align: -1px;"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <span id="load-remote-btn-text">Load from remote</span>
+                </button>
                 <button type="button" id="load-sample-text-btn" class="button secondary btn-sm" title="Insert sample services for testing">Load Sample</button>
                 <button type="button" id="clear-text-btn" class="button secondary btn-sm" title="Clear all text">Clear</button>
               </div>
@@ -374,6 +378,8 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
     const serviceCountBadge = document.getElementById('text-service-count');
     const clearTextBtn = document.getElementById('clear-text-btn');
     const loadSampleTextBtn = document.getElementById('load-sample-text-btn');
+    const loadRemoteTextBtn = document.getElementById('load-remote-text-btn');
+    const loadRemoteBtnText = document.getElementById('load-remote-btn-text');
 
     function updateServiceCount() {
       if (!textarea || !serviceCountBadge) return;
@@ -399,6 +405,39 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
         textarea.value = "example.com\napi.example.com\nportal.example.org\nstatus.internal.local";
         textarea.focus();
         updateServiceCount();
+      });
+    }
+
+    if (loadRemoteTextBtn && textarea) {
+      loadRemoteTextBtn.addEventListener('click', async () => {
+        loadRemoteTextBtn.disabled = true;
+        if (loadRemoteBtnText) loadRemoteBtnText.textContent = 'Fetching...';
+
+        try {
+          const resp = await fetch('/api/services/remote-fetch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          });
+          const data = await resp.json();
+
+          if (data.success) {
+            if (data.services && data.services.length > 0) {
+              // Replace any existing text in the textarea as requested
+              textarea.value = data.services.join('\n');
+              textarea.focus();
+              updateServiceCount();
+            } else {
+              alert('Remote command executed successfully, but returned 0 service names.\n\nRaw output:\n' + (data.output || '(empty)'));
+            }
+          } else {
+            alert('Failed to load services from remote source:\n\n' + (data.error || 'Unknown error') + '\n\nPlease check Settings > Service source.');
+          }
+        } catch (err) {
+          alert('Network error connecting to PulseCheck backend: ' + err.message);
+        } finally {
+          loadRemoteTextBtn.disabled = false;
+          if (loadRemoteBtnText) loadRemoteBtnText.textContent = 'Load from remote';
+        }
       });
     }
 
