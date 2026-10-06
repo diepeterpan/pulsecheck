@@ -114,6 +114,9 @@ def init_db():
             use_proxy INTEGER NOT NULL DEFAULT 0,
             request_type TEXT NOT NULL DEFAULT 'web',
             port_protocol TEXT NOT NULL DEFAULT '[]',
+            discovered_ip TEXT DEFAULT NULL,
+            discovered_mac TEXT DEFAULT NULL,
+            discovered_manufacturer TEXT DEFAULT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
