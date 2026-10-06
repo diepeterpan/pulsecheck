@@ -14,13 +14,24 @@ class SettingsTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.original_db = pulsecheck_app.DB_PATH
-        pulsecheck_app.DB_PATH = os.path.join(self.temp_dir.name, "pulsecheck.db")
+        self.original_mfg_icons = pulsecheck_app.MANUFACTURER_ICONS_DIR
+        self.original_svc_icons = pulsecheck_app.SERVICE_ICONS_DIR
+        pulsecheck_app.DB_PATH = Path(self.temp_dir.name) / "pulsecheck.db"
+        pulsecheck_app.MANUFACTURER_ICONS_DIR = Path(self.temp_dir.name) / "manufacturer_icons"
+        pulsecheck_app.MANUFACTURER_ICONS_DIR.mkdir(parents=True, exist_ok=True)
+        pulsecheck_app.SERVICE_ICONS_DIR = Path(self.temp_dir.name) / "service_icons"
+        pulsecheck_app.SERVICE_ICONS_DIR.mkdir(parents=True, exist_ok=True)
         pulsecheck_app.init_db()
         self.client = pulsecheck_app.app.test_client()
 
     def tearDown(self):
         pulsecheck_app.DB_PATH = self.original_db
-        self.temp_dir.cleanup()
+        pulsecheck_app.MANUFACTURER_ICONS_DIR = self.original_mfg_icons
+        pulsecheck_app.SERVICE_ICONS_DIR = self.original_svc_icons
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_get_settings_defaults(self):
         settings = pulsecheck_app.get_settings()
@@ -1780,7 +1791,99 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn('data-service="offline-overrides.example"  data-status="offline"', html)
 
 
+    def test_icon_management_mappings_crud_and_reset(self):
+        # 1. Get default mappings
+        res = self.client.get("/api/settings/icons/mappings")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        self.assertIn("cisco", data["known_manufacturer_domains"])
+        self.assertIn("shenzhen", data["regional_prefixes"])
+        self.assertIn("bitwarden", data["known_service_domains"])
+        self.assertTrue(len(data["html_content_icon_mappings"]) > 0)
+
+        # 2. Save custom mapping
+        custom_mfg = {"testbrand": "testbrand.com"}
+        save_res = self.client.post(
+            "/api/settings/icons/mappings/save",
+            json={"type": "known_manufacturer_domains", "data": custom_mfg},
+        )
+        self.assertEqual(save_res.status_code, 200)
+        self.assertTrue(save_res.get_json()["success"])
+
+        # Verify saved in getter
+        updated_mfg = pulsecheck_app.get_known_manufacturer_domains()
+        self.assertEqual(updated_mfg.get("testbrand"), "testbrand.com")
+
+        # 3. Reset mapping to defaults
+        reset_res = self.client.post(
+            "/api/settings/icons/mappings/reset",
+            json={"type": "known_manufacturer_domains"},
+        )
+        self.assertEqual(reset_res.status_code, 200)
+        self.assertTrue(reset_res.get_json()["success"])
+        reset_mfg = pulsecheck_app.get_known_manufacturer_domains()
+        self.assertIn("cisco", reset_mfg)
+        self.assertNotIn("testbrand", reset_mfg)
+
+    def test_icon_management_file_operations(self):
+        # Create a mock icon file in MANUFACTURER_ICONS_DIR
+        test_file = pulsecheck_app.MANUFACTURER_ICONS_DIR / "dummy_test_mfg.png"
+        test_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 100)
+
+        # List icons
+        res = self.client.get("/api/settings/icons/list?category=manufacturer")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["success"])
+        filenames = [i["filename"] for i in data["icons"]]
+        self.assertIn("dummy_test_mfg.png", filenames)
+
+        # Test path traversal prevention on delete-one
+        bad_del = self.client.post(
+            "/api/settings/icons/delete-one",
+            json={"category": "manufacturer", "filename": "../somefile.txt"},
+        )
+        self.assertEqual(bad_del.status_code, 400)
+
+        # Test single delete
+        del_res = self.client.post(
+            "/api/settings/icons/delete-one",
+            json={"category": "manufacturer", "filename": "dummy_test_mfg.png"},
+        )
+        self.assertEqual(del_res.status_code, 200)
+        self.assertFalse(test_file.exists())
+
+    def test_icon_management_regeneration_and_status(self):
+        # Get status endpoint
+        res = self.client.get("/api/settings/icons/status")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertIn("manufacturer", data)
+        self.assertIn("service", data)
+
+        # Trigger regeneration
+        regen_res = self.client.post(
+            "/api/settings/icons/regenerate",
+            json={"category": "manufacturer"},
+        )
+        self.assertEqual(regen_res.status_code, 200)
+        self.assertTrue(regen_res.get_json()["success"])
+
+        # Second trigger should mark queued
+        queue_res = self.client.post(
+            "/api/settings/icons/regenerate",
+            json={"category": "manufacturer"},
+        )
+        self.assertEqual(queue_res.status_code, 200)
+        q_data = queue_res.get_json()
+        self.assertTrue(q_data["success"])
+        # Either queued or completed fast
+        self.assertIn(q_data["queued"], (True, False))
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

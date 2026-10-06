@@ -4357,7 +4357,7 @@ def settings_route():
         # Redirect back to tab if specified
         active_tab = request.form.get("active_tab", "")
         redirect_url = url_for("settings_route")
-        if active_tab in ("smtp", "proxy", "source"):
+        if active_tab in ("smtp", "proxy", "source", "icons"):
             redirect_url += f"#{active_tab}"
         return redirect(redirect_url)
 
@@ -4429,6 +4429,338 @@ def api_fetch_remote_services():
         "services": services,
         "count": len(services),
     })
+
+
+# ── Icon Management & Background Job State ──────────────────────────────────
+ICON_JOB_STATUS = {
+    "manufacturer": {
+        "running": False,
+        "queued": False,
+        "total": 0,
+        "processed": 0,
+        "success": 0,
+        "current_item": "",
+        "status_text": "Idle",
+    },
+    "service": {
+        "running": False,
+        "queued": False,
+        "total": 0,
+        "processed": 0,
+        "success": 0,
+        "current_item": "",
+        "status_text": "Idle",
+    },
+}
+ICON_JOB_LOCK = threading.Lock()
+
+
+def _run_icon_regeneration_worker(category: str):
+    """Background worker to regenerate cached icons for existing database services/manufacturers."""
+    while True:
+        with ICON_JOB_LOCK:
+            st = ICON_JOB_STATUS[category]
+            st["running"] = True
+            st["processed"] = 0
+            st["success"] = 0
+            st["current_item"] = "Gathering records..."
+            st["status_text"] = "Gathering database records..."
+
+        items = []
+        try:
+            conn = get_db_connection()
+            if category == "manufacturer":
+                rows = conn.execute(
+                    "SELECT DISTINCT discovered_manufacturer AS name FROM services "
+                    "WHERE discovered_manufacturer IS NOT NULL "
+                    "  AND trim(discovered_manufacturer) != '' "
+                    "  AND upper(trim(discovered_manufacturer)) != 'NONE' "
+                    "ORDER BY discovered_manufacturer ASC"
+                ).fetchall()
+                items = [r["name"].strip() for r in rows if r["name"] and r["name"].strip()]
+            else:
+                rows = conn.execute(
+                    "SELECT DISTINCT name FROM services "
+                    "WHERE name IS NOT NULL AND trim(name) != '' "
+                    "ORDER BY name ASC"
+                ).fetchall()
+                items = [r["name"].strip() for r in rows if r["name"] and r["name"].strip()]
+            conn.close()
+        except Exception as exc:
+            with ICON_JOB_LOCK:
+                st = ICON_JOB_STATUS[category]
+                st["running"] = False
+                st["queued"] = False
+                st["status_text"] = f"Error reading database: {exc}"
+            return
+
+        with ICON_JOB_LOCK:
+            st = ICON_JOB_STATUS[category]
+            st["total"] = len(items)
+            st["status_text"] = f"Regenerating 0/{len(items)} icons..."
+
+        for item in items:
+            with ICON_JOB_LOCK:
+                ICON_JOB_STATUS[category]["current_item"] = item
+                ICON_JOB_STATUS[category]["status_text"] = (
+                    f"Regenerating {ICON_JOB_STATUS[category]['processed']}/{len(items)}: {item}..."
+                )
+
+            try:
+                if category == "manufacturer":
+                    res = resolve_and_cache_manufacturer_icon(item, force_refresh=True)
+                else:
+                    res = resolve_and_cache_service_icon(item, force_refresh=True)
+
+                with ICON_JOB_LOCK:
+                    ICON_JOB_STATUS[category]["processed"] += 1
+                    if res:
+                        ICON_JOB_STATUS[category]["success"] += 1
+            except Exception:
+                with ICON_JOB_LOCK:
+                    ICON_JOB_STATUS[category]["processed"] += 1
+
+        with ICON_JOB_LOCK:
+            st = ICON_JOB_STATUS[category]
+            if st["queued"]:
+                # Another run was requested while processing; loop again
+                st["queued"] = False
+                continue
+            else:
+                st["running"] = False
+                st["current_item"] = ""
+                st["status_text"] = f"Completed ({st['success']}/{st['total']} resolved successfully)"
+                break
+
+
+@app.route("/api/settings/icons/status", methods=["GET"])
+def api_get_icons_status():
+    """Return live status of icon regeneration background jobs."""
+    with ICON_JOB_LOCK:
+        return jsonify({
+            "manufacturer": dict(ICON_JOB_STATUS["manufacturer"]),
+            "service": dict(ICON_JOB_STATUS["service"]),
+        })
+
+
+@app.route("/api/settings/icons/regenerate", methods=["POST"])
+def api_regenerate_icons():
+    """Trigger background icon regeneration for either manufacturer or service category."""
+    data = request.get_json(silent=True) or request.form.to_dict()
+    category = (data.get("category") or "manufacturer").strip().lower()
+    if category not in ("manufacturer", "service"):
+        return jsonify({"success": False, "error": "Invalid category. Must be 'manufacturer' or 'service'."}), 400
+
+    with ICON_JOB_LOCK:
+        st = ICON_JOB_STATUS[category]
+        if st["running"]:
+            st["queued"] = True
+            return jsonify({
+                "success": True,
+                "queued": True,
+                "message": f"A regeneration job for {category} icons is already running. Your request has been queued.",
+            })
+
+        st["running"] = True
+        st["queued"] = False
+        st["total"] = 0
+        st["processed"] = 0
+        st["success"] = 0
+        st["status_text"] = "Starting..."
+
+    t = threading.Thread(
+        target=_run_icon_regeneration_worker,
+        args=(category,),
+        name=f"IconRegenWorker-{category}",
+        daemon=True,
+    )
+    t.start()
+
+    return jsonify({
+        "success": True,
+        "queued": False,
+        "message": f"Icon regeneration for {category} icons started in background.",
+    })
+
+
+@app.route("/api/settings/icons/list", methods=["GET"])
+def api_list_cached_icons():
+    """Return all cached icon files for the given category with metadata."""
+    category = request.args.get("category", "manufacturer").strip().lower()
+    target_dir = MANUFACTURER_ICONS_DIR if category == "manufacturer" else SERVICE_ICONS_DIR
+    url_prefix = "/static/manufacturer-icons/" if category == "manufacturer" else "/static/service-icons/"
+
+    icons = []
+    if target_dir.is_dir():
+        for f in sorted(target_dir.iterdir(), key=lambda p: p.name.lower()):
+            if f.is_file() and f.suffix.lower() in (".png", ".ico", ".jpg", ".svg", ".webp", ".gif"):
+                try:
+                    size = f.stat().st_size
+                    icons.append({
+                        "filename": f.name,
+                        "name": f.stem.replace("_", " "),
+                        "url": f"{url_prefix}{f.name}",
+                        "size_bytes": size,
+                        "size_display": f"{size / 1024:.1f} KB" if size >= 1024 else f"{size} B",
+                    })
+                except Exception:
+                    pass
+
+    return jsonify({"success": True, "category": category, "icons": icons, "count": len(icons)})
+
+
+@app.route("/api/settings/icons/delete-one", methods=["POST"])
+def api_delete_one_icon():
+    """Delete a single cached icon file."""
+    data = request.get_json(silent=True) or request.form.to_dict()
+    category = (data.get("category") or "manufacturer").strip().lower()
+    filename = (data.get("filename") or "").strip()
+
+    if category not in ("manufacturer", "service"):
+        return jsonify({"success": False, "error": "Invalid category."}), 400
+    if not filename:
+        return jsonify({"success": False, "error": "Filename is required."}), 400
+
+    # Prevent directory traversal attacks
+    clean_filename = os.path.basename(filename)
+    if not clean_filename or clean_filename != filename:
+        return jsonify({"success": False, "error": "Invalid filename format."}), 400
+
+    target_dir = MANUFACTURER_ICONS_DIR if category == "manufacturer" else SERVICE_ICONS_DIR
+    target_path = target_dir / clean_filename
+
+    if target_path.is_file():
+        try:
+            target_path.unlink()
+            return jsonify({"success": True, "message": f"Icon '{clean_filename}' deleted successfully."})
+        except Exception as exc:
+            return jsonify({"success": False, "error": f"Failed to delete file: {exc}"}), 500
+
+    return jsonify({"success": False, "error": f"Icon '{clean_filename}' not found."}), 404
+
+
+@app.route("/api/settings/icons/delete-all", methods=["POST"])
+def api_delete_all_icons():
+    """Delete all cached icons for the specified category."""
+    data = request.get_json(silent=True) or request.form.to_dict()
+    category = (data.get("category") or "manufacturer").strip().lower()
+
+    if category not in ("manufacturer", "service"):
+        return jsonify({"success": False, "error": "Invalid category."}), 400
+
+    target_dir = MANUFACTURER_ICONS_DIR if category == "manufacturer" else SERVICE_ICONS_DIR
+    deleted_count = 0
+
+    if target_dir.is_dir():
+        for f in list(target_dir.iterdir()):
+            if f.is_file() and f.suffix.lower() in (".png", ".ico", ".jpg", ".svg", ".webp", ".gif"):
+                try:
+                    f.unlink()
+                    deleted_count += 1
+                except Exception:
+                    pass
+
+    return jsonify({
+        "success": True,
+        "deleted_count": deleted_count,
+        "message": f"Successfully deleted {deleted_count} cached {category} icon(s).",
+    })
+
+
+@app.route("/api/settings/icons/mappings", methods=["GET"])
+def api_get_icon_mappings():
+    """Return all icon mapping dictionaries and lists."""
+    return jsonify({
+        "success": True,
+        "known_manufacturer_domains": get_known_manufacturer_domains(),
+        "regional_prefixes": get_regional_prefixes(),
+        "known_service_domains": get_known_service_domains(),
+        "html_content_icon_mappings": get_html_content_icon_mappings(),
+    })
+
+
+@app.route("/api/settings/icons/mappings/save", methods=["POST"])
+def api_save_icon_mappings():
+    """Save an updated icon mapping structure to DB settings."""
+    payload = request.get_json(silent=True) or {}
+    mapping_type = payload.get("type", "").strip()
+    data = payload.get("data")
+
+    allowed_types = (
+        "known_manufacturer_domains",
+        "regional_prefixes",
+        "known_service_domains",
+        "html_content_icon_mappings",
+    )
+    if mapping_type not in allowed_types:
+        return jsonify({"success": False, "error": f"Invalid mapping type: '{mapping_type}'."}), 400
+
+    if mapping_type in ("known_manufacturer_domains", "known_service_domains"):
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "error": "Data must be a key-value object."}), 400
+        # Clean keys and values
+        cleaned = {str(k).strip().lower(): str(v).strip() for k, v in data.items() if str(k).strip() and str(v).strip()}
+        serialized = json.dumps(cleaned)
+    elif mapping_type == "regional_prefixes":
+        if not isinstance(data, list):
+            return jsonify({"success": False, "error": "Data must be a list of prefix strings."}), 400
+        cleaned = [str(x).strip().lower() for x in data if str(x).strip()]
+        serialized = json.dumps(cleaned)
+    elif mapping_type == "html_content_icon_mappings":
+        if not isinstance(data, list):
+            return jsonify({"success": False, "error": "Data must be a list of [pattern, target] pairs."}), 400
+        cleaned = []
+        for item in data:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                p, t = str(item[0]).strip(), str(item[1]).strip()
+                if p and t:
+                    cleaned.append([p, t])
+        serialized = json.dumps(cleaned)
+
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (mapping_type, serialized),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": f"Mapping '{mapping_type}' saved successfully."})
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Database error saving mapping: {exc}"}), 500
+
+
+@app.route("/api/settings/icons/mappings/reset", methods=["POST"])
+def api_reset_icon_mappings():
+    """Reset a specific icon mapping structure or all mappings to default."""
+    payload = request.get_json(silent=True) or {}
+    mapping_type = payload.get("type", "").strip()
+
+    defaults = {
+        "known_manufacturer_domains": json.dumps(DEFAULT_KNOWN_MANUFACTURER_DOMAINS),
+        "regional_prefixes": json.dumps(DEFAULT_REGIONAL_PREFIXES),
+        "known_service_domains": json.dumps(DEFAULT_KNOWN_SERVICE_DOMAINS),
+        "html_content_icon_mappings": json.dumps(DEFAULT_HTML_CONTENT_ICON_MAPPINGS),
+    }
+
+    if mapping_type not in defaults:
+        return jsonify({"success": False, "error": f"Invalid mapping type: '{mapping_type}'."}), 400
+
+    try:
+        conn = get_db_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (mapping_type, defaults[mapping_type]),
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({
+            "success": True,
+            "message": f"Reset '{mapping_type}' to defaults successfully.",
+            "data": json.loads(defaults[mapping_type]),
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Database error resetting mapping: {exc}"}), 500
 
 
 # ── Network discovery ─────────────────────────────────────────────────────────
@@ -4693,8 +5025,8 @@ def serve_service_icon(filename):
     return send_from_directory(SERVICE_ICONS_DIR, filename)
 
 
-# Well-known hardware & networking manufacturers to official domains
-_KNOWN_MANUFACTURER_DOMAINS = {
+# Base built-in mappings used as fallback and seed in settings table
+DEFAULT_KNOWN_MANUFACTURER_DOMAINS = {
     "apple": "apple.com",
     "dell": "dell.com",
     "intel": "intel.com",
@@ -4758,32 +5090,65 @@ _KNOWN_MANUFACTURER_DOMAINS = {
     "magic home pro": "web.magichue.net",
 }
 
-# Known regional/geographical prefixes commonly prepending company names in corporate registrations
-_REGIONAL_PREFIXES = {
+DEFAULT_REGIONAL_PREFIXES = [
     "shenzhen", "beijing", "shanghai", "hangzhou", "guangzhou", "dongguan",
     "chengdu", "wuhan", "nanjing", "taipei", "hong kong", "hongkong"
-}
+]
 
 
-def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
+def get_known_manufacturer_domains() -> dict[str, str]:
+    """Retrieve manufacturer domain mappings from DB settings or initialize with defaults."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'known_manufacturer_domains'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+    except Exception:
+        pass
+    return dict(DEFAULT_KNOWN_MANUFACTURER_DOMAINS)
+
+
+def get_regional_prefixes() -> list[str]:
+    """Retrieve regional prefixes from DB settings or initialize with defaults."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'regional_prefixes'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, list) and parsed:
+                return [str(x).strip().lower() for x in parsed if str(x).strip()]
+    except Exception:
+        pass
+    return list(DEFAULT_REGIONAL_PREFIXES)
+
+
+def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool = False) -> str | None:
     """
     Find, download, and cache an icon for the manufacturer in MANUFACTURER_ICONS_DIR.
-    Checks disk cache first to prevent repeated internet requests.
+    Checks disk cache first to prevent repeated internet requests unless force_refresh is True.
     """
     if not manufacturer or manufacturer.strip().upper() in ("", "NONE"):
         return None
 
     slug = slugify_manufacturer(manufacturer)
     # 1. Disk Cache hit (check all supported image formats)
-    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
-        cached_file = MANUFACTURER_ICONS_DIR / f"{slug}{ext}"
-        if cached_file.is_file() and cached_file.stat().st_size > 0:
-            return f"/static/manufacturer-icons/{slug}{ext}"
+    if not force_refresh:
+        for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
+            cached_file = MANUFACTURER_ICONS_DIR / f"{slug}{ext}"
+            if cached_file.is_file() and cached_file.stat().st_size > 0:
+                return f"/static/manufacturer-icons/{slug}{ext}"
 
-    # Determine domain to check
+    # Determine domain to check from dynamic mappings
+    known_mfg_domains = get_known_manufacturer_domains()
+    regional_prefixes_set = set(get_regional_prefixes())
+
     m_lower = manufacturer.lower()
     domain = None
-    for key, dom in _KNOWN_MANUFACTURER_DOMAINS.items():
+    for key, dom in known_mfg_domains.items():
         if key in m_lower:
             domain = dom
             break
@@ -4795,7 +5160,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
         # Heuristic: extract clean slug tokens
         tokens = [t for t in slug.split("_") if t and t not in ("technology", "electronics", "information", "networks", "network", "telecom", "telecommunication", "digital", "system", "systems", "group", "holdings", "holding")]
         # If the first token is a known regional prefix (e.g. Shenzhen, Hangzhou, Beijing), try the second token first
-        if len(tokens) > 1 and tokens[0] in _REGIONAL_PREFIXES:
+        if len(tokens) > 1 and tokens[0] in regional_prefixes_set:
             second_token = tokens[1]
             if len(second_token) > 2:
                 candidate_domains.append(f"{second_token}.com")
@@ -4806,7 +5171,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
             candidate_domains.append(f"{tokens[0]}.com")
 
     # Filter out generic regional city domains (e.g., shenzhen.com, beijing.com) from being treated as tech vendor sites
-    candidate_domains = [d for d in candidate_domains if not any(d == f"{reg}.com" for reg in _REGIONAL_PREFIXES)]
+    candidate_domains = [d for d in candidate_domains if not any(d == f"{reg}.com" for reg in regional_prefixes_set)]
 
     icon_bytes = None
 
@@ -4912,8 +5277,8 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str) -> str | None:
     return None
 
 
-# Well-known self-hosted & server applications to official domains
-_KNOWN_SERVICE_DOMAINS = {
+# Base built-in service & application mappings
+DEFAULT_KNOWN_SERVICE_DOMAINS = {
     "bitwarden": "bitwarden.com",
     "vaultwarden": "vaultwarden.net",
     "plex": "plex.tv",
@@ -4990,16 +5355,46 @@ _KNOWN_SERVICE_DOMAINS = {
 }
 
 # Known HTML content signatures mapped to platform/vendor domains or absolute icon URLs
-_HTML_CONTENT_ICON_MAPPINGS = [
-    (r"\b(?:luci|lua configuration interface)\b", "https://raw.githubusercontent.com/openwrt/branding/refs/heads/master/favicon/favicon.ico"),
-    (r"\b(?:proxmox virtual environment|proxmox ve)\b", "proxmox.com"),
-    (r"\b(?:truenas core|truenas scale)\b", "truenas.com"),
-    (r"\b(?:synology dsm|diskstation manager)\b", "synology.com"),
-    (r"\b(?:qts|qnap)\b", "qnap.com"),
-    (r"\b(?:pi-hole)\b", "pi-hole.net"),
-    (r"\b(?:adguard home)\b", "adguard.com"),
-    (r"\b(?:portainer ce|portainer business)\b", "portainer.io"),
+DEFAULT_HTML_CONTENT_ICON_MAPPINGS = [
+    [r"\b(?:luci|lua configuration interface)\b", "https://raw.githubusercontent.com/openwrt/branding/refs/heads/master/favicon/favicon.ico"],
+    [r"\b(?:proxmox virtual environment|proxmox ve)\b", "proxmox.com"],
+    [r"\b(?:truenas core|truenas scale)\b", "truenas.com"],
+    [r"\b(?:synology dsm|diskstation manager)\b", "synology.com"],
+    [r"\b(?:qts|qnap)\b", "qnap.com"],
+    [r"\b(?:pi-hole)\b", "pi-hole.net"],
+    [r"\b(?:adguard home)\b", "adguard.com"],
+    [r"\b(?:portainer ce|portainer business)\b", "portainer.io"],
 ]
+
+
+def get_known_service_domains() -> dict[str, str]:
+    """Retrieve service domain mappings from DB settings or initialize with defaults."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'known_service_domains'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+    except Exception:
+        pass
+    return dict(DEFAULT_KNOWN_SERVICE_DOMAINS)
+
+
+def get_html_content_icon_mappings() -> list[list[str]]:
+    """Retrieve HTML content signature icon mappings from DB settings or initialize with defaults."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'html_content_icon_mappings'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, list) and parsed:
+                return parsed
+    except Exception:
+        pass
+    return [list(item) for item in DEFAULT_HTML_CONTENT_ICON_MAPPINGS]
 
 
 def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | None:
@@ -5047,7 +5442,7 @@ def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | 
     return None
 
 
-def resolve_and_cache_service_icon(service_name: str) -> str | None:
+def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = False) -> str | None:
     """
     Find, download, and cache an icon for the product/service in SERVICE_ICONS_DIR.
     1. Primary Method: Access service name directly as a site via https:// then http://.
@@ -5062,18 +5457,19 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
         return None
 
     slug = slugify_service_name(service_name)
-    # Check disk cache first across all extensions, discarding corrupted/parked icons
-    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
-        cached_file = SERVICE_ICONS_DIR / f"{slug}{ext}"
-        if cached_file.is_file() and cached_file.stat().st_size > 0:
-            try:
-                data = cached_file.read_bytes()
-                if is_godaddy_or_parked_icon(data):
-                    cached_file.unlink(missing_ok=True)
-                    continue
-            except Exception:
-                pass
-            return f"/static/service-icons/{slug}{ext}"
+    # Check disk cache first across all extensions, discarding corrupted/parked icons unless force_refresh is True
+    if not force_refresh:
+        for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
+            cached_file = SERVICE_ICONS_DIR / f"{slug}{ext}"
+            if cached_file.is_file() and cached_file.stat().st_size > 0:
+                try:
+                    data = cached_file.read_bytes()
+                    if is_godaddy_or_parked_icon(data):
+                        cached_file.unlink(missing_ok=True)
+                        continue
+                except Exception:
+                    pass
+                return f"/static/service-icons/{slug}{ext}"
 
     icon_bytes = None
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
@@ -5135,8 +5531,9 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
     # =========================================================================
     if not icon_bytes:
         candidate_domains = []
-        if product in _KNOWN_SERVICE_DOMAINS:
-            candidate_domains.append(_KNOWN_SERVICE_DOMAINS[product])
+        known_service_domains = get_known_service_domains()
+        if product in known_service_domains:
+            candidate_domains.append(known_service_domains[product])
 
         # General domain guesses for the product name
         for tld in (".com", ".io", ".org", ".net", ".app", ".dev", ".media"):
@@ -5186,7 +5583,8 @@ def resolve_and_cache_service_icon(service_name: str) -> str | None:
         html_page = fetch_service_html_body(service_name)
         if html_page:
             matched_domain = None
-            for pattern, dom in _HTML_CONTENT_ICON_MAPPINGS:
+            html_mappings = get_html_content_icon_mappings()
+            for pattern, dom in html_mappings:
                 if re.search(pattern, html_page, re.I):
                     matched_domain = dom
                     break

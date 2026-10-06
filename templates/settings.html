@@ -23,6 +23,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           Service source
         </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-icons" aria-selected="false" aria-controls="panel-icons" data-tab="icons">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Icons
+        </button>
       </div>
     </div>
 
@@ -430,6 +434,216 @@
           </div>
         </div>
       </div>
+
+      <!-- TAB D: Icons Maintenance -->
+      <div id="panel-icons" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-icons">
+        <!-- Sub-tabs navigation: Manufacturer vs Service -->
+        <div class="icon-subtabs-nav" role="tablist" aria-label="Icon Categories">
+          <button type="button" class="icon-subtab-btn active" id="subtab-mfg" data-subtab="mfg">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+            Manufacturer Icons
+          </button>
+          <button type="button" class="icon-subtab-btn" id="subtab-svc" data-subtab="svc">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Service Icons
+          </button>
+        </div>
+
+        <!-- ════════ SUB-PANEL: MANUFACTURER ICONS ════════ -->
+        <div id="subpanel-mfg" class="icon-subpanel">
+          <!-- Action Bar (Status, Live Indicator, Regenerate, Delete All) -->
+          <div class="icon-actions-bar">
+            <div class="icon-status-box">
+              <span class="icon-status-badge idle" id="mfg-status-badge">Idle</span>
+              <span id="mfg-status-text" style="color: #475569;">Ready</span>
+            </div>
+            <div class="icon-btn-group">
+              <button type="button" class="btn btn-secondary" id="btn-mfg-regen" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Regenerate Manufacturer Icons
+              </button>
+              <button type="button" class="btn btn-danger" id="btn-mfg-delete-all" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                Delete All Manufacturer Icons
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 1: Visual Icon Browser -->
+          <div class="tab-main-card" style="margin-bottom: 24px;">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Cached Manufacturer Icons
+              </h3>
+              <span class="hub-tag" id="mfg-icons-count-tag">0 Cached</span>
+            </div>
+            <div class="icon-gallery-header">
+              <input type="text" class="icon-search-input" id="mfg-icon-search" placeholder="Search manufacturer icons..." autocomplete="off">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-refresh-list" style="font-size: 0.8rem;">Refresh Gallery</button>
+            </div>
+            <div class="icon-gallery-grid" id="mfg-gallery-grid">
+              <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: #94a3b8;">Loading cached icons...</div>
+            </div>
+          </div>
+
+          <!-- Section 2: Mappings Editor -->
+          <div class="tab-2col-layout">
+            <!-- Known Manufacturer Domains Table -->
+            <div class="tab-main-card">
+              <div class="tab-card-header">
+                <h3>Known Manufacturer Domains</h3>
+                <span class="hub-tag">Resolution Rules</span>
+              </div>
+              <p class="tab-card-subtitle">Map hardware manufacturer brand keywords to their official company domains for high-resolution logo retrieval.</p>
+              
+              <div class="mappings-table-container">
+                <table class="mappings-table" id="table-mfg-domains">
+                  <thead>
+                    <tr>
+                      <th style="width: 45%;">Manufacturer / Keyword</th>
+                      <th style="width: 45%;">Official Domain</th>
+                      <th style="width: 10%; text-align: center;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-add-row">+ Add Mapping</button>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-defaults">Reset to Defaults</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-domains">Save Domains</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Regional Prefixes Box -->
+            <div class="tab-side-card">
+              <div class="tab-card-header">
+                <h3>Regional Prefixes</h3>
+                <span class="hub-tag">Filters</span>
+              </div>
+              <p class="tab-card-subtitle">City and regional prefixes stripped from Chinese and international corporate vendor registrations during heuristic lookups.</p>
+              
+              <div class="tag-list-box" id="mfg-regional-tags"></div>
+
+              <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+                <input type="text" id="mfg-new-prefix-input" placeholder="e.g. suzhou" class="mapping-input" style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-add-prefix">Add</button>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-prefixes">Reset</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-prefixes">Save Prefixes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ════════ SUB-PANEL: SERVICE ICONS ════════ -->
+        <div id="subpanel-svc" class="icon-subpanel hidden">
+          <!-- Action Bar (Status, Live Indicator, Regenerate, Delete All) -->
+          <div class="icon-actions-bar">
+            <div class="icon-status-box">
+              <span class="icon-status-badge idle" id="svc-status-badge">Idle</span>
+              <span id="svc-status-text" style="color: #475569;">Ready</span>
+            </div>
+            <div class="icon-btn-group">
+              <button type="button" class="btn btn-secondary" id="btn-svc-regen" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Regenerate Service Icons
+              </button>
+              <button type="button" class="btn btn-danger" id="btn-svc-delete-all" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                Delete All Service Icons
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 1: Visual Icon Browser -->
+          <div class="tab-main-card" style="margin-bottom: 24px;">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                Cached Service Icons
+              </h3>
+              <span class="hub-tag" id="svc-icons-count-tag">0 Cached</span>
+            </div>
+            <div class="icon-gallery-header">
+              <input type="text" class="icon-search-input" id="svc-icon-search" placeholder="Search service icons..." autocomplete="off">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-svc-refresh-list" style="font-size: 0.8rem;">Refresh Gallery</button>
+            </div>
+            <div class="icon-gallery-grid" id="svc-gallery-grid">
+              <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: #94a3b8;">Loading cached icons...</div>
+            </div>
+          </div>
+
+          <!-- Section 2: Mappings Editor -->
+          <div class="tab-2col-layout">
+            <!-- Known Service Domains Table -->
+            <div class="tab-main-card">
+              <div class="tab-card-header">
+                <h3>Known Service Domains</h3>
+                <span class="hub-tag">Brand Lookups</span>
+              </div>
+              <p class="tab-card-subtitle">Map server application and self-hosted product names to their official portal domains for direct logo discovery.</p>
+              
+              <div class="mappings-table-container">
+                <table class="mappings-table" id="table-svc-domains">
+                  <thead>
+                    <tr>
+                      <th style="width: 45%;">Service / Product Name</th>
+                      <th style="width: 45%;">Target Domain</th>
+                      <th style="width: 10%; text-align: center;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-svc-add-row">+ Add Mapping</button>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-svc-reset-domains">Reset to Defaults</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-svc-save-domains">Save Domains</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- HTML Content Signatures Table -->
+            <div class="tab-side-card">
+              <div class="tab-card-header">
+                <h3>HTML Content Signatures</h3>
+                <span class="hub-tag">Deep Fallback</span>
+              </div>
+              <p class="tab-card-subtitle">Match regex keywords in service landing pages (e.g. LuCI, Proxmox VE) to target domains or icon URLs.</p>
+              
+              <div class="mappings-table-container" style="max-height: 380px;">
+                <table class="mappings-table" id="table-html-mappings">
+                  <thead>
+                    <tr>
+                      <th style="width: 50%;">Regex Pattern</th>
+                      <th style="width: 40%;">Domain or URL</th>
+                      <th style="width: 10%; text-align: center;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-html-add-row">+ Add Pattern</button>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-html-reset">Reset</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-html-save">Save Patterns</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </form>
   </section>
 
@@ -440,6 +654,7 @@
       'smtp': document.getElementById('panel-smtp'),
       'proxy': document.getElementById('panel-proxy'),
       'source': document.getElementById('panel-source'),
+      'icons': document.getElementById('panel-icons'),
     };
     const activeTabInput = document.getElementById('active_tab_input');
 
@@ -465,6 +680,10 @@
       if (window.history && window.history.replaceState) {
         window.history.replaceState(null, '', `#${tabKey}`);
       }
+
+      if (tabKey === 'icons') {
+        initIconsTab();
+      }
     }
 
     tabButtons.forEach(btn => {
@@ -473,13 +692,15 @@
       });
     });
 
-    // Deep-linking via URL hash (e.g. #proxy, #source, #smtp)
+    // Deep-linking via URL hash (e.g. #proxy, #source, #smtp, #icons)
     window.addEventListener('DOMContentLoaded', () => {
       const hash = (window.location.hash || '').replace('#', '').toLowerCase();
       if (hash === 'proxy' || hash === 'http-proxy' || hash === 'httpproxy') {
         activateTab('proxy');
       } else if (hash === 'source' || hash === 'service-source' || hash === 'servicesource') {
         activateTab('source');
+      } else if (hash === 'icons' || hash === 'icon') {
+        activateTab('icons');
       } else {
         activateTab('smtp');
       }
@@ -679,5 +900,540 @@
         if (hostInput) hostInput.focus();
       });
     });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Icon Management JavaScript
+    // ═══════════════════════════════════════════════════════════════════════
+    let iconsInitialized = false;
+    let iconPollingInterval = null;
+    let mfgIconsData = [];
+    let svcIconsData = [];
+
+    // Sub-tab toggling (Manufacturer vs Service)
+    const subtabMfgBtn = document.getElementById('subtab-mfg');
+    const subtabSvcBtn = document.getElementById('subtab-svc');
+    const subpanelMfg = document.getElementById('subpanel-mfg');
+    const subpanelSvc = document.getElementById('subpanel-svc');
+
+    function switchIconSubtab(target) {
+      const isMfg = target === 'mfg';
+      if (subtabMfgBtn) subtabMfgBtn.classList.toggle('active', isMfg);
+      if (subtabSvcBtn) subtabSvcBtn.classList.toggle('active', !isMfg);
+      if (subpanelMfg) subpanelMfg.classList.toggle('hidden', !isMfg);
+      if (subpanelSvc) subpanelSvc.classList.toggle('hidden', isMfg);
+    }
+
+    if (subtabMfgBtn) subtabMfgBtn.addEventListener('click', () => switchIconSubtab('mfg'));
+    if (subtabSvcBtn) subtabSvcBtn.addEventListener('click', () => switchIconSubtab('svc'));
+
+    function initIconsTab() {
+      if (iconsInitialized) return;
+      iconsInitialized = true;
+      loadCachedIcons('manufacturer');
+      loadCachedIcons('service');
+      loadMappings();
+      startIconStatusPolling();
+    }
+
+    // 1. Fetch & Render Cached Icons Gallery
+    async function loadCachedIcons(category) {
+      const grid = document.getElementById(category === 'manufacturer' ? 'mfg-gallery-grid' : 'svc-gallery-grid');
+      const countTag = document.getElementById(category === 'manufacturer' ? 'mfg-icons-count-tag' : 'svc-icons-count-tag');
+      if (!grid) return;
+
+      try {
+        const resp = await fetch(`/api/settings/icons/list?category=${category}`);
+        const data = await resp.json();
+        if (data.success) {
+          if (category === 'manufacturer') {
+            mfgIconsData = data.icons;
+            renderIconGallery('manufacturer', mfgIconsData);
+          } else {
+            svcIconsData = data.icons;
+            renderIconGallery('service', svcIconsData);
+          }
+          if (countTag) countTag.textContent = `${data.count} Cached`;
+        }
+      } catch (err) {
+        grid.innerHTML = `<div style="grid-column: 1 / -1; padding: 20px; text-align: center; color: #ef4444;">Failed to load icons: ${err.message}</div>`;
+      }
+    }
+
+    function renderIconGallery(category, icons) {
+      const grid = document.getElementById(category === 'manufacturer' ? 'mfg-gallery-grid' : 'svc-gallery-grid');
+      if (!grid) return;
+
+      if (!icons || icons.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: #94a3b8;">No cached icon files found.</div>';
+        return;
+      }
+
+      grid.innerHTML = icons.map(item => `
+        <div class="icon-card" data-filename="${encodeURIComponent(item.filename)}">
+          <div class="icon-preview-wrap">
+            <img class="icon-preview-img" src="${item.url}?t=${Date.now()}" alt="${item.name}" loading="lazy" onerror="this.src='/static/pulsecheck-logo.png'">
+          </div>
+          <div class="icon-card-name" title="${item.filename}">${item.name}</div>
+          <div class="icon-card-size">${item.size_display}</div>
+          <button type="button" class="icon-delete-btn" onclick="deleteSingleIcon('${category}', '${item.filename.replace(/'/g, "\\'")}')">
+            Delete
+          </button>
+        </div>
+      `).join('');
+    }
+
+    // Live search filter in galleries
+    const mfgSearch = document.getElementById('mfg-icon-search');
+    if (mfgSearch) {
+      mfgSearch.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase().trim();
+        const filtered = mfgIconsData.filter(i => i.name.toLowerCase().includes(term) || i.filename.toLowerCase().includes(term));
+        renderIconGallery('manufacturer', filtered);
+      });
+    }
+
+    const svcSearch = document.getElementById('svc-icon-search');
+    if (svcSearch) {
+      svcSearch.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase().trim();
+        const filtered = svcIconsData.filter(i => i.name.toLowerCase().includes(term) || i.filename.toLowerCase().includes(term));
+        renderIconGallery('service', filtered);
+      });
+    }
+
+    const btnMfgRefresh = document.getElementById('btn-mfg-refresh-list');
+    if (btnMfgRefresh) btnMfgRefresh.addEventListener('click', () => loadCachedIcons('manufacturer'));
+
+    const btnSvcRefresh = document.getElementById('btn-svc-refresh-list');
+    if (btnSvcRefresh) btnSvcRefresh.addEventListener('click', () => loadCachedIcons('service'));
+
+    // 2. Single Icon Deletion
+    window.deleteSingleIcon = async function(category, filename) {
+      if (!confirm(`Are you sure you want to delete the cached icon file "${filename}"?`)) return;
+
+      try {
+        const resp = await fetch('/api/settings/icons/delete-one', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category, filename }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          loadCachedIcons(category);
+        } else {
+          alert(`Failed to delete icon: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Error deleting icon: ${err.message}`);
+      }
+    };
+
+    // 3. Delete All Icons (per tab)
+    const btnMfgDeleteAll = document.getElementById('btn-mfg-delete-all');
+    if (btnMfgDeleteAll) {
+      btnMfgDeleteAll.addEventListener('click', async () => {
+        if (!confirm('Warning: This will permanently delete ALL cached manufacturer icon files from disk. Existing devices will fall back to default icons until regenerated.\n\nDo you want to proceed?')) {
+          return;
+        }
+        btnMfgDeleteAll.disabled = true;
+        try {
+          const resp = await fetch('/api/settings/icons/delete-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: 'manufacturer' }),
+          });
+          const res = await resp.json();
+          if (res.success) {
+            alert(res.message);
+            loadCachedIcons('manufacturer');
+          } else {
+            alert(`Error: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Network error: ${err.message}`);
+        } finally {
+          btnMfgDeleteAll.disabled = false;
+        }
+      });
+    }
+
+    const btnSvcDeleteAll = document.getElementById('btn-svc-delete-all');
+    if (btnSvcDeleteAll) {
+      btnSvcDeleteAll.addEventListener('click', async () => {
+        if (!confirm('Warning: This will permanently delete ALL cached service/application icon files from disk. Monitored services will fall back to default icons until regenerated.\n\nDo you want to proceed?')) {
+          return;
+        }
+        btnSvcDeleteAll.disabled = true;
+        try {
+          const resp = await fetch('/api/settings/icons/delete-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: 'service' }),
+          });
+          const res = await resp.json();
+          if (res.success) {
+            alert(res.message);
+            loadCachedIcons('service');
+          } else {
+            alert(`Error: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Network error: ${err.message}`);
+        } finally {
+          btnSvcDeleteAll.disabled = false;
+        }
+      });
+    }
+
+    // 4. Trigger Icon Regeneration Jobs
+    const btnMfgRegen = document.getElementById('btn-mfg-regen');
+    if (btnMfgRegen) {
+      btnMfgRegen.addEventListener('click', async () => {
+        btnMfgRegen.disabled = true;
+        try {
+          const resp = await fetch('/api/settings/icons/regenerate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: 'manufacturer' }),
+          });
+          const res = await resp.json();
+          if (res.success) {
+            alert(res.message);
+            pollIconStatusOnce();
+          } else {
+            alert(`Error: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Network error: ${err.message}`);
+        } finally {
+          btnMfgRegen.disabled = false;
+        }
+      });
+    }
+
+    const btnSvcRegen = document.getElementById('btn-svc-regen');
+    if (btnSvcRegen) {
+      btnSvcRegen.addEventListener('click', async () => {
+        btnSvcRegen.disabled = true;
+        try {
+          const resp = await fetch('/api/settings/icons/regenerate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: 'service' }),
+          });
+          const res = await resp.json();
+          if (res.success) {
+            alert(res.message);
+            pollIconStatusOnce();
+          } else {
+            alert(`Error: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Network error: ${err.message}`);
+        } finally {
+          btnSvcRegen.disabled = false;
+        }
+      });
+    }
+
+    // 5. Live Background Status Polling
+    let prevMfgRunning = false;
+    let prevSvcRunning = false;
+
+    async function pollIconStatusOnce() {
+      try {
+        const resp = await fetch('/api/settings/icons/status');
+        const data = await resp.json();
+        if (!data) return;
+
+        // Manufacturer Status
+        const mfgSt = data.manufacturer;
+        const mfgBadge = document.getElementById('mfg-status-badge');
+        const mfgText = document.getElementById('mfg-status-text');
+        if (mfgBadge && mfgText) {
+          if (mfgSt.running) {
+            mfgBadge.className = 'icon-status-badge running';
+            mfgBadge.textContent = 'Running';
+            mfgText.textContent = `${mfgSt.status_text}`;
+          } else if (mfgSt.queued) {
+            mfgBadge.className = 'icon-status-badge queued';
+            mfgBadge.textContent = 'Queued';
+            mfgText.textContent = 'Queued behind current run...';
+          } else {
+            mfgBadge.className = 'icon-status-badge idle';
+            mfgBadge.textContent = 'Idle';
+            mfgText.textContent = mfgSt.status_text || 'Ready';
+          }
+        }
+
+        // Service Status
+        const svcSt = data.service;
+        const svcBadge = document.getElementById('svc-status-badge');
+        const svcText = document.getElementById('svc-status-text');
+        if (svcBadge && svcText) {
+          if (svcSt.running) {
+            svcBadge.className = 'icon-status-badge running';
+            svcBadge.textContent = 'Running';
+            svcText.textContent = `${svcSt.status_text}`;
+          } else if (svcSt.queued) {
+            svcBadge.className = 'icon-status-badge queued';
+            svcBadge.textContent = 'Queued';
+            svcText.textContent = 'Queued behind current run...';
+          } else {
+            svcBadge.className = 'icon-status-badge idle';
+            svcBadge.textContent = 'Idle';
+            svcText.textContent = svcSt.status_text || 'Ready';
+          }
+        }
+
+        // Auto-refresh gallery upon completion
+        if (prevMfgRunning && !mfgSt.running) {
+          loadCachedIcons('manufacturer');
+        }
+        if (prevSvcRunning && !svcSt.running) {
+          loadCachedIcons('service');
+        }
+        prevMfgRunning = mfgSt.running;
+        prevSvcRunning = svcSt.running;
+      } catch (err) {
+        // quiet polling error
+      }
+    }
+
+    function startIconStatusPolling() {
+      if (iconPollingInterval) clearInterval(iconPollingInterval);
+      pollIconStatusOnce();
+      iconPollingInterval = setInterval(pollIconStatusOnce, 2500);
+    }
+
+    // 6. Dynamic Mappings Loading & Saving
+    let currentRegionalPrefixes = [];
+
+    async function loadMappings() {
+      try {
+        const resp = await fetch('/api/settings/icons/mappings');
+        const data = await resp.json();
+        if (!data.success) return;
+
+        // Render Mfg Domains Table
+        renderTableRows('table-mfg-domains', data.known_manufacturer_domains);
+
+        // Render Regional Prefixes
+        currentRegionalPrefixes = data.regional_prefixes || [];
+        renderRegionalTags(currentRegionalPrefixes);
+
+        // Render Svc Domains Table
+        renderTableRows('table-svc-domains', data.known_service_domains);
+
+        // Render HTML Content Mappings Table
+        renderHtmlMappingRows(data.html_content_icon_mappings);
+      } catch (err) {
+        console.error('Failed to load icon mappings:', err);
+      }
+    }
+
+    function renderTableRows(tableId, objData) {
+      const tbody = document.querySelector(`#${tableId} tbody`);
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      const keys = Object.keys(objData || {}).sort();
+      keys.forEach(k => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="mapping-input key-input" value="${k}" placeholder="Key / Brand"></td>
+          <td><input type="text" class="mapping-input val-input" value="${objData[k]}" placeholder="Official Domain"></td>
+          <td style="text-align: center;">
+            <button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()" title="Delete row">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderHtmlMappingRows(mappingsList) {
+      const tbody = document.querySelector('#table-html-mappings tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      (mappingsList || []).forEach(([pattern, target]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="mapping-input key-input" value="${pattern.replace(/"/g, '&quot;')}" placeholder="Regex pattern"></td>
+          <td><input type="text" class="mapping-input val-input" value="${target.replace(/"/g, '&quot;')}" placeholder="Domain or icon URL"></td>
+          <td style="text-align: center;">
+            <button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()" title="Delete row">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderRegionalTags(prefixes) {
+      const box = document.getElementById('mfg-regional-tags');
+      if (!box) return;
+      box.innerHTML = '';
+      prefixes.forEach(p => {
+        const tag = document.createElement('span');
+        tag.className = 'tag-badge';
+        tag.innerHTML = `
+          ${p}
+          <button type="button" class="tag-remove-btn" onclick="removeRegionalPrefix('${p}')">×</button>
+        `;
+        box.appendChild(tag);
+      });
+    }
+
+    window.removeRegionalPrefix = function(prefix) {
+      currentRegionalPrefixes = currentRegionalPrefixes.filter(x => x !== prefix);
+      renderRegionalTags(currentRegionalPrefixes);
+    };
+
+    const btnAddPrefix = document.getElementById('btn-mfg-add-prefix');
+    const inputNewPrefix = document.getElementById('mfg-new-prefix-input');
+    if (btnAddPrefix && inputNewPrefix) {
+      btnAddPrefix.addEventListener('click', () => {
+        const val = inputNewPrefix.value.trim().toLowerCase();
+        if (val && !currentRegionalPrefixes.includes(val)) {
+          currentRegionalPrefixes.push(val);
+          renderRegionalTags(currentRegionalPrefixes);
+          inputNewPrefix.value = '';
+        }
+      });
+    }
+
+    // Add row buttons
+    const btnMfgAddRow = document.getElementById('btn-mfg-add-row');
+    if (btnMfgAddRow) {
+      btnMfgAddRow.addEventListener('click', () => {
+        const tbody = document.querySelector('#table-mfg-domains tbody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="mapping-input key-input" placeholder="e.g. synology"></td>
+          <td><input type="text" class="mapping-input val-input" placeholder="e.g. synology.com"></td>
+          <td style="text-align: center;"><button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()">✕</button></td>
+        `;
+        tbody.insertBefore(tr, tbody.firstChild);
+      });
+    }
+
+    const btnSvcAddRow = document.getElementById('btn-svc-add-row');
+    if (btnSvcAddRow) {
+      btnSvcAddRow.addEventListener('click', () => {
+        const tbody = document.querySelector('#table-svc-domains tbody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="mapping-input key-input" placeholder="e.g. homeassistant"></td>
+          <td><input type="text" class="mapping-input val-input" placeholder="e.g. home-assistant.io"></td>
+          <td style="text-align: center;"><button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()">✕</button></td>
+        `;
+        tbody.insertBefore(tr, tbody.firstChild);
+      });
+    }
+
+    const btnHtmlAddRow = document.getElementById('btn-html-add-row');
+    if (btnHtmlAddRow) {
+      btnHtmlAddRow.addEventListener('click', () => {
+        const tbody = document.querySelector('#table-html-mappings tbody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="mapping-input key-input" placeholder="\\b(?:my-pattern)\\b"></td>
+          <td><input type="text" class="mapping-input val-input" placeholder="domain.com or https://..."></td>
+          <td style="text-align: center;"><button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()">✕</button></td>
+        `;
+        tbody.insertBefore(tr, tbody.firstChild);
+      });
+    }
+
+    // Save Mapping Handlers
+    async function saveTableMappings(tableId, mappingType) {
+      const rows = document.querySelectorAll(`#${tableId} tbody tr`);
+      const payload = {};
+      rows.forEach(r => {
+        const k = r.querySelector('.key-input')?.value.trim().toLowerCase();
+        const v = r.querySelector('.val-input')?.value.trim();
+        if (k && v) payload[k] = v;
+      });
+
+      try {
+        const resp = await fetch('/api/settings/icons/mappings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: mappingType, data: payload }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Saved successfully.' : res.error));
+      } catch (err) {
+        alert(`Error saving mappings: ${err.message}`);
+      }
+    }
+
+    document.getElementById('btn-mfg-save-domains')?.addEventListener('click', () => {
+      saveTableMappings('table-mfg-domains', 'known_manufacturer_domains');
+    });
+
+    document.getElementById('btn-svc-save-domains')?.addEventListener('click', () => {
+      saveTableMappings('table-svc-domains', 'known_service_domains');
+    });
+
+    document.getElementById('btn-mfg-save-prefixes')?.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/settings/icons/mappings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'regional_prefixes', data: currentRegionalPrefixes }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Prefixes saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving prefixes: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-html-save')?.addEventListener('click', async () => {
+      const rows = document.querySelectorAll('#table-html-mappings tbody tr');
+      const listData = [];
+      rows.forEach(r => {
+        const p = r.querySelector('.key-input')?.value.trim();
+        const t = r.querySelector('.val-input')?.value.trim();
+        if (p && t) listData.push([p, t]);
+      });
+
+      try {
+        const resp = await fetch('/api/settings/icons/mappings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'html_content_icon_mappings', data: listData }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'HTML mappings saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving HTML mappings: ${err.message}`);
+      }
+    });
+
+    // Reset Handlers
+    async function resetMapping(mappingType) {
+      if (!confirm(`Are you sure you want to reset "${mappingType}" to default settings? Any custom entries will be replaced with defaults.`)) return;
+      try {
+        const resp = await fetch('/api/settings/icons/mappings/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: mappingType }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          loadMappings();
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    }
+
+    document.getElementById('btn-mfg-reset-defaults')?.addEventListener('click', () => resetMapping('known_manufacturer_domains'));
+    document.getElementById('btn-mfg-reset-prefixes')?.addEventListener('click', () => resetMapping('regional_prefixes'));
+    document.getElementById('btn-svc-reset-domains')?.addEventListener('click', () => resetMapping('known_service_domains'));
+    document.getElementById('btn-html-reset')?.addEventListener('click', () => resetMapping('html_content_icon_mappings'));
   </script>
 {% endblock %}
