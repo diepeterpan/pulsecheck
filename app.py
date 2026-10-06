@@ -48,7 +48,7 @@ DEFAULT_SSL = os.getenv("PULSECHECK_SSL", "FALSE").strip().lower() in ("true", "
 DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
-EXPLICIT_DEBUG = False
+EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.2.0")
 __version__ = APP_VERSION
 
@@ -917,12 +917,15 @@ def fetch_response(
             creds = f"{p_user}:{p_pass}"
             proxy_auth_header = f"Basic {base64.b64encode(creds.encode('latin1')).decode('ascii')}"
 
+    fetch_start = time.monotonic()
+
     for redirect_count in range(max_redirects + 1):
         parsed = urlsplit(current_url)
         target_port = parsed.port or (443 if parsed.scheme == "https" else 80)
         connection_kwargs = {"timeout": 2}
         error = None
         should_retry_legacy = False
+        loop_start = time.monotonic()
 
         if use_proxy:
             if parsed.scheme == "https":
@@ -945,6 +948,7 @@ def fetch_response(
             if parsed.query:
                 request_path += f"?{parsed.query}"
 
+            req_send_start = time.monotonic()
             if use_proxy and parsed.scheme == "http":
                 host_hdr = parsed.hostname if target_port == 80 else f"{parsed.hostname}:{target_port}"
                 req_headers = {"Host": host_hdr, "Connection": "close"}
@@ -957,7 +961,13 @@ def fetch_response(
                 req_headers = {"Host": host_hdr, "Connection": "close"}
                 connection.request("GET", request_path, headers=req_headers)
 
+            req_sent_ms = int((time.monotonic() - req_send_start) * 1000)
+
+            resp_wait_start = time.monotonic()
             response = connection.getresponse()
+            resp_wait_ms = int((time.monotonic() - resp_wait_start) * 1000)
+
+            body_read_start = time.monotonic()
             body = response.read(16384)
             status_code = response.status
             location = response.getheader("Location")
@@ -967,15 +977,21 @@ def fetch_response(
             header_bytes = format_response_headers(response)
             if header_bytes:
                 body = header_bytes + body
+            body_read_ms = int((time.monotonic() - body_read_start) * 1000)
+            iter_ms = int((time.monotonic() - loop_start) * 1000)
+
             if explicit_debug:
                 proxy_info = f" proxy={proxy_host}:{proxy_port}" if use_proxy else ""
                 print(
-                    f"[DEBUG scan fetchresponse] protocol={parsed.scheme} service={service_name} port={port}{proxy_info} "
-                    f"status={status_code} current_url={current_url} legacy_ssl={allow_legacy_ssl} "
+                    f"[DEBUG scan fetchresponse] CONNECT+REQ={req_sent_ms}ms WAIT_RESP={resp_wait_ms}ms "
+                    f"READ_BODY={body_read_ms}ms TOTAL_ITER={iter_ms}ms | protocol={parsed.scheme} "
+                    f"service={service_name} port={port}{proxy_info} status={status_code} "
+                    f"current_url={current_url} legacy_ssl={allow_legacy_ssl} body_len={len(body)} "
                     f"body={body[:16384]!r}"
                 )
         except Exception as exc:
             error = exc
+            iter_ms = int((time.monotonic() - loop_start) * 1000)
             if parsed.scheme == "https" and not allow_legacy_ssl and is_ssl_handshake_failure(exc):
                 should_retry_legacy = True
             else:
@@ -986,16 +1002,18 @@ def fetch_response(
                 if should_retry_legacy:
                     print(
                         f"[DEBUG scan fetchresponse] protocol=https service={parsed.hostname} port={target_port}{proxy_info} "
-                        f"handshake failed ({error}); retrying with older TLS versions..."
+                        f"handshake failed ({error}); retrying with older TLS versions... ({iter_ms}ms)"
                     )
                 else:
                     print(
                         f"[DEBUG scan fetchresponse] protocol={parsed.scheme} service={parsed.hostname} "
-                        f"port={target_port}{proxy_info} error={error!r}"
+                        f"port={target_port}{proxy_info} error={error!r} ({iter_ms}ms)"
                     )
             connection.close()
 
         if should_retry_legacy:
+            if explicit_debug:
+                print(f"[DEBUG scan fetchresponse] RETRY_LEGACY service={service_name} port={port} after {int((time.monotonic() - fetch_start) * 1000)}ms")
             return fetch_response(
                 service_name,
                 port,
@@ -1009,11 +1027,20 @@ def fetch_response(
             )
 
         if status_code not in {301, 302, 303, 307, 308} or not location:
+            if explicit_debug:
+                print(f"[DEBUG scan fetchresponse] FINISHED in {int((time.monotonic() - fetch_start) * 1000)}ms -> status={status_code} url={current_url}")
             return body, status_code, current_url
         if redirect_count == max_redirects:
+            if explicit_debug:
+                print(f"[DEBUG scan fetchresponse] MAX_REDIRECTS reached in {int((time.monotonic() - fetch_start) * 1000)}ms -> status={status_code} url={current_url}")
             return body, status_code, current_url
+
+        if explicit_debug:
+            print(f"[DEBUG scan fetchresponse] REDIRECT ({redirect_count + 1}/{max_redirects}) to {location} ({int((time.monotonic() - loop_start) * 1000)}ms)")
         current_url = urljoin(current_url, location)
 
+    if explicit_debug:
+        print(f"[DEBUG scan fetchresponse] EXHAUSTED in {int((time.monotonic() - fetch_start) * 1000)}ms")
     return b"", 0, current_url
 
 
@@ -1321,6 +1348,10 @@ def scan_service(
     # Make a mutable copy so we can write discovered protocols back
     ports = [dict(p) for p in ports]
 
+    scan_service_t0 = time.monotonic()
+    if debug_enabled:
+        print(f"[DEBUG scan] === START service scan === ID={service_id} name={service_name} ports_count={len(ports)} proxy={use_proxy}")
+
     port_statuses: dict = {}
     for port_entry in ports:
         port = port_entry.get("port")  # None for ICMP
@@ -1336,8 +1367,12 @@ def scan_service(
         if port is not None and not per_port_pref:
             status = "skipped"
             response_ms = None
+            db_w_t0 = time.monotonic()
             store_port_check(service_id, port, status, response_ms)
+            db_w_ms = int((time.monotonic() - db_w_t0) * 1000)
             port_statuses[port] = status
+            if debug_enabled:
+                print(f"[DEBUG scan] port={port} SKIPPED (no protocol) in {int((time.monotonic() - start) * 1000)}ms (db_write={db_w_ms}ms)")
             continue
 
         port_match = port_entry.get("match", "") if port_entry.get("match") is not None else ""
@@ -1367,8 +1402,12 @@ def scan_service(
         match_bytes = port_match.lower().encode() if port_match else b""
         url_path = port_url_path
 
+        if debug_enabled:
+            print(f"[DEBUG scan] Probing port={port} pref_proto={per_port_pref!r} effective_proto={protocol_used!r} req_type={port_req_type}")
+
         # --- ICMP (portless) ---
         if port is None or per_port_pref in ("icmp", "icmp-ping"):
+            icmp_t0 = time.monotonic()
             try:
                 ping_ok, ping_lat, ping_output = fetch_icmp_ping_response(service_name)
                 response_ms = ping_lat
@@ -1377,9 +1416,17 @@ def scan_service(
                     status = "online"
                 else:
                     status = "offline"
-            except Exception:
+            except Exception as exc:
                 status = "offline"
+                if debug_enabled:
+                    print(f"[DEBUG scan] ICMP ping exception for {service_name}: {exc}")
+            icmp_elapsed_ms = int((time.monotonic() - icmp_t0) * 1000)
+            if debug_enabled:
+                print(f"[DEBUG scan] ICMP probed in {icmp_elapsed_ms}ms -> status={status} lat={response_ms}ms")
+            db_w_t0 = time.monotonic()
             store_port_check(service_id, None, status, response_ms)
+            if debug_enabled:
+                print(f"[DEBUG scan] ICMP DB store took {int((time.monotonic() - db_w_t0) * 1000)}ms")
             port_statuses["icmp"] = status
             if not per_port_pref:
                 port_entry["protocol"] = protocol_used
@@ -1387,11 +1434,10 @@ def scan_service(
 
         # --- UDP ---
         if per_port_pref == "udp":
+            udp_t0 = time.monotonic()
             try:
                 udp_resp = fetch_udp_response(service_name, port, url_path, custom_request_bytes=req_bytes if port_req_type == "custom" else None)
                 response_ms = int((time.monotonic() - start) * 1000)
-                if debug_enabled:
-                    print(f"[DEBUG scan] protocol=udp service={service_name} port={port} match={match!r} response={udp_resp[:16384]!r}")
                 if port_req_type == "custom":
                     if resp_expected_bytes and resp_expected_bytes in udp_resp:
                         status = "online"
@@ -1406,16 +1452,19 @@ def scan_service(
                         status = "online"
                     elif udp_resp:
                         status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError):
+            except (socket.timeout, socket.gaierror, OSError) as exc:
                 status = "offline"
+                if debug_enabled:
+                    print(f"[DEBUG scan] UDP socket error on port={port} in {int((time.monotonic() - udp_t0) * 1000)}ms: {exc}")
+            if debug_enabled:
+                print(f"[DEBUG scan] protocol=udp service={service_name} port={port} status={status} response_ms={response_ms} probe_took={int((time.monotonic() - udp_t0) * 1000)}ms")
 
         # --- UDP-SSL / DTLS ---
         elif per_port_pref in ("udp-ssl", "dtls"):
+            udp_ssl_t0 = time.monotonic()
             try:
                 udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path, custom_request_bytes=req_bytes if port_req_type == "custom" else None)
                 response_ms = int((time.monotonic() - start) * 1000)
-                if debug_enabled:
-                    print(f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} match={match!r} response={udp_ssl_resp[:16384]!r}")
                 if port_req_type == "custom":
                     if resp_expected_bytes and resp_expected_bytes in udp_ssl_resp:
                         status = "online"
@@ -1430,12 +1479,17 @@ def scan_service(
                         status = "online"
                     elif udp_ssl_resp:
                         status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError):
+            except (socket.timeout, socket.gaierror, OSError) as exc:
                 status = "offline"
+                if debug_enabled:
+                    print(f"[DEBUG scan] UDP-SSL error on port={port} in {int((time.monotonic() - udp_ssl_t0) * 1000)}ms: {exc}")
+            if debug_enabled:
+                print(f"[DEBUG scan] protocol=udp-ssl service={service_name} port={port} status={status} response_ms={response_ms} probe_took={int((time.monotonic() - udp_ssl_t0) * 1000)}ms")
 
         # --- TCP ---
         elif per_port_pref in ("tcp", "socket"):
             protocol_used = "tcp"
+            tcp_t0 = time.monotonic()
             try:
                 tcp_response = fetch_tcp_response(service_name, port, url_path, custom_request_bytes=req_bytes if port_req_type == "custom" else None)
                 response_ms = int((time.monotonic() - start) * 1000)
@@ -1453,12 +1507,17 @@ def scan_service(
                         status = "online"
                     elif tcp_response:
                         status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError):
+            except (socket.timeout, socket.gaierror, OSError) as exc:
                 status = "offline"
+                if debug_enabled:
+                    print(f"[DEBUG scan] TCP error on port={port} in {int((time.monotonic() - tcp_t0) * 1000)}ms: {exc}")
+            if debug_enabled:
+                print(f"[DEBUG scan] protocol=tcp service={service_name} port={port} status={status} response_ms={response_ms} probe_took={int((time.monotonic() - tcp_t0) * 1000)}ms")
 
         # --- TCP SSL ---
         elif per_port_pref in ("tcp-ssl", "socket-ssl"):
             protocol_used = "tcp-ssl"
+            tcp_ssl_t0 = time.monotonic()
             try:
                 tcp_ssl_response = fetch_tcp_ssl_response(service_name, port, url_path, custom_request_bytes=req_bytes if port_req_type == "custom" else None)
                 response_ms = int((time.monotonic() - start) * 1000)
@@ -1480,11 +1539,18 @@ def scan_service(
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(f"[DEBUG scan] TCP-SSL handshake failure treated as online for {service_name}:{port} in {int((time.monotonic() - tcp_ssl_t0) * 1000)}ms")
                 else:
                     status = "offline"
+                    if debug_enabled:
+                        print(f"[DEBUG scan] TCP-SSL error on port={port} in {int((time.monotonic() - tcp_ssl_t0) * 1000)}ms: {exc}")
+            if debug_enabled:
+                print(f"[DEBUG scan] protocol=tcp-ssl service={service_name} port={port} status={status} response_ms={response_ms} probe_took={int((time.monotonic() - tcp_ssl_t0) * 1000)}ms")
 
         # --- HTTPS (explicit) ---
         elif per_port_pref == "https":
+            https_t0 = time.monotonic()
             try:
                 https_response, status_code, final_url = fetch_response(
                     service_name, port, "https", url_path,
@@ -1501,11 +1567,18 @@ def scan_service(
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     response_ms = int((time.monotonic() - start) * 1000)
+                    if debug_enabled:
+                        print(f"[DEBUG scan] HTTPS handshake failure treated as online for {service_name}:{port} in {int((time.monotonic() - https_t0) * 1000)}ms")
                 else:
                     status = "offline"
+                    if debug_enabled:
+                        print(f"[DEBUG scan] HTTPS error on port={port} in {int((time.monotonic() - https_t0) * 1000)}ms: {exc}")
+            if debug_enabled:
+                print(f"[DEBUG scan] protocol=https service={service_name} port={port} status={status} response_ms={response_ms} probe_took={int((time.monotonic() - https_t0) * 1000)}ms")
 
         else:
             # Auto-detect cascade (or per_port_pref == "http")
+            cascade_http_t0 = time.monotonic()
             response = b""
             status_code = None
             final_url = f"http://{service_name}:{port}{url_path or '/'}"
@@ -1516,14 +1589,14 @@ def scan_service(
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 protocol_used = "http"
-                if debug_enabled:
-                    print(f"[DEBUG scan] protocol=http service={service_name} port={port} status={status_code} url={final_url} match={match!r} proxy={use_proxy} response={response[:16384]!r}")
             except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     protocol_used = "http"
                     response_ms = int((time.monotonic() - start) * 1000)
                 response = b""
+            if debug_enabled:
+                print(f"[DEBUG scan] HTTP auto-detect probe port={port} took {int((time.monotonic() - cascade_http_t0) * 1000)}ms (status_code={status_code})")
 
             if response and match_bytes and match_bytes in response.lower():
                 status = "online"
@@ -1534,14 +1607,13 @@ def scan_service(
             elif status == "online":
                 protocol_used = "http"
             elif port in HTTPS_PORTS:
+                cascade_https_t0 = time.monotonic()
                 try:
                     https_response, status_code, final_url = fetch_response(
                         service_name, port, "https", url_path,
                         explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
                     )
                     response_ms = int((time.monotonic() - start) * 1000)
-                    if debug_enabled:
-                        print(f"[DEBUG scan] protocol=https service={service_name} port={port} status={status_code} url={final_url} match={match!r} proxy={use_proxy} response={https_response[:16384]!r}")
                     if https_response and match_bytes and match_bytes in https_response.lower():
                         status = "online"
                         protocol_used = "https"
@@ -1558,12 +1630,15 @@ def scan_service(
                         response_ms = int((time.monotonic() - start) * 1000)
                 if status == "offline" and port in HTTPS_PORTS:
                     status = "degraded"
+                if debug_enabled:
+                    print(f"[DEBUG scan] HTTPS cascade probe port={port} took {int((time.monotonic() - cascade_https_t0) * 1000)}ms -> status={status}")
             elif response:
                 status = "degraded"
                 protocol_used = "http"
 
             # TCP fallbacks if not online and not using proxy
             if not per_port_pref and status != "online" and not use_proxy:
+                fb_tcp_t0 = time.monotonic()
                 try:
                     tcp_response = fetch_tcp_response(service_name, port, url_path)
                     response_ms = int((time.monotonic() - start) * 1000)
@@ -1594,9 +1669,12 @@ def scan_service(
                             status = "online"
                             protocol_used = "tcp-ssl"
                             response_ms = int((time.monotonic() - start) * 1000)
+                if debug_enabled:
+                    print(f"[DEBUG scan] Fallback TCP probe port={port} took {int((time.monotonic() - fb_tcp_t0) * 1000)}ms -> status={status}")
 
             # UDP fallbacks if not online and not using proxy
             if not per_port_pref and status != "online" and not use_proxy:
+                fb_udp_t0 = time.monotonic()
                 try:
                     udp_resp = fetch_udp_response(service_name, port, url_path)
                     response_ms = int((time.monotonic() - start) * 1000)
@@ -1624,23 +1702,37 @@ def scan_service(
                             protocol_used = "udp-ssl"
                     except (socket.timeout, socket.gaierror, OSError):
                         pass
+                if debug_enabled:
+                    print(f"[DEBUG scan] Fallback UDP probe port={port} took {int((time.monotonic() - fb_udp_t0) * 1000)}ms -> status={status}")
 
         # Write discovered protocol back to this port entry (auto-detect only)
         if not per_port_pref and protocol_used and status in ("online", "degraded"):
             port_entry["protocol"] = protocol_used
 
+        port_total_ms = int((time.monotonic() - start) * 1000)
+        db_w_t0 = time.monotonic()
         store_port_check(service_id, port, status, response_ms)
+        db_w_ms = int((time.monotonic() - db_w_t0) * 1000)
         port_statuses[port] = status
+        if debug_enabled:
+            print(f"[DEBUG scan] Port {port} check finished in {port_total_ms}ms (db_write={db_w_ms}ms) -> status={status} (lat={response_ms}ms, proto={protocol_used})")
 
     # Persist updated port protocols back to DB
+    persist_t0 = time.monotonic()
     try:
         conn = get_db_connection()
         conn.execute("UPDATE services SET port_protocol = ? WHERE id = ?", (port_protocol_to_json(ports), service_id))
         conn.commit()
         conn.close()
+        if debug_enabled:
+            print(f"[DEBUG scan] Persisted port_protocol in {int((time.monotonic() - persist_t0) * 1000)}ms")
     except Exception as exc:
         if debug_enabled:
             print(f"[DEBUG scan] Failed saving per-port protocols: {exc}")
+
+    if debug_enabled:
+        total_scan_ms = int((time.monotonic() - scan_service_t0) * 1000)
+        print(f"[DEBUG scan] === FINISHED service scan === ID={service_id} name={service_name} in {total_scan_ms}ms -> results={port_statuses}")
 
     return port_statuses
 
