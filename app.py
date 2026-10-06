@@ -139,6 +139,13 @@ def init_db():
 
     conn.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_port_checks_service_port_checked
+        ON port_checks(service_id, port, checked_at DESC)
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL DEFAULT ''
@@ -6330,7 +6337,7 @@ def scan_service_with_retries(
             )
             port_statuses = res if isinstance(res, dict) else {}
             overall = compute_overall_status(port_statuses)
-            if overall == "online" or not port_statuses:
+            if overall in ("online", "none") or not port_statuses:
                 return port_statuses
             if attempt < max_retries:
                 if debug_enabled:
@@ -6364,7 +6371,16 @@ def check_all_services(
         interval = DEFAULT_SCAN_RETRY_INTERVAL if retry_interval is None else retry_interval
 
         before_snapshots = get_service_snapshots()
-        active_services = [service for service in service_list() if not service.get("paused")]
+        active_services = [
+            service for service in service_list()
+            if not service.get("paused") and any(
+                p.get("port") is None
+                or (p.get("protocol") or "").strip().lower() in ("icmp", "icmp-ping")
+                or bool((p.get("protocol") or "").strip())
+                or bool((service.get("protocol") or "").strip())
+                for p in (service.get("ports") or [])
+            )
+        ]
 
         if active_services:
             max_workers = min(num_workers, len(active_services))

@@ -1017,7 +1017,7 @@ site3.com,site3,,0,80
         conn = pulsecheck_app.get_db_connection()
         c = conn.cursor()
         for i in range(1, 7):
-            c.execute("INSERT INTO services (name, port_protocol) VALUES (?, '[80]')", (f"dom{i}.local",))
+            c.execute("INSERT INTO services (name, port_protocol) VALUES (?, '[{\"port\": 80, \"protocol\": \"http\"}]')", (f"dom{i}.local",))
         conn.commit()
         conn.close()
 
