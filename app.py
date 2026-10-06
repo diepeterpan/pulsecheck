@@ -6558,9 +6558,28 @@ def cli_menu():
             print("Invalid option.")
 
 
+_APP_INITIALIZED = False
+_APP_INIT_LOCK = threading.Lock()
+
+
+def ensure_app_initialized():
+    """Ensure database and background tasks are initialized once (e.g. under WSGI)."""
+    global _APP_INITIALIZED
+    if not _APP_INITIALIZED:
+        with _APP_INIT_LOCK:
+            if not _APP_INITIALIZED:
+                init_db()
+                run_background_tasks()
+                _APP_INITIALIZED = True
+
+
+# Initialize automatically when imported under a WSGI server like Gunicorn
+if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
+    ensure_app_initialized()
+
+
 if __name__ == "__main__":
-    init_db()
-    scheduler = run_background_tasks()
+    ensure_app_initialized()
     try:
         if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
             print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
@@ -6568,4 +6587,5 @@ if __name__ == "__main__":
         else:
             cli_menu()
     finally:
-        scheduler.shutdown(wait=False)
+        if GLOBAL_SCHEDULER:
+            GLOBAL_SCHEDULER.shutdown(wait=False)

@@ -48,8 +48,8 @@ services:
 
         EXPOSE 8182
 
-        # Start PulseCheck application
-        CMD ["/app/.venv/bin/python", "app.py"]
+        # Start PulseCheck application using Gunicorn with gevent WSGI worker
+        CMD ["/app/.venv/bin/gunicorn", "--bind", "0.0.0.0:8182", "--workers", "1", "--worker-class", "gevent", "--worker-connections", "1000", "--timeout", "120", "--no-control-socket", "app:app"]
     ports:
       - "8182:8182"
     environment:

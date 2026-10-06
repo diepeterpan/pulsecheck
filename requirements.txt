@@ -1,3 +1,6 @@
 Flask==3.0.3
 apscheduler==3.10.4
 paramiko==5.0.0
+gunicorn==26.2.0
+gevent==26.9.0
+packaging>=24.0
