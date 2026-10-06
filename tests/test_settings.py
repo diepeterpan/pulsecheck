@@ -1798,6 +1798,7 @@ direct.example,direct,,Direct site,0,0,8080
         data = res.get_json()
         self.assertTrue(data["success"])
         self.assertIn("cisco", data["known_manufacturer_domains"])
+        self.assertIn("routerboard", data["manufacturer_name_aliases"])
         self.assertIn("shenzhen", data["regional_prefixes"])
         self.assertIn("bitwarden", data["known_service_domains"])
         self.assertTrue(len(data["html_content_icon_mappings"]) > 0)
@@ -1815,6 +1816,18 @@ direct.example,direct,,Direct site,0,0,8080
         updated_mfg = pulsecheck_app.get_known_manufacturer_domains()
         self.assertEqual(updated_mfg.get("testbrand"), "testbrand.com")
 
+        # Save custom aliases
+        custom_alias = {"my-router": "RouterCorp"}
+        save_alias_res = self.client.post(
+            "/api/settings/icons/mappings/save",
+            json={"type": "manufacturer_name_aliases", "data": custom_alias},
+        )
+        self.assertEqual(save_alias_res.status_code, 200)
+        self.assertTrue(save_alias_res.get_json()["success"])
+        updated_aliases = pulsecheck_app.get_manufacturer_name_aliases()
+        self.assertEqual(updated_aliases.get("my-router"), "RouterCorp")
+        self.assertEqual(pulsecheck_app.slugify_manufacturer("my-router"), "routercorp")
+
         # 3. Reset mapping to defaults
         reset_res = self.client.post(
             "/api/settings/icons/mappings/reset",
@@ -1825,6 +1838,16 @@ direct.example,direct,,Direct site,0,0,8080
         reset_mfg = pulsecheck_app.get_known_manufacturer_domains()
         self.assertIn("cisco", reset_mfg)
         self.assertNotIn("testbrand", reset_mfg)
+
+        reset_alias_res = self.client.post(
+            "/api/settings/icons/mappings/reset",
+            json={"type": "manufacturer_name_aliases"},
+        )
+        self.assertEqual(reset_alias_res.status_code, 200)
+        self.assertTrue(reset_alias_res.get_json()["success"])
+        reset_aliases = pulsecheck_app.get_manufacturer_name_aliases()
+        self.assertIn("routerboard", reset_aliases)
+        self.assertNotIn("my-router", reset_aliases)
 
     def test_icon_management_file_operations(self):
         # Create a mock icon file in MANUFACTURER_ICONS_DIR

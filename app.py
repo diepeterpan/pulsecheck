@@ -48,7 +48,7 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = False
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.1.9")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.2.0")
 __version__ = APP_VERSION
 
 
@@ -4673,6 +4673,7 @@ def api_get_icon_mappings():
     return jsonify({
         "success": True,
         "known_manufacturer_domains": get_known_manufacturer_domains(),
+        "manufacturer_name_aliases": get_manufacturer_name_aliases(),
         "regional_prefixes": get_regional_prefixes(),
         "known_service_domains": get_known_service_domains(),
         "html_content_icon_mappings": get_html_content_icon_mappings(),
@@ -4688,6 +4689,7 @@ def api_save_icon_mappings():
 
     allowed_types = (
         "known_manufacturer_domains",
+        "manufacturer_name_aliases",
         "regional_prefixes",
         "known_service_domains",
         "html_content_icon_mappings",
@@ -4695,7 +4697,7 @@ def api_save_icon_mappings():
     if mapping_type not in allowed_types:
         return jsonify({"success": False, "error": f"Invalid mapping type: '{mapping_type}'."}), 400
 
-    if mapping_type in ("known_manufacturer_domains", "known_service_domains"):
+    if mapping_type in ("known_manufacturer_domains", "manufacturer_name_aliases", "known_service_domains"):
         if not isinstance(data, dict):
             return jsonify({"success": False, "error": "Data must be a key-value object."}), 400
         # Clean keys and values
@@ -4738,6 +4740,7 @@ def api_reset_icon_mappings():
 
     defaults = {
         "known_manufacturer_domains": json.dumps(DEFAULT_KNOWN_MANUFACTURER_DOMAINS),
+        "manufacturer_name_aliases": json.dumps(DEFAULT_MANUFACTURER_NAME_ALIASES),
         "regional_prefixes": json.dumps(DEFAULT_REGIONAL_PREFIXES),
         "known_service_domains": json.dumps(DEFAULT_KNOWN_SERVICE_DOMAINS),
         "html_content_icon_mappings": json.dumps(DEFAULT_HTML_CONTENT_ICON_MAPPINGS),
@@ -4829,7 +4832,7 @@ def _resolve_mac(ip: str) -> str | None:
 
 
 # Known manufacturer name aliases / rebrands
-_MANUFACTURER_NAME_ALIASES = {
+DEFAULT_MANUFACTURER_NAME_ALIASES = {
     "routerboard.com": "MikroTik",
     "routerboard": "MikroTik",
     "beijing xiaomi": "Xiaomi",
@@ -4854,6 +4857,24 @@ _MANUFACTURER_NAME_ALIASES = {
     "magic home pro": "MagicHue",
 }
 
+# Backwards compatibility reference
+_MANUFACTURER_NAME_ALIASES = DEFAULT_MANUFACTURER_NAME_ALIASES
+
+
+def get_manufacturer_name_aliases() -> dict[str, str]:
+    """Retrieve manufacturer aliases from DB settings or initialize with defaults."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'manufacturer_name_aliases'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+    except Exception:
+        pass
+    return dict(DEFAULT_MANUFACTURER_NAME_ALIASES)
+
 
 def _lookup_manufacturer(mac: str) -> str:
     """
@@ -4875,7 +4896,8 @@ def _lookup_manufacturer(mac: str) -> str:
                     return "NONE"
                 # Check for known rebrands / name aliases (e.g. Routerboard.com -> MikroTik)
                 v_lower = vendor.lower()
-                for alias_key, canon_name in _MANUFACTURER_NAME_ALIASES.items():
+                aliases = get_manufacturer_name_aliases()
+                for alias_key, canon_name in aliases.items():
                     if alias_key == v_lower or alias_key in v_lower:
                         return canon_name
                 return vendor
@@ -4889,7 +4911,8 @@ def slugify_manufacturer(name: str) -> str:
     """Normalize a manufacturer name into a safe filesystem slug."""
     s = (name or "").lower().strip()
     # Normalize aliases first
-    for alias_key, canon_name in _MANUFACTURER_NAME_ALIASES.items():
+    aliases = get_manufacturer_name_aliases()
+    for alias_key, canon_name in aliases.items():
         if alias_key == s or alias_key in s:
             s = canon_name.lower()
             break

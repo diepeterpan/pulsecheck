@@ -540,6 +540,36 @@
               </div>
             </div>
           </div>
+
+          <!-- Section 3: Manufacturer Name Aliases / Rebrands Table -->
+          <div class="tab-main-card" style="margin-top: 24px;">
+            <div class="tab-card-header">
+              <h3>Manufacturer Name Aliases &amp; Rebrands</h3>
+              <span class="hub-tag">MAC Vendor Normalization</span>
+            </div>
+            <p class="tab-card-subtitle">Map hardware vendor strings or subsidiary/parent entities from MAC lookups (e.g. <code>routerboard.com</code> or <code>beijing xiaomi</code>) to canonical manufacturer names (e.g. <code>MikroTik</code> or <code>Xiaomi</code>).</p>
+            
+            <div class="mappings-table-container">
+              <table class="mappings-table" id="table-mfg-aliases">
+                <thead>
+                  <tr>
+                    <th style="width: 45%;">Vendor Substring / Alias</th>
+                    <th style="width: 45%;">Canonical Manufacturer Name</th>
+                    <th style="width: 10%; text-align: center;">Action</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-alias-add-row">+ Add Alias</button>
+              <div style="display: flex; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-aliases">Reset to Defaults</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-aliases">Save Aliases</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ════════ SUB-PANEL: SERVICE ICONS ════════ -->
@@ -1218,6 +1248,9 @@
         // Render Mfg Domains Table
         renderTableRows('table-mfg-domains', data.known_manufacturer_domains);
 
+        // Render Mfg Aliases Table
+        renderTableRows('table-mfg-aliases', data.manufacturer_name_aliases);
+
         // Render Regional Prefixes
         currentRegionalPrefixes = data.regional_prefixes || [];
         renderRegionalTags(currentRegionalPrefixes);
@@ -1315,6 +1348,20 @@
       });
     }
 
+    const btnMfgAliasAddRow = document.getElementById('btn-mfg-alias-add-row');
+    if (btnMfgAliasAddRow) {
+      btnMfgAliasAddRow.addEventListener('click', () => {
+        const tbody = document.querySelector('#table-mfg-aliases tbody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><input type="text" class="mapping-input key-input" placeholder="e.g. routerboard"></td>
+          <td><input type="text" class="mapping-input val-input" placeholder="e.g. MikroTik"></td>
+          <td style="text-align: center;"><button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()">✕</button></td>
+        `;
+        tbody.insertBefore(tr, tbody.firstChild);
+      });
+    }
+
     const btnSvcAddRow = document.getElementById('btn-svc-add-row');
     if (btnSvcAddRow) {
       btnSvcAddRow.addEventListener('click', () => {
@@ -1368,6 +1415,10 @@
 
     document.getElementById('btn-mfg-save-domains')?.addEventListener('click', () => {
       saveTableMappings('table-mfg-domains', 'known_manufacturer_domains');
+    });
+
+    document.getElementById('btn-mfg-save-aliases')?.addEventListener('click', () => {
+      saveTableMappings('table-mfg-aliases', 'manufacturer_name_aliases');
     });
 
     document.getElementById('btn-svc-save-domains')?.addEventListener('click', () => {
@@ -1432,6 +1483,7 @@
     }
 
     document.getElementById('btn-mfg-reset-defaults')?.addEventListener('click', () => resetMapping('known_manufacturer_domains'));
+    document.getElementById('btn-mfg-reset-aliases')?.addEventListener('click', () => resetMapping('manufacturer_name_aliases'));
     document.getElementById('btn-mfg-reset-prefixes')?.addEventListener('click', () => resetMapping('regional_prefixes'));
     document.getElementById('btn-svc-reset-domains')?.addEventListener('click', () => resetMapping('known_service_domains'));
     document.getElementById('btn-html-reset')?.addEventListener('click', () => resetMapping('html_content_icon_mappings'));
