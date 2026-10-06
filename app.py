@@ -5581,26 +5581,39 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
         candidate_domains = []
         known_service_domains = get_known_service_domains()
         if product in known_service_domains:
-            candidate_domains.append(known_service_domains[product])
+            target_val = known_service_domains[product].strip()
+            # If the user specified an entire image URL, download and store it directly
+            if target_val.lower().startswith(("http://", "https://")):
+                try:
+                    url_req = urllib.request.Request(target_val, headers={"User-Agent": ua})
+                    with urllib.request.urlopen(url_req, timeout=4) as url_resp:
+                        url_data = url_resp.read()
+                        if len(url_data) > 100 and not is_godaddy_or_parked_icon(url_data):
+                            icon_bytes = url_data
+                except Exception:
+                    pass
+            elif target_val:
+                candidate_domains.append(target_val)
 
-        # General domain guesses for the product name
-        for tld in (".com", ".io", ".org", ".net", ".app", ".dev", ".media"):
-            guess = f"{product}{tld}"
-            if guess not in candidate_domains:
-                candidate_domains.append(guess)
+        if not icon_bytes:
+            # General domain guesses for the product name
+            for tld in (".com", ".io", ".org", ".net", ".app", ".dev", ".media"):
+                guess = f"{product}{tld}"
+                if guess not in candidate_domains:
+                    candidate_domains.append(guess)
 
-        # Step 2A: Google Favicon service (very fast, doesn't block on DNS of unowned domains)
-        for test_dom in candidate_domains:
-            try:
-                fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
-                req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
-                with urllib.request.urlopen(req, timeout=2) as resp:
-                    data = resp.read()
-                    if len(data) > 100 and not is_godaddy_or_parked_icon(data):
-                        icon_bytes = data
-                        break
-            except Exception:
-                pass
+            # Step 2A: Google Favicon service (very fast, doesn't block on DNS of unowned domains)
+            for test_dom in candidate_domains:
+                try:
+                    fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
+                    req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
+                    with urllib.request.urlopen(req, timeout=2) as resp:
+                        data = resp.read()
+                        if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                            icon_bytes = data
+                            break
+                except Exception:
+                    pass
 
         # Step 2B: Wikimedia pageimages fallback (only for recognized product tokens)
         if not icon_bytes and len(product) > 2:

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 import io
+import json
 import os
 from pathlib import Path
 import sqlite3
@@ -1950,6 +1951,47 @@ direct.example,direct,,Direct site,0,0,8080
         # Cleanup created files
         cached_mfg_file.unlink(missing_ok=True)
         cached_svc_file.unlink(missing_ok=True)
+
+    def test_service_icon_resolves_from_direct_image_url(self):
+        # Configure known service domain with direct image URL
+        img_url = "https://example.com/icons/mycustomapp.png"
+        pulsecheck_app.save_settings({
+            "known_service_domains": json.dumps({"mycustomapp": img_url})
+        })
+
+        # Mock urllib.request.urlopen to return valid png bytes
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 150
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = dummy_png
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = None
+
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            cached_url = pulsecheck_app.resolve_and_cache_service_icon("mycustomapp", force_refresh=True)
+
+        self.assertIsNotNone(cached_url)
+        self.assertTrue(cached_url.startswith("/static/service-icons/mycustomapp"))
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "mycustomapp.png"
+        self.assertTrue(dest_file.is_file())
+        dest_file.unlink(missing_ok=True)
+
+    def test_status_card_pill_tooltip_and_no_checked_text(self):
+        # Insert a service
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO services (name, comment) VALUES (?, ?)",
+            ("TooltipSvc", "Comment"),
+        )
+        conn.commit()
+        conn.close()
+
+        res = self.client.get("/status")
+        self.assertEqual(res.status_code, 200)
+        html = res.data.decode("utf-8")
+        # Ensure raw Checked <datetime> text element is not rendered
+        self.assertNotIn("status-card-checked", html)
+        # Ensure status badge or NONE badge has title attribute
+        self.assertIn('title="No monitored ports configured', html)
 
 
 if __name__ == "__main__":
