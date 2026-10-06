@@ -4494,16 +4494,41 @@ def _run_icon_regeneration_worker(category: str):
                 st["status_text"] = f"Error reading database: {exc}"
             return
 
+        # Filter to only items that currently lack a cached icon on disk
+        missing_items = []
+        for item in items:
+            if category == "manufacturer":
+                if not get_manufacturer_icon_url(item):
+                    missing_items.append(item)
+            else:
+                if not get_service_icon_url(item):
+                    missing_items.append(item)
+
+        if not missing_items:
+            with ICON_JOB_LOCK:
+                st = ICON_JOB_STATUS[category]
+                if st["queued"]:
+                    st["queued"] = False
+                    continue
+                else:
+                    st["running"] = False
+                    st["total"] = 0
+                    st["processed"] = 0
+                    st["success"] = 0
+                    st["current_item"] = ""
+                    st["status_text"] = "All icons already cached (0 missing)"
+                    break
+
         with ICON_JOB_LOCK:
             st = ICON_JOB_STATUS[category]
-            st["total"] = len(items)
-            st["status_text"] = f"Regenerating 0/{len(items)} icons..."
+            st["total"] = len(missing_items)
+            st["status_text"] = f"Generating 0/{len(missing_items)} missing icons..."
 
-        for item in items:
+        for item in missing_items:
             with ICON_JOB_LOCK:
                 ICON_JOB_STATUS[category]["current_item"] = item
                 ICON_JOB_STATUS[category]["status_text"] = (
-                    f"Regenerating {ICON_JOB_STATUS[category]['processed']}/{len(items)}: {item}..."
+                    f"Generating missing {ICON_JOB_STATUS[category]['processed']}/{len(missing_items)}: {item}..."
                 )
 
             try:
@@ -4529,7 +4554,7 @@ def _run_icon_regeneration_worker(category: str):
             else:
                 st["running"] = False
                 st["current_item"] = ""
-                st["status_text"] = f"Completed ({st['success']}/{st['total']} resolved successfully)"
+                st["status_text"] = f"Completed ({st['success']}/{st['total']} missing icons resolved)"
                 break
 
 

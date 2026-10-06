@@ -1904,6 +1904,53 @@ direct.example,direct,,Direct site,0,0,8080
         # Either queued or completed fast
         self.assertIn(q_data["queued"], (True, False))
 
+    def test_icon_regeneration_only_processes_missing(self):
+        # Insert test services
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO services (name, discovered_manufacturer) VALUES (?, ?)",
+            ("CachedService", "CachedMfg"),
+        )
+        conn.execute(
+            "INSERT INTO services (name, discovered_manufacturer) VALUES (?, ?)",
+            ("MissingService", "MissingMfg"),
+        )
+        conn.commit()
+        conn.close()
+
+        # Create cached icon file on disk for CachedMfg and CachedService
+        cached_mfg_file = pulsecheck_app.MANUFACTURER_ICONS_DIR / "cachedmfg.png"
+        cached_mfg_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 80)
+
+        cached_svc_file = pulsecheck_app.SERVICE_ICONS_DIR / "cachedservice.png"
+        cached_svc_file.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 80)
+
+        # Ensure missing items do not exist
+        missing_mfg_file = pulsecheck_app.MANUFACTURER_ICONS_DIR / "missingmfg.png"
+        missing_mfg_file.unlink(missing_ok=True)
+        missing_svc_file = pulsecheck_app.SERVICE_ICONS_DIR / "missingservice.png"
+        missing_svc_file.unlink(missing_ok=True)
+
+        # Mock the resolve methods to count calls
+        with patch.object(pulsecheck_app, "resolve_and_cache_manufacturer_icon", return_value=None) as mock_mfg_resolve, \
+             patch.object(pulsecheck_app, "resolve_and_cache_service_icon", return_value=None) as mock_svc_resolve:
+
+            # Run worker directly for synchronous inspection
+            pulsecheck_app._run_icon_regeneration_worker("manufacturer")
+            # Only MissingMfg should have been passed to resolve, NOT CachedMfg
+            called_mfg_args = [call.args[0] for call in mock_mfg_resolve.call_args_list]
+            self.assertIn("MissingMfg", called_mfg_args)
+            self.assertNotIn("CachedMfg", called_mfg_args)
+
+            pulsecheck_app._run_icon_regeneration_worker("service")
+            called_svc_args = [call.args[0] for call in mock_svc_resolve.call_args_list]
+            self.assertIn("MissingService", called_svc_args)
+            self.assertNotIn("CachedService", called_svc_args)
+
+        # Cleanup created files
+        cached_mfg_file.unlink(missing_ok=True)
+        cached_svc_file.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
