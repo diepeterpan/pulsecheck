@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import csv
+import functools
 import gzip
 import hashlib
 import http.client
@@ -729,6 +730,7 @@ def store_port_check(service_id: int, port: int | None, status: str, response_ms
     conn.close()
 
 
+@functools.lru_cache(maxsize=2)
 def create_ssl_context(legacy: bool = False) -> ssl.SSLContext:
     context = ssl.create_default_context()
     context.check_hostname = False
