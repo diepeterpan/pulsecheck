@@ -32,6 +32,7 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 from apscheduler.schedulers.background import BackgroundScheduler
 from flask import Flask, Response, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask_compress import Compress
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("PULSECHECK_DB_PATH", str(BASE_DIR / "pulsecheck.db")))
@@ -73,6 +74,7 @@ def get_status_url() -> str:
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "pulsecheck-local-dev"
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+compress = Compress(app)
 
 
 @app.context_processor

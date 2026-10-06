@@ -1,4 +1,5 @@
 Flask==3.0.3
+flask-compress==1.25
 apscheduler==3.10.4
 paramiko==5.0.0
 gunicorn==26.2.0
