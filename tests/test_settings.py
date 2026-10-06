@@ -1975,6 +1975,39 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertTrue(dest_file.is_file())
         dest_file.unlink(missing_ok=True)
 
+    def test_image_url_takes_precedence_over_site_favicon(self):
+        # Configure a known service domain image URL directly in DB
+        custom_img_url = "https://cdn.example.com/special_logo.png"
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            ("known_service_domains", json.dumps({"myrouter": custom_img_url})),
+        )
+        conn.commit()
+        conn.close()
+
+        # Track URLs opened by urllib
+        opened_urls = []
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            opened_urls.append(url)
+            mock_r = MagicMock()
+            mock_r.read.return_value = b"\x89PNG\r\n\x1a\n" + b"\x01" * 120
+            mock_r.headers = {"Content-Type": "image/png"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("myrouter.local", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        # Priority 1 must have fetched custom_img_url FIRST without even probing myrouter.local/favicon.ico
+        self.assertEqual(opened_urls[0], custom_img_url)
+        self.assertNotIn("https://myrouter.local/favicon.ico", opened_urls)
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "myrouter.png"
+        dest_file.unlink(missing_ok=True)
+
     def test_status_card_pill_tooltip_and_no_checked_text(self):
         # Insert a service
         conn = pulsecheck_app.get_db_connection()

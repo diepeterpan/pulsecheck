@@ -5523,99 +5523,125 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 
     # =========================================================================
-    # Method 1 (Primary): Direct Site Probe (https:// then http://)
+    # Priority 1: Explicit Image URL from Known Service Domains
     # =========================================================================
-    clean_host = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
-    if clean_host:
-        import ssl
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-
-        for proto in ("https", "http"):
-            base_url = f"{proto}://{clean_host}"
-            ctx = ssl_ctx if proto == "https" else None
-
-            # 1. Direct /favicon.ico probe
+    known_service_domains = get_known_service_domains()
+    if product in known_service_domains:
+        target_val = known_service_domains[product].strip()
+        if target_val.lower().startswith(("http://", "https://")):
             try:
-                fav_url = f"{base_url}/favicon.ico"
-                req = urllib.request.Request(fav_url, headers={"User-Agent": ua})
-                with urllib.request.urlopen(req, timeout=1.5, context=ctx) as resp:
-                    data = resp.read()
-                    ctype = resp.headers.get("Content-Type", "").lower()
-                    if len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
-                        icon_bytes = data
-                        break
+                url_req = urllib.request.Request(target_val, headers={"User-Agent": ua})
+                with urllib.request.urlopen(url_req, timeout=4) as url_resp:
+                    url_data = url_resp.read()
+                    if len(url_data) > 100 and not is_godaddy_or_parked_icon(url_data):
+                        icon_bytes = url_data
             except Exception:
                 pass
 
-            # 2. Inspect root homepage HTML for <link rel="icon">
-            if not icon_bytes:
-                try:
-                    home_req = urllib.request.Request(f"{base_url}/", headers={"User-Agent": ua})
-                    with urllib.request.urlopen(home_req, timeout=1.5, context=ctx) as resp:
-                        html = resp.read().decode("utf-8", errors="ignore")
-                    found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
-                    for link_href in found_links:
-                        target = urljoin(f"{base_url}/", link_href)
+    # =========================================================================
+    # Priority 2: Explicit URL from HTML Content Signatures
+    # =========================================================================
+    html_page = None
+    if not icon_bytes:
+        html_page = fetch_service_html_body(service_name)
+        if html_page:
+            html_mappings = get_html_content_icon_mappings()
+            for pattern, target in html_mappings:
+                if target.lower().startswith(("http://", "https://")):
+                    if re.search(pattern, html_page, re.I):
                         try:
-                            t_req = urllib.request.Request(target, headers={"User-Agent": ua})
-                            with urllib.request.urlopen(t_req, timeout=1.5, context=ctx) as t_resp:
-                                t_data = t_resp.read()
-                                t_ctype = t_resp.headers.get("Content-Type", "").lower()
-                                if len(t_data) > 100 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
-                                    icon_bytes = t_data
+                            req = urllib.request.Request(target, headers={"User-Agent": ua})
+                            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                                data = resp.read()
+                                if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                                    icon_bytes = data
                                     break
                         except Exception:
-                            continue
-                except Exception:
-                    pass
-
-            if icon_bytes:
-                break
+                            pass
 
     # =========================================================================
-    # Method 2 (Fallback): Product Name Lookup
+    # Priority 3: Direct Site Probe (https:// then http://)
     # =========================================================================
     if not icon_bytes:
-        candidate_domains = []
-        known_service_domains = get_known_service_domains()
-        if product in known_service_domains:
-            target_val = known_service_domains[product].strip()
-            # If the user specified an entire image URL, download and store it directly
-            if target_val.lower().startswith(("http://", "https://")):
-                try:
-                    url_req = urllib.request.Request(target_val, headers={"User-Agent": ua})
-                    with urllib.request.urlopen(url_req, timeout=4) as url_resp:
-                        url_data = url_resp.read()
-                        if len(url_data) > 100 and not is_godaddy_or_parked_icon(url_data):
-                            icon_bytes = url_data
-                except Exception:
-                    pass
-            elif target_val:
-                candidate_domains.append(target_val)
+        clean_host = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
+        if clean_host:
+            import ssl
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
 
-        if not icon_bytes:
-            # General domain guesses for the product name
-            for tld in (".com", ".io", ".org", ".net", ".app", ".dev", ".media"):
-                guess = f"{product}{tld}"
-                if guess not in candidate_domains:
-                    candidate_domains.append(guess)
+            for proto in ("https", "http"):
+                base_url = f"{proto}://{clean_host}"
+                ctx = ssl_ctx if proto == "https" else None
 
-            # Step 2A: Google Favicon service (very fast, doesn't block on DNS of unowned domains)
-            for test_dom in candidate_domains:
+                # 3A. Direct /favicon.ico probe
                 try:
-                    fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
-                    req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
-                    with urllib.request.urlopen(req, timeout=2) as resp:
+                    fav_url = f"{base_url}/favicon.ico"
+                    req = urllib.request.Request(fav_url, headers={"User-Agent": ua})
+                    with urllib.request.urlopen(req, timeout=1.5, context=ctx) as resp:
                         data = resp.read()
-                        if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                        ctype = resp.headers.get("Content-Type", "").lower()
+                        if len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
                             icon_bytes = data
                             break
                 except Exception:
                     pass
 
-        # Step 2B: Wikimedia pageimages fallback (only for recognized product tokens)
+                # 3B. Inspect root homepage HTML for <link rel="icon">
+                if not icon_bytes:
+                    try:
+                        home_req = urllib.request.Request(f"{base_url}/", headers={"User-Agent": ua})
+                        with urllib.request.urlopen(home_req, timeout=1.5, context=ctx) as resp:
+                            html = resp.read().decode("utf-8", errors="ignore")
+                        found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
+                        for link_href in found_links:
+                            target = urljoin(f"{base_url}/", link_href)
+                            try:
+                                t_req = urllib.request.Request(target, headers={"User-Agent": ua})
+                                with urllib.request.urlopen(t_req, timeout=1.5, context=ctx) as t_resp:
+                                    t_data = t_resp.read()
+                                    t_ctype = t_resp.headers.get("Content-Type", "").lower()
+                                    if len(t_data) > 100 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
+                                        icon_bytes = t_data
+                                        break
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+
+                if icon_bytes:
+                    break
+
+    # =========================================================================
+    # Priority 4: Domain Lookups & Platform Fallbacks (Known Domains, Google Favicon, Wikipedia)
+    # =========================================================================
+    if not icon_bytes:
+        candidate_domains = []
+        if product in known_service_domains:
+            target_dom = known_service_domains[product].strip()
+            if target_dom and not target_dom.lower().startswith(("http://", "https://")):
+                candidate_domains.append(target_dom)
+
+        # General domain guesses for the product name
+        for tld in (".com", ".io", ".org", ".net", ".app", ".dev", ".media"):
+            guess = f"{product}{tld}"
+            if guess not in candidate_domains:
+                candidate_domains.append(guess)
+
+        # Step 4A: Google Favicon service
+        for test_dom in candidate_domains:
+            try:
+                fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
+                req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    data = resp.read()
+                    if len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                        icon_bytes = data
+                        break
+            except Exception:
+                pass
+
+        # Step 4B: Wikimedia pageimages fallback (only for recognized product tokens)
         if not icon_bytes and len(product) > 2:
             try:
                 wiki_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&titles={urllib.parse.quote(product.capitalize())}&pithumbsize=64"
@@ -5637,32 +5663,21 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
             except Exception:
                 pass
 
-    # =========================================================================
-    # Method 3 (Deep Fallback): HTML Content Signature Matching
-    # =========================================================================
-    if not icon_bytes:
-        html_page = fetch_service_html_body(service_name)
-        if html_page:
-            matched_domain = None
-            html_mappings = get_html_content_icon_mappings()
-            for pattern, dom in html_mappings:
-                if re.search(pattern, html_page, re.I):
-                    matched_domain = dom
-                    break
+        # Step 4C: HTML Content Signature Domain Matching fallback
+        if not icon_bytes:
+            if html_page is None:
+                html_page = fetch_service_html_body(service_name)
+            if html_page:
+                matched_domain = None
+                html_mappings = get_html_content_icon_mappings()
+                for pattern, dom in html_mappings:
+                    if not dom.lower().startswith(("http://", "https://")):
+                        if re.search(pattern, html_page, re.I):
+                            matched_domain = dom
+                            break
 
-            if matched_domain:
-                # If matched target is an absolute URL (e.g. raw GitHub URL or CDN link), fetch it directly
-                if matched_domain.lower().startswith(("http://", "https://")):
-                    try:
-                        req = urllib.request.Request(matched_domain, headers={"User-Agent": ua})
-                        with urllib.request.urlopen(req, timeout=3.5) as resp:
-                            data = resp.read()
-                            if len(data) > 100 and not is_godaddy_or_parked_icon(data):
-                                icon_bytes = data
-                    except Exception:
-                        pass
-                else:
-                    # 3A: Google Favicon lookup for the matched platform domain
+                if matched_domain:
+                    # Google Favicon lookup for matched platform domain
                     try:
                         fav_url = f"https://www.google.com/s2/favicons?domain={matched_domain}&sz=64"
                         req = urllib.request.Request(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"})
@@ -5673,7 +5688,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                     except Exception:
                         pass
 
-                    # 3B: Direct probe to matched platform domain if Google Favicon didn't succeed
+                    # Direct probe to matched platform domain if needed
                     if not icon_bytes:
                         for probe_url in (f"https://www.{matched_domain}/favicon.ico", f"https://{matched_domain}/favicon.ico"):
                             try:
