@@ -222,18 +222,34 @@ The application runs in headless mode inside the container and is immediately ac
 
 ## Interactive Console Menu
 
-When launched directly in an interactive terminal (non-headless), PulseCheck displays a simplified startup menu:
+When launched directly in an interactive terminal (non-headless), PulseCheck displays a startup menu:
 
 ```text
 PulseCheck menu
 1. Start web app
 2. Start web with Explicit debugging
-3. Exit
+3. Start web with Line-Profiler (profiles scan lines & elapsed CPU/time)
+4. Exit
 ```
 
-- **Option 1**: Starts the Flask web server with production-level output.
+- **Option 1**: Starts the Flask web server with standard production output.
 - **Option 2**: Starts the web server with verbose protocol-level debug logging for HTTP, HTTPS, sockets, proxy routing, and SSL handshakes.
-- **Option 3**: Shuts down background tasks and exits cleanly.
+- **Option 3**: Starts the web server with **Python Line-Profiler** enabled. Measures exact execution counts, microsecond durations, and percentage of time spent on every line of code across scan cycles (`check_all_services`, `scan_service`, `scan_service_with_retries`), low-level network probing (`fetch_response`), and web route handlers (`/status`, `get_status_rows`).
+- **Option 4**: Shuts down background tasks and exits cleanly.
+
+---
+
+## Performance Profiling (`line-profiler`)
+
+PulseCheck includes built-in line-by-line performance profiling to pinpoint exact CPU bottlenecks and latency sources:
+
+- **Interactive Startup**: Choose option `3` from the startup menu.
+- **Headless / Automation Startup**: Run with `PULSECHECK_PROFILE=1`:
+  ```bash
+  PULSECHECK_PROFILE=1 python app.py
+  ```
+- **Live In-Browser Dashboard**: Navigate to [`http://127.0.0.1:8182/debug/profile`](http://127.0.0.1:8182/debug/profile) to inspect live timing metrics with one-click refresh, or [`/debug/profile?format=raw`](http://127.0.0.1:8182/debug/profile?format=raw) for plain text.
+- **Save to Binary `.lprof`**: Set `PULSECHECK_PROFILE_OUT=scan.lprof` to save binary traces for inspection using `python -m line_profiler -m scan.lprof`.
 
 ---
 
@@ -246,6 +262,8 @@ PulseCheck menu
 | `PULSECHECK_HOSTNAME` | `127.0.0.1` | Hostname / IP used for generating links in alert emails |
 | `PULSECHECK_SSL` | `FALSE` | Set to `TRUE` (or `1`) if PulseCheck is served over HTTPS |
 | `PULSECHECK_HEADLESS` | `0` (`1` in Docker) | Set to `1` to bypass the interactive console menu and start the web server directly |
+| `PULSECHECK_PROFILE` | `0` | Set to `1` to start with line-profiler enabled |
+| `PULSECHECK_PROFILE_OUT` | `""` | Optional path to export binary `.lprof` profile output |
 | `PULSECHECK_DB_PATH` | `./pulsecheck.db` | Path to the SQLite database file |
 | `PULSECHECK_TIMEZONE` / `TZ` | System local time | Timezone for dashboard and alert timestamps (e.g. `Africa/Johannesburg`, `Europe/London`, `UTC`) |
 | `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel service health checks |
@@ -283,7 +301,7 @@ backup-portal.example,DR Site,1,0,udp-ssl,"80",/login,backup
 
 ## Testing
 
-PulseCheck includes a comprehensive automated test suite (86 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
+PulseCheck includes a comprehensive automated test suite (101 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 
