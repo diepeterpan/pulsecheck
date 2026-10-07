@@ -43,6 +43,7 @@
           <tr>
             <th class="col-select">Select</th>
             <th class="col-service col-service sortable-th" data-sort-col="service" aria-sort="none" tabindex="0" title="Click to sort by Service">Service <span class="sort-indicator" aria-hidden="true">⇅</span></th>
+            <th class="col-network sortable-th" data-sort-col="network" aria-sort="none" tabindex="0" title="Click to sort by Network/Hardware">Network &amp; Hardware <span class="sort-indicator" aria-hidden="true">⇅</span></th>
             <th class="col-paused sortable-th" data-sort-col="paused" aria-sort="none" tabindex="0" title="Click to sort by Paused">Paused <span class="sort-indicator" aria-hidden="true">⇅</span></th>
             <th class="col-ports sortable-th" data-sort-col="ports" aria-sort="none" tabindex="0" title="Click to sort by Ports">Ports <span class="sort-indicator" aria-hidden="true">⇅</span></th>
             <th class="col-actions">Actions</th>
@@ -52,6 +53,9 @@
               <th class="col-filter-cell col-select"></th>
               <th class="col-filter-cell col-service col-service">
                 <input type="search" id="filter-col-service" class="column-filter-input" data-col="service" placeholder="Filter service..." value="{{ request.args.get('filter_service', request.args.get('filter', '')) }}" autocomplete="off" aria-label="Filter service">
+              </th>
+              <th class="col-filter-cell col-network">
+                <input type="search" id="filter-col-network" class="column-filter-input" data-col="network" placeholder="Filter IP, MAC, vendor..." value="{{ request.args.get('filter_network', '') }}" autocomplete="off" aria-label="Filter network">
               </th>
               <th class="col-filter-cell col-paused">
                 <select id="filter-col-paused" class="column-filter-select" data-col="paused" aria-label="Filter paused status">
@@ -71,23 +75,56 @@
         </thead>
         <tbody>
           {% for service in services %}
+            {% set svc_icon = get_service_icon_url(service.name) %}
+            {% set mfg_icon = get_manufacturer_icon_url(service.discovered_manufacturer) %}
+            {% set net_search_str = ((service.discovered_ip or '') ~ ' ' ~ (service.discovered_mac or '') ~ ' ' ~ (service.discovered_manufacturer or '')) | lower %}
             <tr class="service-row service-row"
                 data-service="{{ service.name | lower }}"
                 data-comment="{{ (service.comment or '') | lower }}"
+                data-network="{{ net_search_str }}"
                 data-paused="{{ 'paused' if service.paused else 'active' }}"
                 data-ports="{{ ((service.ports | format_ports_column) or 'none') | lower }}">
               <td class="col-select"><input type="checkbox" class="service-checkbox service-checkbox" name="service_ids" value="{{ service.id }}" form="bulk-port-form" aria-label="Select {{ service.name }}"></td>
               <td class="col-service col-service">
                 <div class="service-name-container service-name-container">
-                  <strong class="service-name-text service-name-text">{{ service.name }}</strong>
-                  {% if service.use_proxy %}
-                    <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
+                  {% if svc_icon %}
+                    <img src="{{ svc_icon }}" alt="" class="service-entry-icon" loading="lazy" onerror="this.onerror=null; this.src='/static/logo.png';">
+                  {% else %}
+                    <span class="service-entry-icon-placeholder" aria-hidden="true">{{ (service.name[0] or '?') | upper }}</span>
                   {% endif %}
-                  {% if service.comment %}
-                    <span class="service-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
-                      <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-                      <span class="tooltip-bubble">{{ service.comment }}</span>
-                    </span>
+                  <div class="service-name-meta">
+                    <strong class="service-name-text service-name-text">{{ service.name }}</strong>
+                    {% if service.use_proxy %}
+                      <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 4px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
+                    {% endif %}
+                    {% if service.comment %}
+                      <span class="service-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
+                        <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                        <span class="tooltip-bubble">{{ service.comment }}</span>
+                      </span>
+                    {% endif %}
+                  </div>
+                </div>
+              </td>
+              <td class="col-network">
+                <div class="network-hardware-container">
+                  <div class="network-ip-mac-row">
+                    {% if service.discovered_ip %}
+                      <span class="net-ip-badge" title="Discovered IP Address">{{ service.discovered_ip }}</span>
+                    {% else %}
+                      <span class="net-empty-badge" title="No IP discovered">—</span>
+                    {% endif %}
+                    {% if service.discovered_mac %}
+                      <span class="net-mac-badge" title="Discovered MAC Address">{{ service.discovered_mac }}</span>
+                    {% endif %}
+                  </div>
+                  {% if service.discovered_manufacturer and service.discovered_manufacturer != 'NONE' %}
+                    <div class="network-mfg-row" title="Manufacturer: {{ service.discovered_manufacturer }}">
+                      {% if mfg_icon %}
+                        <img src="{{ mfg_icon }}" alt="" class="network-mfg-icon" loading="lazy" onerror="this.style.display='none';">
+                      {% endif %}
+                      <span class="network-mfg-name">{{ service.discovered_manufacturer }}</span>
+                    </div>
                   {% endif %}
                 </div>
               </td>
@@ -152,21 +189,25 @@
       const resetButton = document.getElementById('reset-all-filters');
 
       const filterService = document.getElementById('filter-col-service') || document.getElementById('filter-col-service');
+      const filterNetwork = document.getElementById('filter-col-network');
       const filterPaused = document.getElementById('filter-col-paused');
       const filterPorts = document.getElementById('filter-col-ports');
 
-      const filterInputs = [filterService, filterPaused, filterPorts].filter(Boolean);
+      const filterInputs = [filterService, filterNetwork, filterPaused, filterPorts].filter(Boolean);
 
       function initFilters() {
         const urlParams = new URLSearchParams(window.location.search);
         let hasUrlParam = false;
-        ['filter_service', 'filter', 'filter_paused', 'filter_ports'].forEach(k => {
+        ['filter_service', 'filter', 'filter_network', 'filter_paused', 'filter_ports'].forEach(k => {
           if (urlParams.has(k) && urlParams.get(k).trim()) hasUrlParam = true;
         });
 
         if (hasUrlParam) {
           if (filterService && (urlParams.get('filter_service') || urlParams.get('filter'))) {
             filterService.value = urlParams.get('filter_service') || urlParams.get('filter');
+          }
+          if (filterNetwork && urlParams.get('filter_network')) {
+            filterNetwork.value = urlParams.get('filter_network');
           }
           if (filterPaused && urlParams.get('filter_paused')) {
             filterPaused.value = urlParams.get('filter_paused');
@@ -179,6 +220,7 @@
             const saved = JSON.parse(sessionStorage.getItem('pulsecheck_service_filters') || 'null');
             if (saved) {
               if (filterService && saved.service) filterService.value = saved.service;
+              if (filterNetwork && saved.network) filterNetwork.value = saved.network;
               if (filterPaused && saved.paused) filterPaused.value = saved.paused;
               if (filterPorts && saved.ports) filterPorts.value = saved.ports;
             }
@@ -188,21 +230,24 @@
 
       function applyColumnFilters() {
         const serviceQuery = (filterService ? filterService.value : '').trim().toLowerCase();
+        const networkQuery = (filterNetwork ? filterNetwork.value : '').trim().toLowerCase();
         const pausedQuery = (filterPaused ? filterPaused.value : '').toLowerCase();
         const portsQuery = (filterPorts ? filterPorts.value : '').trim().toLowerCase();
 
         let visibleCount = 0;
 
         serviceRows.forEach((row) => {
-          const serviceName = row.dataset.service || row.dataset.service || '';
+          const serviceName = row.dataset.service || '';
+          const network = row.dataset.network || '';
           const paused = row.dataset.paused || '';
           const ports = row.dataset.ports || '';
 
           const matchService = !serviceQuery || serviceName.includes(serviceQuery);
+          const matchNetwork = !networkQuery || network.includes(networkQuery);
           const matchPaused = !pausedQuery || paused === pausedQuery;
           const matchPorts = !portsQuery || ports.includes(portsQuery);
 
-          const isVisible = matchService && matchPaused && matchPorts;
+          const isVisible = matchService && matchNetwork && matchPaused && matchPorts;
           row.hidden = !isVisible;
           if (isVisible) visibleCount++;
         });
@@ -211,7 +256,7 @@
           countDisplay.textContent = visibleCount;
         }
 
-        const hasFilter = serviceQuery || pausedQuery || portsQuery;
+        const hasFilter = serviceQuery || networkQuery || pausedQuery || portsQuery;
         if (resetButton) {
           resetButton.disabled = !hasFilter;
         }
@@ -220,6 +265,9 @@
         const params = new URLSearchParams();
         if (serviceQuery) {
           params.set('filter_service', (filterService ? filterService.value : '').trim());
+        }
+        if (networkQuery) {
+          params.set('filter_network', (filterNetwork ? filterNetwork.value : '').trim());
         }
         if (pausedQuery) params.set('filter_paused', pausedQuery);
         if (portsQuery) params.set('filter_ports', (filterPorts ? filterPorts.value : '').trim());
@@ -232,6 +280,7 @@
           try {
             const filterState = {
               service: (filterService ? filterService.value : '').trim(),
+              network: (filterNetwork ? filterNetwork.value : '').trim(),
               paused: pausedQuery,
               ports: (filterPorts ? filterPorts.value : '').trim()
             };
@@ -252,7 +301,7 @@
         });
 
         // Update Delete form return_to inputs
-        document.querySelectorAll('.delete-service-return-to, .delete-service-return-to').forEach((input) => {
+        document.querySelectorAll('.delete-service-return-to').forEach((input) => {
           input.value = newRelativePathQuery;
         });
 
@@ -272,6 +321,7 @@
       if (resetButton) {
         resetButton.addEventListener('click', () => {
           if (filterService) filterService.value = '';
+          if (filterNetwork) filterNetwork.value = '';
           if (filterPaused) filterPaused.value = '';
           if (filterPorts) filterPorts.value = '';
           try {
@@ -354,6 +404,9 @@
           if (currentSortCol === 'service') {
             valA = (rowA.dataset.service || '').trim();
             valB = (rowB.dataset.service || '').trim();
+          } else if (currentSortCol === 'network') {
+            valA = (rowA.dataset.network || '').trim();
+            valB = (rowB.dataset.network || '').trim();
           } else if (currentSortCol === 'paused') {
             valA = (rowA.dataset.paused || '').trim();
             valB = (rowB.dataset.paused || '').trim();

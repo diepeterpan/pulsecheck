@@ -653,34 +653,112 @@ button.danger {
     display: block;
 }
 
-.col-service strong,
 .col-service strong {
     color: #0f172a;
     font-weight: 600;
 }
 
-.col-ports strong {
-    color: #475569;
-    font-weight: 600;
+.service-entry-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    object-fit: contain;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    background: #f8fafc;
 }
 
-.service-ports-text {
-    color: #475569;
-    font-weight: 400;
-}
-
-.service-name-container,
-.service-name-container {
+.service-entry-icon-placeholder {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    position: relative;
+    justify-content: center;
+    background: #e2e8f0;
+    color: #475569;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
 }
 
-.service-name-text,
-.service-name-text {
-    color: #0f172a;
+.service-name-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* Network & Hardware Column */
+.col-network {
+    min-width: 170px;
+}
+
+.network-hardware-container {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+}
+
+.network-ip-mac-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.net-ip-badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.8rem;
     font-weight: 600;
+    color: #1e293b;
+    background: #f1f5f9;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+}
+
+.net-mac-badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.74rem;
+    font-weight: 500;
+    color: #64748b;
+    background: #f8fafc;
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid #f1f5f9;
+}
+
+.net-empty-badge {
+    color: #94a3b8;
+    font-size: 0.82rem;
+}
+
+.network-mfg-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 1px;
+}
+
+.network-mfg-icon {
+    height: 14px;
+    width: auto;
+    max-width: 20px;
+    object-fit: contain;
+    border-radius: 2px;
+}
+
+.network-mfg-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #475569;
+    background: rgba(241, 245, 249, 0.8);
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid rgba(226, 232, 240, 0.7);
+    line-height: 1.2;
 }
 
 .service-comment-badge,

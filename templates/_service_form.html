@@ -1,6 +1,12 @@
 <section class="panel edit-service-panel">
+  {% set svc_icon_url = get_service_icon_url(item.name) if (item and item.name) else None %}
   <div class="panel-header">
     <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+      {% if svc_icon_url %}
+        <img src="{{ svc_icon_url }}" alt="" class="service-entry-icon" style="width: 28px; height: 28px;" loading="lazy" onerror="this.onerror=null; this.src='/static/logo.png';">
+      {% elif item and item.name %}
+        <span class="service-entry-icon-placeholder" style="width: 28px; height: 28px; font-size: 0.85rem;" aria-hidden="true">{{ (item.name[0] or '?') | upper }}</span>
+      {% endif %}
       <h2 style="margin: 0;">{% if is_add %}Add New Service{% else %}Edit Service{% endif %}</h2>
       {% if not is_add and item.name %}
         <span class="hub-tag" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.82rem; padding: 3px 10px; border-radius: 9999px;">{{ item.name }}</span>
@@ -53,7 +59,18 @@
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px;">
           <div>
             <label for="name" style="font-weight: 600; font-size: 0.88rem; display: block; margin-bottom: 6px;">Service name</label>
-            <input type="text" id="name" name="name" value="{{ item.name }}" placeholder="example.com" required style="width: 100%; box-sizing: border-box;">
+            <div class="input-with-icon-wrapper" style="position: relative; display: flex; align-items: center;">
+              <span id="service-name-icon-preview" class="input-prefix-icon" style="position: absolute; left: 10px; display: inline-flex; align-items: center; pointer-events: none; z-index: 2;">
+                {% if svc_icon_url %}
+                  <img src="{{ svc_icon_url }}" alt="" class="service-entry-icon" style="width: 22px; height: 22px;" loading="lazy" onerror="this.onerror=null; this.src='/static/logo.png';">
+                {% elif item and item.name %}
+                  <span class="service-entry-icon-placeholder" style="width: 22px; height: 22px; font-size: 0.72rem;" aria-hidden="true">{{ (item.name[0] or '?') | upper }}</span>
+                {% else %}
+                  <span class="service-entry-icon-placeholder empty" style="width: 22px; height: 22px; font-size: 0.72rem; display: none;" aria-hidden="true">?</span>
+                {% endif %}
+              </span>
+              <input type="text" id="name" name="name" value="{{ item.name }}" placeholder="example.com" required style="width: 100%; box-sizing: border-box; padding-left: {% if svc_icon_url or (item and item.name) %}38px{% else %}10px{% endif %};">
+            </div>
             <span class="field-hint" style="font-size: 0.78rem; color: #64748b; display: block; margin-top: 4px;">Domain name or IP address of the target service.</span>
           </div>
 
@@ -1043,5 +1060,37 @@
     btnLiveTest.addEventListener("click", runDiagnostics);
     btnPlaceholderTest.addEventListener("click", runDiagnostics);
     btnDiagRetest.addEventListener("click", runDiagnostics);
+
+    // Live Service Icon Preview for Add/Edit Form
+    const nameInput = document.getElementById("name");
+    const nameIconPreview = document.getElementById("service-name-icon-preview");
+    if (nameInput && nameIconPreview) {
+      function updateNameIconPreview() {
+        const val = nameInput.value.trim();
+        const firstLetter = val ? val[0].toUpperCase() : "";
+        const existingImg = nameIconPreview.querySelector("img");
+        const placeholder = nameIconPreview.querySelector(".service-entry-icon-placeholder");
+
+        if (!val) {
+          if (placeholder) {
+            placeholder.style.display = "none";
+          }
+          if (existingImg) {
+            existingImg.style.display = "none";
+          }
+          nameInput.style.paddingLeft = "10px";
+        } else {
+          nameInput.style.paddingLeft = "38px";
+          if (!existingImg && placeholder) {
+            placeholder.textContent = firstLetter;
+            placeholder.style.display = "inline-flex";
+          } else if (existingImg) {
+            existingImg.style.display = "inline-block";
+          }
+        }
+      }
+
+      nameInput.addEventListener("input", updateNameIconPreview);
+    }
   })();
 </script>
