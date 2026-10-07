@@ -846,7 +846,7 @@
             <td><span class="diag-status-pill ${pStatus}">${pStatus.toUpperCase()}</span></td>
             <td style="font-family: ui-monospace, monospace; font-size: 0.8rem;">${escapeHtml(p.status_text)}</td>
             <td><strong>${p.duration_ms}</strong> <span style="font-size: 0.75rem; color: #64748b;">ms</span></td>
-            <td>${p.retries}</td>
+            <td>${p.fallback_level}</td>
             <td>${matchLabel}</td>
           </tr>
         `;
@@ -865,7 +865,7 @@
                 <th>Status</th>
                 <th>Result Code</th>
                 <th>Latency</th>
-                <th>Retries</th>
+                <th>Fallback Level</th>
                 <th>Match Token</th>
               </tr>
             </thead>
@@ -977,8 +977,8 @@
               <div class="diag-metric-val">${p.duration_ms} <span style="font-size: 0.75rem; color: #64748b;">ms</span></div>
             </div>
             <div class="diag-metric-card">
-              <div class="diag-metric-label">Retries</div>
-              <div class="diag-metric-val">${p.retries}</div>
+              <div class="diag-metric-label">Fallback Level</div>
+              <div class="diag-metric-val">${p.fallback_level}</div>
             </div>
             <div class="diag-metric-card">
               <div class="diag-metric-label">Timestamp</div>

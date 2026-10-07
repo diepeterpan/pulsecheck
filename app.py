@@ -2055,7 +2055,7 @@ def probe_single_port_diagnostics(
     protocol_used = preferred_protocol or "http"
     response_bytes = b""
     error_message = None
-    retries = 0
+    fallback_level = 0
     final_url = f"http://{service_name}:{port}{url_path or '/'}"
     now_str = get_current_local_time_str()
     match_bytes = match_str.lower().encode() if match_str else b""
@@ -2267,7 +2267,7 @@ def probe_single_port_diagnostics(
         elif status == "online":
             pass
         elif port in HTTPS_PORTS:
-            retries += 1
+            fallback_level += 1
             try:
                 https_response, https_code, https_url = fetch_response(
                     service_name,
@@ -2305,7 +2305,7 @@ def probe_single_port_diagnostics(
         # TCP fallbacks if not online and not using proxy
         if not pref and status != "online" and not use_proxy:
             try:
-                retries += 1
+                fallback_level += 1
                 tcp_resp = fetch_tcp_response(service_name, port, url_path, custom_headers=web_custom_headers)
                 protocol_used = "tcp"
                 response_bytes = tcp_resp
@@ -2318,7 +2318,7 @@ def probe_single_port_diagnostics(
                     status = "degraded"
             except (socket.timeout, socket.gaierror, OSError):
                 try:
-                    retries += 1
+                    fallback_level += 1
                     ssl_tcp_resp = fetch_tcp_ssl_response(service_name, port, url_path, custom_headers=web_custom_headers)
                     protocol_used = "tcp-ssl"
                     response_bytes = ssl_tcp_resp
@@ -2340,7 +2340,7 @@ def probe_single_port_diagnostics(
         # UDP fallback
         if not pref and status != "online" and not use_proxy:
             try:
-                retries += 1
+                fallback_level += 1
                 udp_resp = fetch_udp_response(service_name, port, url_path)
                 protocol_used = "udp"
                 response_bytes = udp_resp
@@ -2358,7 +2358,7 @@ def probe_single_port_diagnostics(
         # UDP SSL (DTLS) fallback
         if not pref and status != "online" and not use_proxy:
             try:
-                retries += 1
+                fallback_level += 1
                 udp_ssl_resp = fetch_udp_ssl_response(service_name, port, url_path)
                 protocol_used = "udp-ssl"
                 response_bytes = udp_ssl_resp
@@ -2419,7 +2419,7 @@ def probe_single_port_diagnostics(
         "response_payload": format_hex_bytes(response_payload),
         "final_url": final_url,
         "duration_ms": duration_ms,
-        "retries": retries,
+        "fallback_level": fallback_level,
         "match_token": match_token,
         "match_found": match_found,
         "match_count": match_count,
@@ -2616,7 +2616,7 @@ def diagnose_service_ports(
                 "protocol": "icmp-ping",
                 "final_url": service_name,
                 "duration_ms": max(1, int((time.monotonic() - t0) * 1000)),
-                "retries": 0,
+                "fallback_level": 0,
                 "match_token": "",
                 "match_found": False,
                 "match_count": 0,
@@ -2633,7 +2633,7 @@ def diagnose_service_ports(
                 "protocol": "icmp-ping",
                 "final_url": service_name,
                 "duration_ms": max(1, int((time.monotonic() - t0) * 1000)),
-                "retries": 0,
+                "fallback_level": 0,
                 "match_token": "",
                 "match_found": False,
                 "match_count": 0,

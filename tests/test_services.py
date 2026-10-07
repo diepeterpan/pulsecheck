@@ -232,7 +232,7 @@ invalid service host,,,,,
         self.assertEqual(p80["match_count"], 1)
         self.assertIn("Welcome to PulseCheck", p80["response_snippet"])
         self.assertGreater(p80["duration_ms"], 0)
-        self.assertEqual(p80["retries"], 0)
+        self.assertEqual(p80["fallback_level"], 0)
         self.assertTrue(p80["timestamp"])
 
         # Port 8080 checks
@@ -1039,7 +1039,7 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
 
     def test_live_probe_injects_scanner_bypass_key_for_web(self):
         with patch("app.fetch_response", return_value=(b"HTTP/1.1 200 OK\r\n\r\nOK", 200, "http://diag.local:80/")) as mock_fetch:
-            pulsecheck_app.probe_single_port_diagnostics(
+            res = pulsecheck_app.probe_single_port_diagnostics(
                 "diag.local",
                 80,
                 "",
@@ -1052,6 +1052,21 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
             self.assertEqual(called_kwargs["custom_headers"], {
                 "X-Scanner-Bypass-Key": pulsecheck_app.DEFAULT_SCANNER_BYPASS_KEY
             })
+            self.assertEqual(res["fallback_level"], 0)
+            self.assertNotIn("retries", res)
+
+    def test_live_probe_fallback_level_increments_on_fallbacks(self):
+        # Port 443 with preferred_protocol="": HTTP fails, HTTPS succeeds -> fallback_level should be 1
+        def mock_fetch(host, port, proto, *args, **kwargs):
+            if proto == "http":
+                raise ConnectionRefusedError("HTTP refused")
+            return (b"HTTP/1.1 200 OK\r\n\r\nSecure", 200, f"https://{host}:{port}/")
+
+        with patch("app.fetch_response", side_effect=mock_fetch):
+            res = pulsecheck_app.probe_single_port_diagnostics("fallback.test", 443, "")
+            self.assertEqual(res["status"], "online")
+            self.assertEqual(res["protocol"], "https")
+            self.assertEqual(res["fallback_level"], 1)
 
     @patch("app.discover_ports", return_value=[{"port": 80, "protocol": "http"}])
     @patch("app.scan_service")
