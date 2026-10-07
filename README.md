@@ -300,6 +300,19 @@ backup-portal.example,DR Site,1,0,udp-ssl,"80",/login,backup
 
 ---
 
+---
+
+## High-Performance Async Networking (`aiohttp`)
+
+PulseCheck uses [`aiohttp`](https://docs.aiohttp.org/) for high-throughput, non-blocking HTTP and HTTPS monitoring and asset fetching:
+- **Dedicated Background Event Loop (`PulseCheck-AsyncIO`)**: Drives network I/O cleanly alongside Flask and APScheduler multi-threaded execution.
+- **Connection Pooling & Keep-Alive**: Reuses TCP connections across scan cycles using a shared `aiohttp.ClientSession`, minimizing connection handshake latency and OS file descriptor churn.
+- **Enterprise Proxy Support**: Full HTTP proxy routing with basic authentication (`aiohttp.BasicAuth`).
+- **Resilient TLS & Legacy SSL Fallback**: Automatically retries legacy or non-compliant embedded devices using permissive TLS configurations (`ssl.OP_LEGACY_SERVER_CONNECT`) if modern TLS handshakes fail.
+- **Asset Scraping**: Efficiently resolves manufacturer icons and favicon lookups with asynchronous pooling.
+
+---
+
 ## Testing
 
 PulseCheck includes a comprehensive automated test suite (102 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
