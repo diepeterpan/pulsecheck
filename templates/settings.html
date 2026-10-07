@@ -1001,7 +1001,7 @@
       grid.innerHTML = icons.map(item => `
         <div class="icon-card" data-filename="${encodeURIComponent(item.filename)}">
           <div class="icon-preview-wrap">
-            <img class="icon-preview-img" src="${item.url}?t=${Date.now()}" alt="${item.name}" loading="lazy" onerror="this.src='/static/pulsecheck-logo.png'">
+            <img class="icon-preview-img" src="${item.url}?t=${Date.now()}" alt="${item.name}" loading="lazy" onerror="this.onerror=null; this.src='/static/logo.png'">
           </div>
           <div class="icon-card-name" title="${item.filename}">${item.name}</div>
           <div class="icon-card-size">${item.size_display}</div>

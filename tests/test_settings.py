@@ -2028,6 +2028,57 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn('title="No monitored ports configured', html)
 
 
+    def test_direct_service_icon_and_html_probes_inject_scanner_bypass_key(self):
+        opened_requests = []
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            if "bypass-target.local" in url:
+                opened_requests.append(req)
+            mock_r = MagicMock()
+            mock_r.read.return_value = b"\x89PNG\r\n\x1a\n" + b"\x01" * 120
+            mock_r.headers = {"Content-Type": "image/png"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("bypass-target.local", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        # Verify that direct probe requests sent X-Scanner-Bypass-Key header
+        self.assertTrue(len(opened_requests) > 0)
+        direct_req = opened_requests[0]
+        self.assertIn("bypass-target.local", direct_req.full_url)
+        self.assertEqual(
+            direct_req.headers.get("X-scanner-bypass-key"),
+            pulsecheck_app.DEFAULT_SCANNER_BYPASS_KEY
+        )
+
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "bypass-target.png"
+        dest_file.unlink(missing_ok=True)
+
+        # Also test fetch_service_html_body
+        html_requests = []
+        def fake_html_urlopen(req, timeout=None, context=None):
+            html_requests.append(req)
+            mock_r = MagicMock()
+            mock_r.read.return_value = b"<html><body>Hello</body></html>"
+            mock_r.headers = {"Content-Type": "text/html"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_html_urlopen):
+            html_res = pulsecheck_app.fetch_service_html_body("bypass-target.local")
+
+        self.assertIsNotNone(html_res)
+        self.assertTrue(len(html_requests) > 0)
+        self.assertEqual(
+            html_requests[0].headers.get("X-scanner-bypass-key"),
+            pulsecheck_app.DEFAULT_SCANNER_BYPASS_KEY
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 

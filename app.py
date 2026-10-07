@@ -6011,12 +6011,15 @@ def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | 
     ssl_ctx.verify_mode = ssl.CERT_NONE
 
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    headers = {"User-Agent": ua}
+    if DEFAULT_SCANNER_BYPASS_KEY:
+        headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
 
     for proto in ("https", "http"):
         current_url = f"{proto}://{clean_host}/"
         try:
-            data, status, headers = AsyncHttpManager.get_url(current_url, headers={"User-Agent": ua}, timeout=2.5, max_redirects=max_redirects)
-            ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
+            data, status, headers_out = AsyncHttpManager.get_url(current_url, headers=headers, timeout=2.5, max_redirects=max_redirects)
+            ctype = (headers_out.get("Content-Type") or headers_out.get("content-type") or "").lower()
             if status == 200 and ("text" in ctype or "html" in ctype or b"<html" in data[:4096] or b"<body" in data[:4096]):
                 return data[:65536].decode("utf-8", errors="ignore")
         except Exception:
@@ -6096,13 +6099,17 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     if not icon_bytes:
         clean_host = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
         if clean_host:
+            direct_headers = {"User-Agent": ua}
+            if DEFAULT_SCANNER_BYPASS_KEY:
+                direct_headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+
             for proto in ("https", "http"):
                 base_url = f"{proto}://{clean_host}"
 
                 # 3A. Direct /favicon.ico probe
                 try:
                     fav_url = f"{base_url}/favicon.ico"
-                    data, status, headers = AsyncHttpManager.get_url(fav_url, headers={"User-Agent": ua}, timeout=1.5)
+                    data, status, headers = AsyncHttpManager.get_url(fav_url, headers=direct_headers, timeout=1.5)
                     ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
                     if status == 200 and len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
                         icon_bytes = data
@@ -6113,14 +6120,15 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 # 3B. Inspect root homepage HTML for <link rel="icon">
                 if not icon_bytes:
                     try:
-                        home_data, home_status, _ = AsyncHttpManager.get_url(f"{base_url}/", headers={"User-Agent": ua}, timeout=1.5)
+                        home_data, home_status, _ = AsyncHttpManager.get_url(f"{base_url}/", headers=direct_headers, timeout=1.5)
                         if home_status == 200:
                             html = home_data.decode("utf-8", errors="ignore")
                             found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
                             for link_href in found_links:
                                 target = urljoin(f"{base_url}/", link_href)
+                                target_headers = direct_headers if clean_host in target else {"User-Agent": ua}
                                 try:
-                                    t_data, t_status, t_headers = AsyncHttpManager.get_url(target, headers={"User-Agent": ua}, timeout=1.5)
+                                    t_data, t_status, t_headers = AsyncHttpManager.get_url(target, headers=target_headers, timeout=1.5)
                                     t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
                                     if t_status == 200 and len(t_data) > 100 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
                                         icon_bytes = t_data
