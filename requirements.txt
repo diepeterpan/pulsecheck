@@ -5,3 +5,4 @@ paramiko==5.0.0
 gunicorn==26.2.0
 gevent==26.9.0
 packaging>=24.0
+line-profiler>=5.0.0

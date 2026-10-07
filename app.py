@@ -50,8 +50,21 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
+LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
+GLOBAL_LINE_PROFILER = None
 APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.2.0")
 __version__ = APP_VERSION
+
+# Safe @profile decorator fallback:
+# If running under `kernprof -l` or LineProfiler, builtins.profile already exists.
+# Otherwise, provide a passthrough decorator.
+import builtins
+if "profile" not in builtins.__dict__:
+    def profile(func):
+        return func
+    builtins.__dict__["profile"] = profile
+else:
+    profile = builtins.__dict__["profile"]
 
 
 def get_url_scheme() -> str:
@@ -871,6 +884,7 @@ def format_response_headers(response) -> bytes:
     return b""
 
 
+@profile
 def fetch_response(
     service_name: str,
     port: int,
@@ -1316,6 +1330,7 @@ def fetch_icmp_ping_response(service_name: str, timeout: float = 2.0) -> tuple[b
         return False, latency_ms, str(exc)
 
 
+@profile
 def scan_service(
     service_id: int,
     service_name: str,
@@ -4374,6 +4389,7 @@ def status_check_state():
 
 
 @app.route("/status")
+@profile
 def status():
     rows = get_status_rows()
     grouped = {}
@@ -4389,6 +4405,125 @@ def status():
         schedule_info=schedule_info,
         overall_status=overall_status,
     )
+
+
+def get_line_profiler_stats_text() -> str:
+    """Return formatted text output of current LineProfiler timings."""
+    if GLOBAL_LINE_PROFILER is None:
+        return "Line profiler is not active.\nStart PulseCheck with option 3 (Line-Profiler) or set PULSECHECK_PROFILE=1."
+    import io
+    buf = io.StringIO()
+    try:
+        GLOBAL_LINE_PROFILER.print_stats(stream=buf)
+        output = buf.getvalue()
+        if not output.strip():
+            return "No profiling stats captured yet. Scan cycles or visits to /status will generate data."
+        return output
+    except Exception as exc:
+        return f"Error extracting profiler stats: {exc}"
+
+
+@app.route("/debug/profile")
+def debug_profile():
+    fmt = request.args.get("format", "html").lower()
+    stats_text = get_line_profiler_stats_text()
+    if fmt == "raw" or fmt == "text":
+        return Response(stats_text, mimetype="text/plain; charset=utf-8")
+
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>PulseCheck - Live Line Profiler</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{
+            background: #0f172a;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            margin: 0;
+            padding: 24px;
+        }}
+        .header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #334155;
+            flex-wrap: wrap;
+            gap: 12px;
+        }}
+        h1 {{
+            margin: 0;
+            font-size: 1.4rem;
+            color: #38bdf8;
+            font-weight: 600;
+        }}
+        .actions {{
+            display: flex;
+            gap: 10px;
+        }}
+        .btn {{
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #475569;
+            padding: 7px 14px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }}
+        .btn:hover {{
+            background: #334155;
+            border-color: #64748b;
+            color: #ffffff;
+        }}
+        .btn-primary {{
+            background: #0284c7;
+            border-color: #0369a1;
+            color: #fff;
+        }}
+        .btn-primary:hover {{
+            background: #0369a1;
+        }}
+        pre {{
+            background: #090d16;
+            border: 1px solid #1e293b;
+            border-radius: 8px;
+            padding: 20px;
+            color: #a7f3d0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.85rem;
+            line-height: 1.45;
+            overflow-x: auto;
+            white-space: pre;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        }}
+        .meta-bar {{
+            font-size: 0.82rem;
+            color: #94a3b8;
+            margin-bottom: 12px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PulseCheck &bull; Line Profiler Live Stats</h1>
+        <div class="actions">
+            <a href="/debug/profile" class="btn btn-primary" onclick="window.location.reload(); return false;">&#x21bb; Refresh</a>
+            <a href="/debug/profile?format=raw" class="btn" target="_blank">View Raw Text</a>
+            <a href="/status" class="btn">&larr; Status Page</a>
+        </div>
+    </div>
+    <div class="meta-bar">
+        Profiled functions: <code>check_all_services</code>, <code>scan_service_with_retries</code>, <code>scan_service</code>, <code>fetch_response</code>, <code>status</code>, <code>get_status_rows</code>
+    </div>
+    <pre>{stats_text}</pre>
+</body>
+</html>"""
+    return Response(html, mimetype="text/html; charset=utf-8")
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -6409,6 +6544,7 @@ def preview_email():
     return Response(html_body, mimetype="text/html")
 
 
+@profile
 def scan_service_with_retries(
     service: dict,
     max_retries: int = DEFAULT_SCAN_RETRIES,
@@ -6452,6 +6588,7 @@ def scan_service_with_retries(
     return port_statuses
 
 
+@profile
 def check_all_services(
     workers: int | None = None,
     max_retries: int | None = None,
@@ -6531,6 +6668,73 @@ def check_all_services(
         with IS_SCANNING_LOCK:
             IS_SCANNING = False
         record_scan_completed()
+        if LINE_PROFILER_ENABLED and GLOBAL_LINE_PROFILER is not None:
+            dump_line_profiler_stats()
+
+
+def enable_line_profiling():
+    """Initialize and enable line_profiler across scan and probe functions."""
+    global GLOBAL_LINE_PROFILER, LINE_PROFILER_ENABLED
+    try:
+        from line_profiler import LineProfiler
+    except ImportError:
+        print("[LineProfiler] Error: 'line_profiler' package is not installed. Run: pip install line-profiler")
+        return False
+
+    lp = LineProfiler()
+    # Register all key scan, probe, and route functions to profile line-by-line
+    for fn in (check_all_services, scan_service_with_retries, scan_service, fetch_response, status, get_status_rows):
+        # Unwrap if already wrapped by a decorator
+        target_fn = getattr(fn, "__wrapped__", fn)
+        lp.add_function(target_fn)
+
+    lp.enable()
+    GLOBAL_LINE_PROFILER = lp
+    LINE_PROFILER_ENABLED = True
+
+    # Also install into builtins so any direct calls are captured
+    import atexit
+    import builtins
+    builtins.__dict__["profile"] = lp
+
+    def _teardown_profiler():
+        try:
+            lp.disable()
+        except Exception:
+            pass
+
+    atexit.register(_teardown_profiler)
+    return True
+
+
+def dump_line_profiler_stats(output_file: str | None = None, disable: bool = False):
+    """Print line-by-line profiler timing report to terminal and optionally dump to .lprof file."""
+    global GLOBAL_LINE_PROFILER
+    if GLOBAL_LINE_PROFILER is None:
+        return
+
+    print("\n" + "=" * 80)
+    print(" [LINE PROFILER STATS] Scan Cycle Timing Analysis")
+    print("=" * 80)
+    try:
+        GLOBAL_LINE_PROFILER.print_stats()
+    except Exception as exc:
+        print(f"[LineProfiler] Failed to print stats: {exc}")
+
+    if output_file or os.getenv("PULSECHECK_PROFILE_OUT"):
+        dump_path = output_file or os.getenv("PULSECHECK_PROFILE_OUT", "pulsecheck_scan.lprof")
+        try:
+            GLOBAL_LINE_PROFILER.dump_stats(dump_path)
+            print(f"[LineProfiler] Saved raw profile binary to: {dump_path}")
+        except Exception as exc:
+            print(f"[LineProfiler] Failed saving {dump_path}: {exc}")
+    print("=" * 80 + "\n")
+
+    if disable:
+        try:
+            GLOBAL_LINE_PROFILER.disable()
+        except Exception:
+            pass
 
 
 def cli_menu():
@@ -6538,7 +6742,8 @@ def cli_menu():
         print("\nPulseCheck menu")
         print("1. Start web app")
         print("2. Start web with Explicit debugging")
-        print("3. Exit")
+        print("3. Start web with Line-Profiler (profiles scan lines & elapsed CPU/time)")
+        print("4. Exit")
         choice = input("Select an option: ").strip()
 
         if choice == "1":
@@ -6554,6 +6759,14 @@ def cli_menu():
             break
 
         elif choice == "3":
+            if enable_line_profiling():
+                print(f"Starting web application with Line-Profiler on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+                print("Line-by-line profiling active for check_all_services, scan_service, scan_service_with_retries, fetch_response, and /status.")
+                print("Timing stats will display after each scan cycle and when shutting down.\n")
+                app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
+                break
+
+        elif choice == "4":
             print("Exiting PulseCheck.")
             break
         else:
@@ -6570,6 +6783,8 @@ def ensure_app_initialized():
     if not _APP_INITIALIZED:
         with _APP_INIT_LOCK:
             if not _APP_INITIALIZED:
+                if LINE_PROFILER_ENABLED and GLOBAL_LINE_PROFILER is None:
+                    enable_line_profiling()
                 init_db()
                 run_background_tasks()
                 _APP_INITIALIZED = True
@@ -6589,5 +6804,7 @@ if __name__ == "__main__":
         else:
             cli_menu()
     finally:
+        if LINE_PROFILER_ENABLED and GLOBAL_LINE_PROFILER is not None:
+            dump_line_profiler_stats(disable=True)
         if GLOBAL_SCHEDULER:
             GLOBAL_SCHEDULER.shutdown(wait=False)
