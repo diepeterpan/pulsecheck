@@ -1115,6 +1115,71 @@ custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
         exported, _ = pulsecheck_app.export_services_csv()
         self.assertIn("custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05", exported)
 
+    def test_latest_port_checks_sync_and_pruning(self):
+        # 1. Add service with ports
+        with patch("app.discover_ports", return_value=[80, 443]), patch("app.scan_service"):
+            svc_id = pulsecheck_app.add_service("perf-test.local")
+
+        # 2. Store checks and verify both port_checks and latest_port_checks contain row
+        pulsecheck_app.store_port_check(svc_id, 80, "online", 25)
+        pulsecheck_app.store_port_check(svc_id, 443, "online", 40)
+
+        conn = pulsecheck_app.get_db_connection()
+        hist_count = conn.execute("SELECT COUNT(*) FROM port_checks WHERE service_id = ?", (svc_id,)).fetchone()[0]
+        latest_rows = conn.execute("SELECT * FROM latest_port_checks WHERE service_id = ?", (svc_id,)).fetchall()
+        conn.close()
+
+        self.assertEqual(hist_count, 2)
+        self.assertEqual(len(latest_rows), 2)
+
+        # 3. Verify get_status_rows returns these latest rows
+        rows = pulsecheck_app.get_status_rows()
+        perf_rows = [r for r in rows if r["name"] == "perf-test.local"]
+        self.assertEqual(len(perf_rows), 2)
+        self.assertTrue(all(r["is_online"] for r in perf_rows))
+
+        # 4. Update check status to offline and ensure latest_port_checks updates in place (no duplicate)
+        pulsecheck_app.store_port_check(svc_id, 80, "offline", None)
+        conn = pulsecheck_app.get_db_connection()
+        latest_80 = conn.execute("SELECT status, is_online FROM latest_port_checks WHERE service_id = ? AND port = 80", (svc_id,)).fetchone()
+        latest_count_svc = conn.execute("SELECT COUNT(*) FROM latest_port_checks WHERE service_id = ?", (svc_id,)).fetchone()[0]
+        conn.close()
+        self.assertEqual(latest_count_svc, 2)
+        self.assertEqual(latest_80["status"], "offline")
+        self.assertEqual(latest_80["is_online"], 0)
+
+        # 5. Pruning test: insert an old check from 3 days ago into port_checks
+        from datetime import datetime, timezone, timedelta
+        old_time = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S UTC")
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', ?)",
+            (svc_id, old_time),
+        )
+        conn.commit()
+        conn.close()
+
+        # Prune with 1 day retention
+        deleted = pulsecheck_app.prune_historical_port_checks(retention_days=1)
+        self.assertGreaterEqual(deleted, 1)
+
+        # Verify old row deleted from port_checks, while latest_port_checks is completely untouched
+        conn = pulsecheck_app.get_db_connection()
+        old_exists = conn.execute("SELECT COUNT(*) FROM port_checks WHERE checked_at = ?", (old_time,)).fetchone()[0]
+        latest_untouched = conn.execute("SELECT COUNT(*) FROM latest_port_checks WHERE service_id = ?", (svc_id,)).fetchone()[0]
+        conn.close()
+        self.assertEqual(old_exists, 0)
+        self.assertEqual(latest_untouched, 2)
+
+        # 6. Delete service and ensure both tables clean up
+        pulsecheck_app.delete_service(svc_id)
+        conn = pulsecheck_app.get_db_connection()
+        hist_after_del = conn.execute("SELECT COUNT(*) FROM port_checks WHERE service_id = ?", (svc_id,)).fetchone()[0]
+        latest_after_del = conn.execute("SELECT COUNT(*) FROM latest_port_checks WHERE service_id = ?", (svc_id,)).fetchone()[0]
+        conn.close()
+        self.assertEqual(hist_after_del, 0)
+        self.assertEqual(latest_after_del, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

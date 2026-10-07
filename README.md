@@ -269,6 +269,7 @@ PulseCheck includes built-in line-by-line performance profiling to pinpoint exac
 | `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel service health checks |
 | `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a service check fails |
 | `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
+| `PULSECHECK_HISTORY_RETENTION_DAYS` | `1` | Days of historical check logs to retain in `port_checks` (latest statuses are always kept in `latest_port_checks`) |
 | `PULSECHECK_VERSION` | `1.0.0` | Application version displayed on the UI and in email alerts |
 
 ---
@@ -301,7 +302,7 @@ backup-portal.example,DR Site,1,0,udp-ssl,"80",/login,backup
 
 ## Testing
 
-PulseCheck includes a comprehensive automated test suite (101 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
+PulseCheck includes a comprehensive automated test suite (102 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 

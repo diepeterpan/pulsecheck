@@ -49,6 +49,7 @@ DEFAULT_SSL = os.getenv("PULSECHECK_SSL", "FALSE").strip().lower() in ("true", "
 DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
+DEFAULT_HISTORY_RETENTION_DAYS = int(os.getenv("PULSECHECK_HISTORY_RETENTION_DAYS", "1"))
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
@@ -162,6 +163,34 @@ def init_db():
 
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS latest_port_checks (
+            service_id INTEGER NOT NULL,
+            port INTEGER,
+            is_online INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'offline',
+            last_response_ms INTEGER,
+            checked_at TEXT NOT NULL,
+            PRIMARY KEY (service_id, port),
+            FOREIGN KEY(service_id) REFERENCES services(id)
+        )
+        """
+    )
+
+    # Trigger to guarantee latest_port_checks stays in sync even when raw SQL inserts into port_checks
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_port_checks_maintain_latest
+        AFTER INSERT ON port_checks
+        FOR EACH ROW
+        BEGIN
+            INSERT OR REPLACE INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
+            VALUES (NEW.service_id, NEW.port, NEW.is_online, NEW.status, NEW.last_response_ms, NEW.checked_at);
+        END
+        """
+    )
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL DEFAULT ''
@@ -169,7 +198,27 @@ def init_db():
         """
     )
 
-    # Clean up obsolete port_checks rows for ports no longer configured on services
+    # Initial migration: populate latest_port_checks from port_checks if empty
+    try:
+        latest_count = conn.execute("SELECT COUNT(*) FROM latest_port_checks").fetchone()[0]
+        if latest_count == 0:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
+                SELECT service_id, port, is_online, status, last_response_ms, checked_at
+                FROM (
+                    SELECT service_id, port, is_online, status, last_response_ms, checked_at,
+                           ROW_NUMBER() OVER (PARTITION BY service_id, port ORDER BY checked_at DESC) AS rn
+                    FROM port_checks
+                )
+                WHERE rn = 1
+                """
+            )
+            conn.commit()
+    except Exception:
+        pass
+
+    # Clean up obsolete port_checks and latest_port_checks rows for ports no longer configured on services
     try:
         service_rows = conn.execute("SELECT id, port_protocol FROM services").fetchall()
         for s in service_rows:
@@ -177,12 +226,15 @@ def init_db():
             cfg_ports = {p.get("port") for p in p_list}
             if None not in cfg_ports:
                 conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (s["id"],))
+                conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NULL", (s["id"],))
             num_ports = [p["port"] for p in p_list if p.get("port") is not None]
             if num_ports:
                 ph = ", ".join("?" for _ in num_ports)
                 conn.execute(f"DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({ph})", (s["id"], *num_ports))
+                conn.execute(f"DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({ph})", (s["id"], *num_ports))
             else:
                 conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL", (s["id"],))
+                conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL", (s["id"],))
     except Exception:
         pass
 
@@ -286,6 +338,10 @@ def init_db():
 
     conn.commit()
     conn.close()
+    try:
+        prune_historical_port_checks()
+    except Exception:
+        pass
 
 
 def parse_hex_bytes(value: str | bytes | None) -> bytes:
@@ -385,12 +441,8 @@ def get_current_local_time_str() -> str:
     return now.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def format_local_time(value: str | None) -> str | None:
-    if not value:
-        return None
-    val_str = str(value).strip()
-    target_tz = get_server_timezone()
-
+@functools.lru_cache(maxsize=1024)
+def _cached_format_local_time(val_str: str, target_tz: timezone | ZoneInfo | None) -> str:
     parsed = None
     try:
         parsed = datetime.fromisoformat(val_str.replace("Z", "+00:00"))
@@ -425,6 +477,14 @@ def format_local_time(value: str | None) -> str | None:
     if tz_label:
         return local_dt.strftime("%Y-%m-%d %H:%M:%S") + f" {tz_label}"
     return local_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def format_local_time(value: str | None) -> str | None:
+    if not value:
+        return None
+    val_str = str(value).strip()
+    target_tz = get_server_timezone()
+    return _cached_format_local_time(val_str, target_tz)
 
 
 class PortEntry(dict):
@@ -726,6 +786,8 @@ def discover_ports(service_name: str, progress_callback=None, cancelled_check=No
 
 
 def store_port_check(service_id: int, port: int | None, status: str, response_ms: int | None):
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
+    is_online_val = 1 if status == "online" else 0
     conn = get_db_connection()
     conn.execute(
         """
@@ -735,10 +797,24 @@ def store_port_check(service_id: int, port: int | None, status: str, response_ms
         (
             service_id,
             port,
-            1 if status == "online" else 0,
+            is_online_val,
             status,
             response_ms,
-            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z"),
+            now_str,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            service_id,
+            port,
+            is_online_val,
+            status,
+            response_ms,
+            now_str,
         ),
     )
     conn.commit()
@@ -3068,16 +3144,19 @@ def update_service(
             service_id,
         ),
     )
-    # Clean up obsolete port_checks for removed ports
+    # Clean up obsolete port_checks and latest_port_checks for removed ports
     configured_ports = {p.get("port") for p in incoming_ports}
     if None not in configured_ports:
         conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (service_id,))
+        conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NULL", (service_id,))
     numeric_ports = [p["port"] for p in incoming_ports if p.get("port") is not None]
     if numeric_ports:
         placeholders = ", ".join("?" for _ in numeric_ports)
         conn.execute(f"DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({placeholders})", (service_id, *numeric_ports))
+        conn.execute(f"DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({placeholders})", (service_id, *numeric_ports))
     else:
         conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL", (service_id,))
+        conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL", (service_id,))
     conn.commit()
     conn.close()
     if incoming_ports and not paused:
@@ -3148,6 +3227,10 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
                 f"DELETE FROM port_checks WHERE service_id = ? AND port IN ({port_placeholders})",
                 (row["id"], *new_port_nums),
             )
+            conn.execute(
+                f"DELETE FROM latest_port_checks WHERE service_id = ? AND port IN ({port_placeholders})",
+                (row["id"], *new_port_nums),
+            )
     conn.commit()
     conn.close()
 
@@ -3155,6 +3238,7 @@ def bulk_update_ports(service_ids, action: str, ports_input: str):
 def delete_service(service_id: int):
     conn = get_db_connection()
     conn.execute("DELETE FROM port_checks WHERE service_id = ?", (service_id,))
+    conn.execute("DELETE FROM latest_port_checks WHERE service_id = ?", (service_id,))
     conn.execute("DELETE FROM services WHERE id = ?", (service_id,))
     conn.commit()
     conn.close()
@@ -3164,14 +3248,8 @@ def get_status_rows():
     conn = get_db_connection()
     check_rows = conn.execute(
         """
-        WITH latest AS (
-            SELECT service_id, port, is_online, status, last_response_ms, checked_at,
-                   ROW_NUMBER() OVER (PARTITION BY service_id, port ORDER BY checked_at DESC) AS rn
-            FROM port_checks
-        )
         SELECT service_id, port, is_online, status, last_response_ms, checked_at
-        FROM latest
-        WHERE rn = 1
+        FROM latest_port_checks
         """
     ).fetchall()
 
@@ -4178,6 +4256,31 @@ def rescan_service_route(service_id):
     return redirect(url_for("status"))
 
 
+def prune_historical_port_checks(retention_days: int | None = None) -> int:
+    """Prune rows from historical port_checks older than retention_days.
+    Does not touch latest_port_checks which holds current active statuses."""
+    days = DEFAULT_HISTORY_RETENTION_DAYS if retention_days is None else retention_days
+    if days is None or days <= 0:
+        return 0
+    try:
+        from datetime import timedelta
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(days=days)
+        # Format matching both standard UTC strings stored in port_checks
+        cutoff_str = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        cutoff_iso = cutoff_dt.isoformat()
+        conn = get_db_connection()
+        cur = conn.execute(
+            "DELETE FROM port_checks WHERE checked_at < ? OR (checked_at LIKE '%T%' AND checked_at < ?)",
+            (cutoff_str, cutoff_iso),
+        )
+        deleted_count = cur.rowcount
+        conn.commit()
+        conn.close()
+        return deleted_count
+    except Exception:
+        return 0
+
+
 def record_scan_completed(completed_at: datetime | None = None) -> None:
     if completed_at is None:
         completed_at = datetime.now(timezone.utc)
@@ -4192,6 +4295,7 @@ def record_scan_completed(completed_at: datetime | None = None) -> None:
         conn.close()
     except Exception:
         pass
+    prune_historical_port_checks()
 
 
 def parse_iso_or_utc_datetime(val_str: str | None) -> datetime | None:
