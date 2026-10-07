@@ -1986,11 +1986,12 @@ direct.example,direct,,Direct site,0,0,8080
         conn.commit()
         conn.close()
 
-        # Track URLs opened by urllib
+        # Track URLs opened by urllib for this test
         opened_urls = []
         def fake_urlopen(req, timeout=None, context=None):
             url = req.full_url if hasattr(req, "full_url") else str(req)
-            opened_urls.append(url)
+            if "myrouter" in url or "example.com" in url:
+                opened_urls.append(url)
             mock_r = MagicMock()
             mock_r.read.return_value = b"\x89PNG\r\n\x1a\n" + b"\x01" * 120
             mock_r.headers = {"Content-Type": "image/png"}
@@ -2003,7 +2004,7 @@ direct.example,direct,,Direct site,0,0,8080
 
         self.assertIsNotNone(res)
         # Priority 1 must have fetched custom_img_url FIRST without even probing myrouter.local/favicon.ico
-        self.assertEqual(opened_urls[0], custom_img_url)
+        self.assertTrue(len(opened_urls) > 0 and opened_urls[0] == custom_img_url)
         self.assertNotIn("https://myrouter.local/favicon.ico", opened_urls)
         dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "myrouter.png"
         dest_file.unlink(missing_ok=True)

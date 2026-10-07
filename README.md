@@ -270,6 +270,7 @@ PulseCheck includes built-in line-by-line performance profiling to pinpoint exac
 | `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a service check fails |
 | `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
 | `PULSECHECK_HISTORY_RETENTION_DAYS` | `1` | Days of historical check logs to retain in `port_checks` (latest statuses are always kept in `latest_port_checks`) |
+| `PULSECHECK_SCANNER_BYPASS_KEY` | `b94d27b9...` | Custom header `X-Scanner-Bypass-Key` value injected during `web` health checks / diagnostic probes (can also use `SCANNER_BYPASS_KEY`) |
 | `PULSECHECK_VERSION` | `1.0.0` | Application version displayed on the UI and in email alerts |
 
 ---

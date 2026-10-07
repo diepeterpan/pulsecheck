@@ -1014,6 +1014,45 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
         self.assertEqual(parsed_web["request_payload"], "")
         self.assertEqual(parsed_web["response_payload"], "")
 
+    def test_web_request_injects_scanner_bypass_key(self):
+        # Insert a service configured for web request
+        conn = pulsecheck_app.get_db_connection()
+        cur = conn.execute("INSERT INTO services (name, paused, request_type, port_protocol) VALUES (?, 0, 'web', ?)",
+                           ("web-bypass.test.local", json.dumps([{"port": 80, "protocol": "http", "request_type": "web"}])))
+        service_id = cur.lastrowid
+        conn.commit()
+        conn.close()
+
+        with patch("app.fetch_response", return_value=(b"HTTP/1.1 200 OK\r\n\r\nHello", 200, "http://web-bypass.test.local:80/")) as mock_fetch:
+            pulsecheck_app.scan_service(
+                service_id,
+                "web-bypass.test.local",
+                [{"port": 80, "protocol": "http", "request_type": "web"}]
+            )
+            # Verify custom_headers includes X-Scanner-Bypass-Key
+            mock_fetch.assert_called_once()
+            called_kwargs = mock_fetch.call_args[1]
+            self.assertIn("custom_headers", called_kwargs)
+            self.assertEqual(called_kwargs["custom_headers"], {
+                "X-Scanner-Bypass-Key": pulsecheck_app.DEFAULT_SCANNER_BYPASS_KEY
+            })
+
+    def test_live_probe_injects_scanner_bypass_key_for_web(self):
+        with patch("app.fetch_response", return_value=(b"HTTP/1.1 200 OK\r\n\r\nOK", 200, "http://diag.local:80/")) as mock_fetch:
+            pulsecheck_app.probe_single_port_diagnostics(
+                "diag.local",
+                80,
+                "",
+                preferred_protocol="http",
+                request_type="web",
+            )
+            mock_fetch.assert_called_once()
+            called_kwargs = mock_fetch.call_args[1]
+            self.assertIn("custom_headers", called_kwargs)
+            self.assertEqual(called_kwargs["custom_headers"], {
+                "X-Scanner-Bypass-Key": pulsecheck_app.DEFAULT_SCANNER_BYPASS_KEY
+            })
+
     @patch("app.discover_ports", return_value=[{"port": 80, "protocol": "http"}])
     @patch("app.scan_service")
     def test_quick_text_import_defaults_to_web(self, mock_scan, mock_discover):

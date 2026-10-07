@@ -52,6 +52,10 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 DEFAULT_HISTORY_RETENTION_DAYS = int(os.getenv("PULSECHECK_HISTORY_RETENTION_DAYS", "1"))
+DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
+    "PULSECHECK_SCANNER_BYPASS_KEY",
+    os.getenv("SCANNER_BYPASS_KEY", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
+).strip()
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
@@ -1089,6 +1093,7 @@ async def async_fetch_response(
     allow_legacy_ssl: bool = False,
     use_proxy: bool = False,
     proxy_settings: dict[str, str] | None = None,
+    custom_headers: dict[str, str] | None = None,
 ) -> tuple[bytes, int, str]:
     current_url = f"{scheme}://{service_name}:{port}{url_path or '/'}"
     ssl_context = create_ssl_context(legacy=allow_legacy_ssl)
@@ -1134,6 +1139,8 @@ async def async_fetch_response(
 
     client_timeout = aiohttp.ClientTimeout(total=2.5, connect=2.0)
     req_headers = {"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}
+    if custom_headers:
+        req_headers.update(custom_headers)
 
     # If test suites or callers patched http.client.HTTPConnection or HTTPSConnection, execute with full redirect and error handling
     is_https = scheme.lower() == "https"
@@ -1164,6 +1171,8 @@ async def async_fetch_response(
                 if p_url.query:
                     req_path += f"?{p_url.query}"
                 req_hdrs = {"Host": p_url.hostname}
+                if custom_headers:
+                    req_hdrs.update(custom_headers)
                 if use_proxy and p_url.scheme == "http":
                     if p_user:
                         req_hdrs["Proxy-Authorization"] = f"Basic {base64.b64encode(f'{p_user}:{p_pass}'.encode('latin1')).decode('ascii')}"
@@ -1211,6 +1220,7 @@ async def async_fetch_response(
                 allow_legacy_ssl=True,
                 use_proxy=use_proxy,
                 proxy_settings=proxy_settings,
+                custom_headers=custom_headers,
             )
 
     try:
@@ -1264,6 +1274,7 @@ async def async_fetch_response(
                 allow_legacy_ssl=True,
                 use_proxy=use_proxy,
                 proxy_settings=proxy_settings,
+                custom_headers=custom_headers,
             )
         raise
 
@@ -1279,6 +1290,7 @@ def fetch_response(
     allow_legacy_ssl: bool = False,
     use_proxy: bool = False,
     proxy_settings: dict[str, str] | None = None,
+    custom_headers: dict[str, str] | None = None,
 ) -> tuple[bytes, int, str]:
     """Fetch HTTP/HTTPS response using non-blocking aiohttp under the hood."""
     return AsyncHttpManager.run_coroutine(
@@ -1292,22 +1304,27 @@ def fetch_response(
             allow_legacy_ssl=allow_legacy_ssl,
             use_proxy=use_proxy,
             proxy_settings=proxy_settings,
+            custom_headers=custom_headers,
         )
     )
 
 
-def fetch_tcp_response(service_name: str, port: int, url_path: str = "", custom_request_bytes: bytes | None = None):
+def fetch_tcp_response(service_name: str, port: int, url_path: str = "", custom_request_bytes: bytes | None = None, custom_headers: dict[str, str] | None = None):
     with socket.create_connection((service_name, port), timeout=2) as connection:
         if custom_request_bytes is not None:
             connection.sendall(custom_request_bytes)
         else:
+            hdrs = f"Host: {service_name}\r\nConnection: close"
+            if custom_headers:
+                for hk, hv in custom_headers.items():
+                    hdrs += f"\r\n{hk}: {hv}"
             connection.sendall(
-                f"GET {url_path or '/'} HTTP/1.0\r\nHost: {service_name}\r\nConnection: close\r\n\r\n".encode()
+                f"GET {url_path or '/'} HTTP/1.0\r\n{hdrs}\r\n\r\n".encode()
             )
         return decompress_socket_response_if_gzip(connection.recv(16384))
 
 
-def fetch_tcp_ssl_response(service_name: str, port: int, url_path: str = "", custom_request_bytes: bytes | None = None, allow_legacy_ssl: bool = False):
+def fetch_tcp_ssl_response(service_name: str, port: int, url_path: str = "", custom_request_bytes: bytes | None = None, allow_legacy_ssl: bool = False, custom_headers: dict[str, str] | None = None):
     context = create_ssl_context(legacy=allow_legacy_ssl)
     try:
         with socket.create_connection((service_name, port), timeout=2) as raw_connection:
@@ -1315,13 +1332,17 @@ def fetch_tcp_ssl_response(service_name: str, port: int, url_path: str = "", cus
                 if custom_request_bytes is not None:
                     connection.sendall(custom_request_bytes)
                 else:
+                    hdrs = f"Host: {service_name}\r\nConnection: close"
+                    if custom_headers:
+                        for hk, hv in custom_headers.items():
+                            hdrs += f"\r\n{hk}: {hv}"
                     connection.sendall(
-                        f"GET {url_path or '/'} HTTP/1.0\r\nHost: {service_name}\r\nConnection: close\r\n\r\n".encode()
+                        f"GET {url_path or '/'} HTTP/1.0\r\n{hdrs}\r\n\r\n".encode()
                     )
                 return decompress_socket_response_if_gzip(connection.recv(16384))
     except Exception as exc:
         if not allow_legacy_ssl and is_ssl_handshake_failure(exc):
-            return fetch_tcp_ssl_response(service_name, port, url_path=url_path, custom_request_bytes=custom_request_bytes, allow_legacy_ssl=True)
+            return fetch_tcp_ssl_response(service_name, port, url_path=url_path, custom_request_bytes=custom_request_bytes, allow_legacy_ssl=True, custom_headers=custom_headers)
         raise
 
 
@@ -1655,6 +1676,8 @@ def scan_service(
         match_bytes = port_match.lower().encode() if port_match else b""
         url_path = port_url_path
 
+        web_custom_headers = {"X-Scanner-Bypass-Key": DEFAULT_SCANNER_BYPASS_KEY} if (port_req_type == "web" and DEFAULT_SCANNER_BYPASS_KEY) else None
+
         if debug_enabled:
             print(f"[DEBUG scan] Probing port={port} pref_proto={per_port_pref!r} effective_proto={protocol_used!r} req_type={port_req_type}")
 
@@ -1744,7 +1767,12 @@ def scan_service(
             protocol_used = "tcp"
             tcp_t0 = time.monotonic()
             try:
-                tcp_response = fetch_tcp_response(service_name, port, url_path, custom_request_bytes=req_bytes if port_req_type == "custom" else None)
+                tcp_kwargs = {}
+                if port_req_type == "custom":
+                    tcp_kwargs["custom_request_bytes"] = req_bytes
+                elif web_custom_headers:
+                    tcp_kwargs["custom_headers"] = web_custom_headers
+                tcp_response = fetch_tcp_response(service_name, port, url_path, **tcp_kwargs)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if port_req_type == "custom":
                     if resp_expected_bytes and resp_expected_bytes in tcp_response:
@@ -1772,7 +1800,12 @@ def scan_service(
             protocol_used = "tcp-ssl"
             tcp_ssl_t0 = time.monotonic()
             try:
-                tcp_ssl_response = fetch_tcp_ssl_response(service_name, port, url_path, custom_request_bytes=req_bytes if port_req_type == "custom" else None)
+                tcp_ssl_kwargs = {}
+                if port_req_type == "custom":
+                    tcp_ssl_kwargs["custom_request_bytes"] = req_bytes
+                elif web_custom_headers:
+                    tcp_ssl_kwargs["custom_headers"] = web_custom_headers
+                tcp_ssl_response = fetch_tcp_ssl_response(service_name, port, url_path, **tcp_ssl_kwargs)
                 response_ms = int((time.monotonic() - start) * 1000)
                 if port_req_type == "custom":
                     if resp_expected_bytes and resp_expected_bytes in tcp_ssl_response:
@@ -1808,6 +1841,7 @@ def scan_service(
                 https_response, status_code, final_url = fetch_response(
                     service_name, port, "https", url_path,
                     explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
+                    custom_headers=web_custom_headers,
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 if https_response and match_bytes and match_bytes in https_response.lower():
@@ -1839,6 +1873,7 @@ def scan_service(
                 response, status_code, final_url = fetch_response(
                     service_name, port, "http", url_path,
                     explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
+                    custom_headers=web_custom_headers,
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 protocol_used = "http"
@@ -1865,6 +1900,7 @@ def scan_service(
                     https_response, status_code, final_url = fetch_response(
                         service_name, port, "https", url_path,
                         explicit_debug=debug_enabled, use_proxy=use_proxy, proxy_settings=proxy_settings,
+                        custom_headers=web_custom_headers,
                     )
                     response_ms = int((time.monotonic() - start) * 1000)
                     if https_response and match_bytes and match_bytes in https_response.lower():
@@ -1893,7 +1929,7 @@ def scan_service(
             if not per_port_pref and status != "online" and not use_proxy:
                 fb_tcp_t0 = time.monotonic()
                 try:
-                    tcp_response = fetch_tcp_response(service_name, port, url_path)
+                    tcp_response = fetch_tcp_response(service_name, port, url_path, custom_headers=web_custom_headers)
                     response_ms = int((time.monotonic() - start) * 1000)
                     if tcp_response and match_bytes and match_bytes in tcp_response.lower():
                         status = "online"
@@ -1906,7 +1942,7 @@ def scan_service(
                         protocol_used = "tcp"
                 except (socket.timeout, socket.gaierror, OSError):
                     try:
-                        tcp_ssl_response = fetch_tcp_ssl_response(service_name, port, url_path)
+                        tcp_ssl_response = fetch_tcp_ssl_response(service_name, port, url_path, custom_headers=web_custom_headers)
                         response_ms = int((time.monotonic() - start) * 1000)
                         if tcp_ssl_response and match_bytes and match_bytes in tcp_ssl_response.lower():
                             status = "online"
@@ -2025,6 +2061,8 @@ def probe_single_port_diagnostics(
     if req_type not in ("web", "custom"):
         req_type = "web"
 
+    web_custom_headers = {"X-Scanner-Bypass-Key": DEFAULT_SCANNER_BYPASS_KEY} if (req_type == "web" and DEFAULT_SCANNER_BYPASS_KEY) else None
+
     req_bytes = None
     resp_expected_bytes = None
     if req_type == "custom":
@@ -2102,7 +2140,7 @@ def probe_single_port_diagnostics(
     elif pref == "tcp":
         protocol_used = "tcp"
         try:
-            tcp_resp = fetch_tcp_response(service_name, port, url_path, custom_request_bytes=req_bytes if req_type == "custom" else None)
+            tcp_resp = fetch_tcp_response(service_name, port, url_path, custom_request_bytes=req_bytes if req_type == "custom" else None, custom_headers=web_custom_headers)
             response_bytes = tcp_resp
             status_text = "TCP response" if req_type == "custom" else "TCP HTTP/1.0 response"
             if req_type == "custom":
@@ -2125,7 +2163,7 @@ def probe_single_port_diagnostics(
     elif pref == "tcp-ssl":
         protocol_used = "tcp-ssl"
         try:
-            ssl_tcp_resp = fetch_tcp_ssl_response(service_name, port, url_path, custom_request_bytes=req_bytes if req_type == "custom" else None)
+            ssl_tcp_resp = fetch_tcp_ssl_response(service_name, port, url_path, custom_request_bytes=req_bytes if req_type == "custom" else None, custom_headers=web_custom_headers)
             response_bytes = ssl_tcp_resp
             status_text = "TCP SSL response" if req_type == "custom" else "TCP SSL HTTP/1.0 response"
             if req_type == "custom":
@@ -2160,6 +2198,7 @@ def probe_single_port_diagnostics(
                 explicit_debug=debug_enabled,
                 use_proxy=use_proxy,
                 proxy_settings=proxy_settings,
+                custom_headers=web_custom_headers,
             )
             status_code = https_code
             status_text = f"HTTPS {https_code}"
@@ -2193,6 +2232,7 @@ def probe_single_port_diagnostics(
                 explicit_debug=debug_enabled,
                 use_proxy=use_proxy,
                 proxy_settings=proxy_settings,
+                custom_headers=web_custom_headers,
             )
             protocol_used = "http"
             status_text = f"HTTP {status_code}"
@@ -2228,6 +2268,7 @@ def probe_single_port_diagnostics(
                     explicit_debug=debug_enabled,
                     use_proxy=use_proxy,
                     proxy_settings=proxy_settings,
+                    custom_headers=web_custom_headers,
                 )
                 protocol_used = "https"
                 status_code = https_code
@@ -2256,7 +2297,7 @@ def probe_single_port_diagnostics(
         if not pref and status != "online" and not use_proxy:
             try:
                 retries += 1
-                tcp_resp = fetch_tcp_response(service_name, port, url_path)
+                tcp_resp = fetch_tcp_response(service_name, port, url_path, custom_headers=web_custom_headers)
                 protocol_used = "tcp"
                 response_bytes = tcp_resp
                 status_text = "TCP HTTP/1.0 response"
@@ -2269,7 +2310,7 @@ def probe_single_port_diagnostics(
             except (socket.timeout, socket.gaierror, OSError):
                 try:
                     retries += 1
-                    ssl_tcp_resp = fetch_tcp_ssl_response(service_name, port, url_path)
+                    ssl_tcp_resp = fetch_tcp_ssl_response(service_name, port, url_path, custom_headers=web_custom_headers)
                     protocol_used = "tcp-ssl"
                     response_bytes = ssl_tcp_resp
                     status_text = "TCP SSL HTTP/1.0 response"
