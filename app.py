@@ -14,6 +14,7 @@ import re
 import sqlite3
 import socket
 import aiohttp
+from aiohttp.http_exceptions import HttpProcessingError
 import smtplib
 import ssl
 import struct
@@ -44,6 +45,14 @@ SERVICE_ICONS_DIR = DB_PATH.parent / "service_icons"
 SERVICE_ICONS_DIR.mkdir(parents=True, exist_ok=True)
 COMMON_PORTS = [80, 443, 22, 21, 25, 53, 110, 143, 587, 993, 995, 8080, 8443, 8444, 3306, 5432, 27017, 3000, 9000]
 HTTPS_PORTS = {443, 8443, 8444}
+HTTP_PROBE_EXCEPTIONS = (
+    socket.timeout,
+    socket.gaierror,
+    OSError,
+    http.client.HTTPException,
+    aiohttp.ClientError,
+    HttpProcessingError,
+)
 DEFAULT_PORT = int(os.getenv("PULSECHECK_PORT", "8182"))
 DEFAULT_IP = os.getenv("PULSECHECK_IP", os.getenv("PULSECHECK_HOST", "0.0.0.0"))
 DEFAULT_HOSTNAME = os.getenv("PULSECHECK_HOSTNAME", "127.0.0.1")
@@ -1850,7 +1859,7 @@ def scan_service(
                     status = "online"
                 elif https_response:
                     status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            except (*HTTP_PROBE_EXCEPTIONS, ssl.SSLError) as exc:
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     response_ms = int((time.monotonic() - start) * 1000)
@@ -1877,7 +1886,7 @@ def scan_service(
                 )
                 response_ms = int((time.monotonic() - start) * 1000)
                 protocol_used = "http"
-            except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
+            except HTTP_PROBE_EXCEPTIONS as exc:
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     protocol_used = "http"
@@ -1912,7 +1921,7 @@ def scan_service(
                     elif https_response:
                         status = "degraded"
                         protocol_used = "https"
-                except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
+                except (*HTTP_PROBE_EXCEPTIONS, ssl.SSLError) as exc:
                     if is_ssl_handshake_failure(exc):
                         status = "online"
                         protocol_used = "https"
@@ -2210,7 +2219,7 @@ def probe_single_port_diagnostics(
                 status = "online"
             elif https_response:
                 status = "degraded"
-        except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
+        except (*HTTP_PROBE_EXCEPTIONS, ssl.SSLError) as exc:
             if is_ssl_handshake_failure(exc):
                 status = "online"
                 status_text = "SSL Handshake (treated as online)"
@@ -2236,7 +2245,7 @@ def probe_single_port_diagnostics(
             )
             protocol_used = "http"
             status_text = f"HTTP {status_code}"
-        except (socket.timeout, socket.gaierror, OSError, http.client.HTTPException) as exc:
+        except HTTP_PROBE_EXCEPTIONS as exc:
             if is_ssl_handshake_failure(exc):
                 status = "online"
                 status_text = "SSL Handshake detected (treated as online)"
@@ -2281,7 +2290,7 @@ def probe_single_port_diagnostics(
                     status = "online"
                 elif https_response:
                     status = "degraded"
-            except (socket.timeout, socket.gaierror, OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            except (*HTTP_PROBE_EXCEPTIONS, ssl.SSLError) as exc:
                 if is_ssl_handshake_failure(exc):
                     status = "online"
                     status_text = "SSL Handshake (treated as online)"

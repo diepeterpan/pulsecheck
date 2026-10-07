@@ -1219,6 +1219,42 @@ custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
         self.assertEqual(hist_after_del, 0)
         self.assertEqual(latest_after_del, 0)
 
+    @patch("app.fetch_response")
+    def test_probe_single_port_diagnostics_handles_bad_status_line(self, mock_fetch):
+        """Verify that aiohttp ClientResponseError / BadStatusLine does not crash port diagnostics."""
+        import yarl
+        from aiohttp.client_reqrep import RequestInfo
+        import aiohttp
+        from aiohttp.http_exceptions import BadStatusLine
+
+        req_info = RequestInfo(url=yarl.URL("http://dummy:22/"), method="GET", headers={}, real_url=yarl.URL("http://dummy:22/"))
+        mock_fetch.side_effect = aiohttp.ClientResponseError(
+            req_info, (), status=400, message="Bad status line:\n  Expected HTTP/, RTSP/ or ICE/:\n\n  b'SSH-2.0-dropbear'"
+        )
+
+        # Probing port 22 with default http cascade
+        res = pulsecheck_app.probe_single_port_diagnostics("dummy.server", 22, match_str="")
+        self.assertIsNotNone(res)
+        # Should gracefully handle error and fall back to TCP fallback or report offline/degraded rather than throwing
+        self.assertIn(res.get("status"), ("offline", "online", "degraded"))
+
+    @patch("app.fetch_response")
+    def test_scan_service_handles_bad_status_line(self, mock_fetch):
+        """Verify that scan_service does not crash when encountering BadStatusLine on non-HTTP ports."""
+        import yarl
+        from aiohttp.client_reqrep import RequestInfo
+        import aiohttp
+
+        req_info = RequestInfo(url=yarl.URL("http://dummy:22/"), method="GET", headers={}, real_url=yarl.URL("http://dummy:22/"))
+        mock_fetch.side_effect = aiohttp.ClientResponseError(
+            req_info, (), status=400, message="Bad status line: SSH-2.0-dropbear"
+        )
+
+        svc_id = pulsecheck_app.add_service("bad-status-svc.local", ports=[22])
+        res = pulsecheck_app.scan_service(svc_id, "bad-status-svc.local", [{"port": 22, "protocol": ""}])
+        self.assertIsNotNone(res)
+        pulsecheck_app.delete_service(svc_id)
+
 
 if __name__ == "__main__":
     unittest.main()
