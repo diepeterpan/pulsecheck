@@ -1422,6 +1422,39 @@ custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
 
         pulsecheck_app.delete_service(svc_id)
 
+    def test_service_list_indicator_rendering(self):
+        # Insert a service with auth, path, and match configured
+        svc_id = pulsecheck_app.add_service(
+            name="device-indicators.test.local",
+            match="welcome-str",
+            url_path="/api/health",
+            http_username="testadmin",
+            http_password="testsecret",
+            ports=[8080],
+        )
+
+        res = self.client.get("/services")
+        self.assertEqual(res.status_code, 200)
+        html = res.data.decode("utf-8")
+
+        # 1. Robot status disc should be rendered
+        self.assertIn('class="status-robot-disc', html)
+
+        # 2. Basic auth padlock icon should be rendered
+        self.assertIn('class="service-meta-icon auth-icon"', html)
+        self.assertIn('title="Basic Auth: testadmin"', html)
+
+        # 3. Path icon should be rendered
+        self.assertIn('class="service-meta-icon path-icon"', html)
+        self.assertIn('title="URL Path: /api/health"', html)
+
+        # 4. Key match icon should be rendered
+        self.assertIn('class="service-meta-icon match-icon"', html)
+        self.assertIn('title="Match Pattern: welcome-str"', html)
+
+        # Cleanup
+        pulsecheck_app.delete_service(svc_id)
+
 
 if __name__ == "__main__":
     unittest.main()

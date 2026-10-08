@@ -94,8 +94,54 @@
                   {% endif %}
                   <div class="service-name-meta">
                     <strong class="service-name-text service-name-text">{{ service.name }}</strong>
+
+                    <!-- 1. Robot Status Blob/Disc -->
+                    {% if service.paused %}
+                      <span class="status-robot-disc paused" title="Status: Paused" aria-label="Status: Paused">
+                        <svg width="7" height="7" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+                          <rect x="1.5" y="1" width="2.5" height="8" rx="1"/>
+                          <rect x="6" y="1" width="2.5" height="8" rx="1"/>
+                        </svg>
+                      </span>
+                    {% else %}
+                      <span class="status-robot-disc {{ service.overall_status }}"
+                            title="Status: {{ 'Unmonitored' if service.overall_status == 'none' else (service.overall_status | capitalize) }}"
+                            aria-label="Status: {{ service.overall_status | capitalize }}"></span>
+                    {% endif %}
+
+                    <!-- 2. Padlock (Basic Auth) -->
+                    {% if service.has_auth %}
+                      <span class="service-meta-icon auth-icon" title="Basic Auth: {{ service.http_username if service.http_username else 'Configured' }}" aria-label="Basic Auth Configured">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                      </span>
+                    {% endif %}
+
+                    <!-- 3. URL Path Icon -->
+                    {% if service.has_path %}
+                      <span class="service-meta-icon path-icon" title="URL Path: {{ service.captured_paths | join(', ') }}" aria-label="URL Path: {{ service.captured_paths | join(', ') }}">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <polyline points="4 17 10 11 4 5"/>
+                          <line x1="12" y1="19" x2="20" y2="19"/>
+                        </svg>
+                      </span>
+                    {% endif %}
+
+                    <!-- 4. Key Icon (Match Token) -->
+                    {% if service.has_match %}
+                      <span class="service-meta-icon match-icon" title="Match Pattern: {{ service.captured_matches | join(', ') }}" aria-label="Match Pattern: {{ service.captured_matches | join(', ') }}">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <circle cx="7.5" cy="15.5" r="4.5"/>
+                          <path d="m21 3-9.5 9.5"/>
+                          <path d="m15.5 7.5 3 3"/>
+                        </svg>
+                      </span>
+                    {% endif %}
+
                     {% if service.use_proxy %}
-                      <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 4px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
+                      <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 2px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                     {% endif %}
                     {% if service.comment %}
                       <span class="service-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">

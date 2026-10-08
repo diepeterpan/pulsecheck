@@ -69,7 +69,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.6")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.7")
 __version__ = APP_VERSION
 
 # Safe @profile decorator fallback:
@@ -715,19 +715,53 @@ def service_list():
         "SELECT id, name, comment, paused, use_proxy, request_type, port_protocol, created_at, "
         "discovered_ip, discovered_mac, discovered_manufacturer, http_username, http_password FROM services ORDER BY name ASC"
     ).fetchall()
+
+    # Load latest port checks for all services to compute overall status
+    check_rows = conn.execute(
+        "SELECT service_id, port, is_online, status FROM latest_port_checks"
+    ).fetchall()
     conn.close()
+
+    checks_by_service: dict[int, dict] = {}
+    for c in check_rows:
+        s_id = c["service_id"]
+        if s_id not in checks_by_service:
+            checks_by_service[s_id] = {}
+        port_key = c["port"] if c["port"] is not None else "icmp"
+        st = c["status"] or ("online" if c["is_online"] else "offline")
+        checks_by_service[s_id][port_key] = st
+
     services = []
     for row in rows:
         parsed_ports = parse_port_protocol(row["port_protocol"])
         protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
         proto = protos[0] if protos else ""
-        first_port_match = next((p.get("match", "") for p in parsed_ports if p.get("port") is not None and p.get("match")), "")
-        first_port_path = next((p.get("url_path", "") for p in parsed_ports if p.get("port") is not None and p.get("url_path")), "")
+
+        # Extract all captured paths and match values across all configured ports
+        captured_paths = [str(p["url_path"]).strip() for p in parsed_ports if p.get("url_path") and str(p["url_path"]).strip()]
+        captured_matches = [str(p["match"]).strip() for p in parsed_ports if p.get("match") and str(p["match"]).strip()]
+        first_port_match = captured_matches[0] if captured_matches else ""
+        first_port_path = captured_paths[0] if captured_paths else ""
+
+        has_auth = bool((row["http_username"] and str(row["http_username"]).strip()) or (row["http_password"] and str(row["http_password"]).strip()))
+        has_path = bool(captured_paths)
+        has_match = bool(captured_matches)
+
+        # Compute overall status for the service
+        port_statuses = checks_by_service.get(row["id"], {})
+        overall_status = compute_overall_status(port_statuses)
+
         services.append({
             "id": row["id"],
             "name": row["name"],
             "match": first_port_match,
             "url_path": first_port_path,
+            "has_auth": has_auth,
+            "has_path": has_path,
+            "captured_paths": captured_paths,
+            "has_match": has_match,
+            "captured_matches": captured_matches,
+            "overall_status": overall_status,
             "comment": row["comment"] if "comment" in row.keys() else "",
             "paused": bool(row["paused"]),
             "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
@@ -752,19 +786,43 @@ def get_service_by_id(service_id):
         "discovered_ip, discovered_mac, discovered_manufacturer, http_username, http_password FROM services WHERE id = ?",
         (service_id,),
     ).fetchone()
+    check_rows = conn.execute(
+        "SELECT port, is_online, status FROM latest_port_checks WHERE service_id = ?",
+        (service_id,),
+    ).fetchall()
     conn.close()
     if row is None:
         return None
     parsed_ports = parse_port_protocol(row["port_protocol"])
     protos = [p.get("protocol") for p in parsed_ports if p.get("protocol")]
     proto = protos[0] if protos else ""
-    first_port_match = next((p.get("match", "") for p in parsed_ports if p.get("port") is not None and p.get("match")), "")
-    first_port_path = next((p.get("url_path", "") for p in parsed_ports if p.get("port") is not None and p.get("url_path")), "")
+
+    captured_paths = [str(p["url_path"]).strip() for p in parsed_ports if p.get("url_path") and str(p["url_path"]).strip()]
+    captured_matches = [str(p["match"]).strip() for p in parsed_ports if p.get("match") and str(p["match"]).strip()]
+    first_port_match = captured_matches[0] if captured_matches else ""
+    first_port_path = captured_paths[0] if captured_paths else ""
+
+    has_auth = bool((row["http_username"] and str(row["http_username"]).strip()) or (row["http_password"] and str(row["http_password"]).strip()))
+    has_path = bool(captured_paths)
+    has_match = bool(captured_matches)
+
+    port_statuses = {}
+    for c in check_rows:
+        port_key = c["port"] if c["port"] is not None else "icmp"
+        port_statuses[port_key] = c["status"] or ("online" if c["is_online"] else "offline")
+    overall_status = compute_overall_status(port_statuses)
+
     return {
         "id": row["id"],
         "name": row["name"],
         "match": first_port_match,
         "url_path": first_port_path,
+        "has_auth": has_auth,
+        "has_path": has_path,
+        "captured_paths": captured_paths,
+        "has_match": has_match,
+        "captured_matches": captured_matches,
+        "overall_status": overall_status,
         "comment": row["comment"] if "comment" in row.keys() else "",
         "paused": bool(row["paused"]),
         "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
