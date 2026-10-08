@@ -69,7 +69,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.5")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.6")
 __version__ = APP_VERSION
 
 # Safe @profile decorator fallback:
@@ -6114,6 +6114,7 @@ DEFAULT_HTML_CONTENT_ICON_MAPPINGS = [
     [r"\b(?:pi-hole)\b", "pi-hole.net"],
     [r"\b(?:adguard home)\b", "adguard.com"],
     [r"\b(?:portainer ce|portainer business)\b", "portainer.io"],
+    [r"(?:<esp-app\b|\besphome\b)", "esphome.io"],
 ]
 
 
@@ -6158,7 +6159,7 @@ def decode_data_uri_image(uri: str) -> tuple[bytes | None, str | None]:
     if not s.lower().startswith("data:"):
         return None, None
     header, sep, data_part = s[5:].partition(",")
-    if not sep or not data_part:
+    if not sep or not data_part or not data_part.strip():
         return None, None
 
     header_lower = header.lower()
@@ -6203,7 +6204,7 @@ class _HtmlIconLinkParser(HTMLParser):
             return
 
         href = attr_map.get("href", "").strip()
-        if not href:
+        if not href or href.lower() in ("data:", "data:,"):
             return
 
         # Determine dimension preference: prefer larger valid icons
@@ -6228,6 +6229,26 @@ class _HtmlIconLinkParser(HTMLParser):
             "is_apple": is_apple,
             "type": attr_map.get("type", "").lower()
         })
+
+
+def extract_script_icon_data_uris(text: str) -> list[str]:
+    """
+    Extract embedded data URI icons from script content or HTML text.
+    Handles data:image/svg+xml,... and data:image/png;base64,... patterns.
+    Uses paired quotes/backticks delimiters so inner quotes (e.g. in SVG XML) are preserved.
+    """
+    if not text or "data:image/" not in text:
+        return []
+    # Match data:image/... enclosed in matching delimiters (", ', or `)
+    matches = re.findall(r"""(["'`])(data:image/[a-zA-Z0-9+.-]+(?:;base64)?[^\r\n]*?)\1""", text)
+    uris = []
+    seen = set()
+    for _, u in matches:
+        cleaned = u.strip()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            uris.append(cleaned)
+    return uris
 
 
 def extract_icon_links_from_html(html: str) -> list[str]:
@@ -6414,6 +6435,50 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                     break
                             except Exception:
                                 pass
+                        if icon_bytes:
+                            break
+
+            # 2C: Resolve icon injected by client-side scripts (e.g. ESPHome www.js or inline scripts)
+            if not icon_bytes and html_page:
+                # Check for inline data URIs in HTML body first
+                inline_uris = extract_script_icon_data_uris(html_page)
+                for u in inline_uris:
+                    decoded_bytes, _ = decode_data_uri_image(u)
+                    if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                        icon_bytes = decoded_bytes
+                        is_device_origin = True
+                        break
+
+                # If still not found, parse <script src="..."> tags and inspect script bundles
+                if not icon_bytes and ("<script" in html_page.lower()):
+                    script_srcs = re.findall(r"""<script[^>]+src=["']([^"']+)["']""", html_page, re.I)
+                    clean_host_guess = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
+                    for s_src in script_srcs:
+                        s_src = s_src.strip()
+                        if not s_src:
+                            continue
+                        if s_src.startswith(("http://", "https://")):
+                            s_url = s_src
+                        elif clean_host_guess:
+                            s_url = urljoin(f"http://{clean_host_guess}/", s_src)
+                        else:
+                            continue
+
+                        s_hdrs = {"User-Agent": ua}
+                        if basic_auth_hdrs and (clean_host_guess in s_url):
+                            s_hdrs.update(basic_auth_hdrs)
+                        try:
+                            s_data, s_status, _ = AsyncHttpManager.get_url(s_url, headers=s_hdrs, timeout=2.5)
+                            if s_status == 200 and len(s_data) > 50:
+                                s_text = s_data.decode("utf-8", errors="ignore")
+                                for u in extract_script_icon_data_uris(s_text):
+                                    decoded_bytes, _ = decode_data_uri_image(u)
+                                    if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                                        icon_bytes = decoded_bytes
+                                        is_device_origin = True
+                                        break
+                        except Exception:
+                            pass
                         if icon_bytes:
                             break
 

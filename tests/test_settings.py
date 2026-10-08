@@ -2246,6 +2246,35 @@ direct.example,direct,,Direct site,0,0,8080
         saved_file.unlink(missing_ok=True)
         generic_file.unlink(missing_ok=True)
 
+    def test_esphome_script_bundle_icon_resolution(self):
+        landing_html = '<!DOCTYPE html><html><head><meta charset=UTF-8><link rel=icon href=data:></head><body><esp-app></esp-app><script src="https://oi.esphome.io/v2/www.js"></script></body></html>'
+        script_js = 'document.querySelector(`link[rel~="icon"]`);t.href=`data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="25" height="25"><path d="M1 12.5h2.9v7.8h17v-7.8h2.9l-2.9-2.9V4.5h-1.8v3.3L12.3 1 1 12.5Z"/></svg>`,this.darkQuery.addEventListener(`c`'
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            mock_r = MagicMock()
+            if "oi.esphome.io" in url or "www.js" in url:
+                mock_r.read.return_value = script_js.encode("utf-8")
+                mock_r.headers = {"Content-Type": "application/javascript"}
+            elif "esphome-device" in url:
+                mock_r.read.return_value = landing_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("esphome-device.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        self.assertEqual(res, "/static/service-icons/esphome-device.svg")
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "esphome-device.svg"
+        self.assertTrue(dest_file.is_file())
+        dest_file.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
