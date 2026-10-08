@@ -3336,7 +3336,14 @@ def update_service(
     service_match = (match if match is not None else derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     existing_service = None
-    if paused is None or comment is None or use_proxy is None or http_username is None or http_password is None:
+    if (
+        paused is None
+        or comment is None
+        or use_proxy is None
+        or http_username is None
+        or http_password is None
+        or http_password == ""
+    ):
         existing_service = get_service_by_id(service_id)
 
     if paused is None:

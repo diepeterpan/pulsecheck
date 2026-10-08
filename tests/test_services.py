@@ -1296,6 +1296,40 @@ custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
         self.assertEqual(updated["http_username"], "admin")
         self.assertEqual(updated["http_password"], "secretpassword")
 
+        # Update with all explicit arguments passed (as happens via edit_service route)
+        pulsecheck_app.update_service(
+            svc_id,
+            "basicauth.test.local",
+            ports_input=[{"port": 80, "protocol": "http", "request_type": "web"}],
+            match="",
+            url_path="",
+            paused=False,
+            comment="",
+            use_proxy=False,
+            icmp_enabled=False,
+            http_username="admin",
+            http_password="",
+        )
+        updated_all_args = pulsecheck_app.get_service_by_id(svc_id)
+        self.assertEqual(updated_all_args["http_username"], "admin")
+        self.assertEqual(updated_all_args["http_password"], "secretpassword")
+
+        # Edit via HTTP POST route /services/<id>/edit with empty password preserves password
+        resp = self.client.post(
+            f"/services/{svc_id}/edit",
+            data={
+                "name": "basicauth.test.local",
+                "ports_json": '[{"port":80,"protocol":"http","request_type":"web"}]',
+                "http_username": "admin",
+                "http_password": "",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        route_updated = pulsecheck_app.get_service_by_id(svc_id)
+        self.assertEqual(route_updated["http_username"], "admin")
+        self.assertEqual(route_updated["http_password"], "secretpassword")
+
         # If username is cleared, password is also cleared
         pulsecheck_app.update_service(
             svc_id,

@@ -387,10 +387,11 @@
     function updateBasicAuthVisibility() {
       const basicAuthSection = document.getElementById("service-basic-auth-section");
       if (!basicAuthSection) return;
+      const userVal = (document.getElementById("http_username") ? document.getElementById("http_username").value : "").trim();
       const rtypeSels = Array.from(portRowsEl.querySelectorAll(".port-row-rtype"));
-      // Show if any port is "web" (or if a newly added row defaults to web)
-      const hasWeb = rtypeSels.length > 0 && rtypeSels.some(s => (s.value || "web") === "web");
-      basicAuthSection.style.display = hasWeb ? "block" : "none";
+      // Show if username is populated or any port is "web" (or if no ports configured yet)
+      const hasWeb = rtypeSels.length === 0 || rtypeSels.some(s => (s.value || "web") === "web");
+      basicAuthSection.style.display = (hasWeb || userVal) ? "block" : "none";
     }
 
     function syncRowFieldVisibility(tr) {
