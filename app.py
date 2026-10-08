@@ -69,7 +69,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.7")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.8")
 __version__ = APP_VERSION
 
 # Safe @profile decorator fallback:
@@ -6429,10 +6429,63 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 
     # =========================================================================
-    # Priority 1: Explicit Image URL from Known Service Domains
+    # Priority 0: Exact Full Service Name Override from Known Service Domains
+    # If a full service name (e.g. galleon-kitchen-pir2.galleon.co.za) is mapped,
+    # it takes precedence over on-device extraction, direct probing, and generic product lookups.
+    # It can map to a direct Image URL (http/https) or a Target Domain.
+    # If retrieval fails, resolution continues to standard fallbacks.
     # =========================================================================
     known_service_domains = get_known_service_domains()
-    if product in known_service_domains:
+    try:
+        norm_full_service = normalize_service(service_name)
+    except Exception:
+        norm_full_service = service_name.strip().lower()
+
+    # Hostname without port (e.g. galleon-kitchen-pir2.galleon.co.za)
+    host_only = norm_full_service.split(":")[0].strip()
+
+    override_key = norm_full_service if norm_full_service in known_service_domains else (host_only if host_only in known_service_domains else None)
+
+    if override_key:
+        override_target = known_service_domains[override_key].strip()
+        if override_target.lower().startswith(("http://", "https://")):
+            # Direct Image URL override
+            try:
+                data, status, _ = AsyncHttpManager.get_url(override_target, headers={"User-Agent": ua}, timeout=4.0)
+                if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                    icon_bytes = data
+                    is_device_origin = True
+            except Exception:
+                pass
+        elif override_target:
+            # Target Domain override: probe Google Favicons and direct /favicon.ico on target domain
+            target_dom = re.sub(r"^https?://", "", override_target, flags=re.I).split("/")[0].strip()
+            if target_dom:
+                try:
+                    fav_url = f"https://www.google.com/s2/favicons?domain={target_dom}&sz=64"
+                    data, status, _ = AsyncHttpManager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=2.5)
+                    if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                        icon_bytes = data
+                        is_device_origin = True
+                except Exception:
+                    pass
+
+                if not icon_bytes:
+                    for probe_url in (f"https://www.{target_dom}/favicon.ico", f"https://{target_dom}/favicon.ico", f"http://{target_dom}/favicon.ico"):
+                        try:
+                            data, status, headers = AsyncHttpManager.get_url(probe_url, headers={"User-Agent": ua}, timeout=2.5)
+                            ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
+                            if status == 200 and len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
+                                icon_bytes = data
+                                is_device_origin = True
+                                break
+                        except Exception:
+                            continue
+
+    # =========================================================================
+    # Priority 1: Explicit Image URL from Known Service Domains (Product Token)
+    # =========================================================================
+    if not icon_bytes and product in known_service_domains:
         target_val = known_service_domains[product].strip()
         if target_val.lower().startswith(("http://", "https://")):
             try:

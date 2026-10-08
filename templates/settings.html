@@ -626,7 +626,7 @@
                 <h3>Known Service Domains</h3>
                 <span class="hub-tag">Brand Lookups</span>
               </div>
-              <p class="tab-card-subtitle">Map server application and self-hosted product names to their official portal domains or direct image URLs (e.g. <code>https://.../logo.png</code>).</p>
+              <p class="tab-card-subtitle">Map server application and self-hosted product names, or full service hostnames (e.g. <code>my-device.domain.com</code> to override on-device icons), to official domains or direct image URLs.</p>
               
               <div class="mappings-table-container">
                 <table class="mappings-table" id="table-svc-domains">
@@ -1417,7 +1417,7 @@
         const tbody = document.querySelector('#table-svc-domains tbody');
         const tr = document.createElement('tr');
         tr.innerHTML = `
-          <td><input type="text" class="mapping-input key-input" placeholder="e.g. homeassistant"></td>
+          <td><input type="text" class="mapping-input key-input" placeholder="e.g. homeassistant or my-host.domain.com"></td>
           <td><input type="text" class="mapping-input val-input" placeholder="e.g. home-assistant.io or https://.../icon.png"></td>
           <td style="text-align: center;"><button type="button" class="mapping-row-delete-btn" onclick="this.closest('tr').remove()">✕</button></td>
         `;

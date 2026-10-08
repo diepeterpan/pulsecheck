@@ -2273,6 +2273,114 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertEqual(res, "/static/service-icons/esphome-device.svg")
         dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "esphome-device.svg"
         self.assertTrue(dest_file.is_file())
+    def test_full_service_name_override_direct_image_url(self):
+        # Configure known service domain with full hostname override
+        override_img_url = "https://custom.repo/pir2_logo.png"
+        pulsecheck_app.save_settings({
+            "known_service_domains": json.dumps({"galleon-kitchen-pir2.galleon.co.za": override_img_url})
+        })
+
+        opened_urls = []
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 150
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            opened_urls.append(url)
+            mock_r = MagicMock()
+            if url == override_img_url:
+                mock_r.read.return_value = dummy_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("http://galleon-kitchen-pir2.galleon.co.za:8080/path", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        # Should save using the device slug
+        self.assertEqual(res, "/static/service-icons/galleon-kitchen-pir2:8080/path.png" if "8080" in pulsecheck_app.extract_service_device_slug("http://galleon-kitchen-pir2.galleon.co.za:8080/path") else "/static/service-icons/galleon-kitchen-pir2.png")
+        # Should have called override image URL first and not probed the device HTML
+        self.assertEqual(opened_urls[0], override_img_url)
+
+        # Cleanup saved icon
+        slug = pulsecheck_app.extract_service_device_slug("http://galleon-kitchen-pir2.galleon.co.za:8080/path")
+        (pulsecheck_app.SERVICE_ICONS_DIR / f"{slug}.png").unlink(missing_ok=True)
+
+    def test_full_service_name_override_target_domain(self):
+        # Configure full service hostname mapping to a target domain
+        pulsecheck_app.save_settings({
+            "known_service_domains": json.dumps({"galleon-kitchen-pir2.galleon.co.za": "esphome.io"})
+        })
+
+        opened_urls = []
+        dummy_ico = b"\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x20\x00" + b"\x00" * 150
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            opened_urls.append(url)
+            mock_r = MagicMock()
+            if "google.com/s2/favicons?domain=esphome.io" in url:
+                mock_r.read.return_value = dummy_ico
+                mock_r.headers = {"Content-Type": "image/x-icon"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("galleon-kitchen-pir2.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        self.assertEqual(res, "/static/service-icons/galleon-kitchen-pir2.ico")
+        self.assertTrue(any("google.com/s2/favicons?domain=esphome.io" in u for u in opened_urls))
+
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "galleon-kitchen-pir2.ico"
+        dest_file.unlink(missing_ok=True)
+
+    def test_full_service_name_override_fallback_when_failed(self):
+        # If the override fails (e.g. 404), it must continue down the chain to normal on-device probe / fallbacks
+        broken_url = "https://broken.domain/missing.png"
+        pulsecheck_app.save_settings({
+            "known_service_domains": json.dumps({"test-fallback.galleon.co.za": broken_url})
+        })
+
+        landing_html = '<html><head><link rel="icon" href="/local_fav.png"></head><body>Device</body></html>'
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 150
+        probed_urls = []
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            probed_urls.append(url)
+            mock_r = MagicMock()
+            if url == broken_url:
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            elif "local_fav.png" in url:
+                mock_r.read.return_value = dummy_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            elif "test-fallback.galleon.co.za" in url:
+                mock_r.read.return_value = landing_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("test-fallback.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        # Verify broken override was attempted first, but resolution fell back to HTML local_fav.png
+        self.assertEqual(probed_urls[0], broken_url)
+        self.assertEqual(res, "/static/service-icons/test-fallback.png")
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "test-fallback.png"
         dest_file.unlink(missing_ok=True)
 
 
