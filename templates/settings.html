@@ -580,10 +580,18 @@
               <span class="icon-status-badge idle" id="svc-status-badge">Idle</span>
               <span id="svc-status-text" style="color: #475569;">Ready</span>
             </div>
-            <div class="icon-btn-group">
+            <div class="icon-btn-group" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <label class="form-check-label" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #475569; cursor: pointer; user-select: none; margin-right: 4px;">
+                <input type="checkbox" id="svc-exclude-paused" style="cursor: pointer;" checked>
+                Exclude Paused
+              </label>
               <button type="button" class="btn btn-secondary" id="btn-svc-regen" title="Scans database and retrieves icons for any services missing from the cache" style="display: inline-flex; align-items: center; gap: 6px;">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
                 Regenerate Missing Icons
+              </button>
+              <button type="button" class="btn btn-secondary" id="btn-svc-reprobe-all" title="Re-queries all services to refresh and extract on-device specific icons" style="display: inline-flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Re-probe All Icons
               </button>
               <button type="button" class="btn btn-danger" id="btn-svc-delete-all" style="display: inline-flex; align-items: center; gap: 6px;">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -1141,15 +1149,27 @@
       });
     }
 
+    const svcExcludePausedCb = document.getElementById('svc-exclude-paused');
+    if (svcExcludePausedCb) {
+      const savedPref = localStorage.getItem('pulsecheck_svc_exclude_paused');
+      if (savedPref !== null) {
+        svcExcludePausedCb.checked = (savedPref === 'true');
+      }
+      svcExcludePausedCb.addEventListener('change', () => {
+        localStorage.setItem('pulsecheck_svc_exclude_paused', svcExcludePausedCb.checked);
+      });
+    }
+
     const btnSvcRegen = document.getElementById('btn-svc-regen');
     if (btnSvcRegen) {
       btnSvcRegen.addEventListener('click', async () => {
         btnSvcRegen.disabled = true;
+        const excludePaused = svcExcludePausedCb ? svcExcludePausedCb.checked : false;
         try {
           const resp = await fetch('/api/settings/icons/regenerate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category: 'service' }),
+            body: JSON.stringify({ category: 'service', exclude_paused: excludePaused }),
           });
           const res = await resp.json();
           if (res.success) {
@@ -1162,6 +1182,35 @@
           alert(`Network error: ${err.message}`);
         } finally {
           btnSvcRegen.disabled = false;
+        }
+      });
+    }
+
+    const btnSvcReprobeAll = document.getElementById('btn-svc-reprobe-all');
+    if (btnSvcReprobeAll) {
+      btnSvcReprobeAll.addEventListener('click', async () => {
+        if (!confirm('This will re-probe all configured services directly to update and cache on-device specific icons (e.g. host up to first dot).\\n\\nDo you want to proceed?')) {
+          return;
+        }
+        btnSvcReprobeAll.disabled = true;
+        const excludePaused = svcExcludePausedCb ? svcExcludePausedCb.checked : false;
+        try {
+          const resp = await fetch('/api/settings/icons/regenerate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: 'service', force: true, exclude_paused: excludePaused }),
+          });
+          const res = await resp.json();
+          if (res.success) {
+            alert(res.message);
+            pollIconStatusOnce();
+          } else {
+            alert(`Error: ${res.error}`);
+          }
+        } catch (err) {
+          alert(`Network error: ${err.message}`);
+        } finally {
+          btnSvcReprobeAll.disabled = false;
         }
       });
     }

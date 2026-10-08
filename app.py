@@ -5129,7 +5129,7 @@ ICON_JOB_STATUS = {
 ICON_JOB_LOCK = threading.Lock()
 
 
-def _run_icon_regeneration_worker(category: str):
+def _run_icon_regeneration_worker(category: str, force: bool = False, exclude_paused: bool = False):
     """Background worker to regenerate cached icons for existing database services/manufacturers."""
     while True:
         with ICON_JOB_LOCK:
@@ -5153,11 +5153,14 @@ def _run_icon_regeneration_worker(category: str):
                 ).fetchall()
                 items = [r["name"].strip() for r in rows if r["name"] and r["name"].strip()]
             else:
-                rows = conn.execute(
+                query = (
                     "SELECT DISTINCT name FROM services "
                     "WHERE name IS NOT NULL AND trim(name) != '' "
-                    "ORDER BY name ASC"
-                ).fetchall()
+                )
+                if exclude_paused:
+                    query += " AND (paused IS NULL OR paused = 0) "
+                query += "ORDER BY name ASC"
+                rows = conn.execute(query).fetchall()
                 items = [r["name"].strip() for r in rows if r["name"] and r["name"].strip()]
             conn.close()
         except Exception as exc:
@@ -5168,17 +5171,19 @@ def _run_icon_regeneration_worker(category: str):
                 st["status_text"] = f"Error reading database: {exc}"
             return
 
-        # Filter to only items that currently lack a cached icon on disk
-        missing_items = []
+        # Filter items: if force=True, re-probe all items; otherwise only missing icons
+        target_items = []
         for item in items:
-            if category == "manufacturer":
+            if force:
+                target_items.append(item)
+            elif category == "manufacturer":
                 if not get_manufacturer_icon_url(item):
-                    missing_items.append(item)
+                    target_items.append(item)
             else:
                 if not get_service_icon_url(item):
-                    missing_items.append(item)
+                    target_items.append(item)
 
-        if not missing_items:
+        if not target_items:
             with ICON_JOB_LOCK:
                 st = ICON_JOB_STATUS[category]
                 if st["queued"]:
@@ -5190,19 +5195,19 @@ def _run_icon_regeneration_worker(category: str):
                     st["processed"] = 0
                     st["success"] = 0
                     st["current_item"] = ""
-                    st["status_text"] = "All icons already cached (0 missing)"
+                    st["status_text"] = "All icons already cached (0 to process)"
                     break
 
         with ICON_JOB_LOCK:
             st = ICON_JOB_STATUS[category]
-            st["total"] = len(missing_items)
-            st["status_text"] = f"Generating 0/{len(missing_items)} missing icons..."
+            st["total"] = len(target_items)
+            st["status_text"] = f"Generating 0/{len(target_items)} icons..."
 
-        for item in missing_items:
+        for item in target_items:
             with ICON_JOB_LOCK:
                 ICON_JOB_STATUS[category]["current_item"] = item
                 ICON_JOB_STATUS[category]["status_text"] = (
-                    f"Generating missing {ICON_JOB_STATUS[category]['processed']}/{len(missing_items)}: {item}..."
+                    f"Processing {ICON_JOB_STATUS[category]['processed']}/{len(target_items)}: {item}..."
                 )
 
             try:
@@ -5228,7 +5233,7 @@ def _run_icon_regeneration_worker(category: str):
             else:
                 st["running"] = False
                 st["current_item"] = ""
-                st["status_text"] = f"Completed ({st['success']}/{st['total']} missing icons resolved)"
+                st["status_text"] = f"Completed ({st['success']}/{st['total']} icons resolved)"
                 break
 
 
@@ -5247,6 +5252,8 @@ def api_regenerate_icons():
     """Trigger background icon regeneration for either manufacturer or service category."""
     data = request.get_json(silent=True) or request.form.to_dict()
     category = (data.get("category") or "manufacturer").strip().lower()
+    force = bool(data.get("force", False))
+    exclude_paused = bool(data.get("exclude_paused", False))
     if category not in ("manufacturer", "service"):
         return jsonify({"success": False, "error": "Invalid category. Must be 'manufacturer' or 'service'."}), 400
 
@@ -5269,7 +5276,7 @@ def api_regenerate_icons():
 
     t = threading.Thread(
         target=_run_icon_regeneration_worker,
-        args=(category,),
+        args=(category, force, exclude_paused),
         name=f"IconRegenWorker-{category}",
         daemon=True,
     )
@@ -5675,6 +5682,24 @@ def serve_manufacturer_icon(filename):
     return send_from_directory(MANUFACTURER_ICONS_DIR, filename)
 
 
+def extract_service_device_slug(service_name: str) -> str:
+    """
+    Extract the device/host specific prefix up to the first dot.
+    Keeps port and path if present in that first token (e.g. host:port/path).
+    Example: 'fridge-temperature.galleon.co.za' -> 'fridge-temperature'
+    Example: 'fridge-temperature' -> 'fridge-temperature'
+    """
+    if not service_name:
+        return ""
+    # Strip protocol scheme if present (http://, https://)
+    raw = re.sub(r"^https?://", "", service_name.strip(), flags=re.I)
+    # Split on the first dot
+    first_part = raw.split(".")[0].strip()
+    # Normalize unsafe filesystem characters while keeping dashes, colons, underscores
+    s = re.sub(r"[^\w\-:]", "", first_part).strip("_")
+    return s.lower() or "unknown"
+
+
 def extract_service_product_name(service_name: str) -> str:
     """Extract the primary product / application name from a service hostname or label."""
     if not service_name:
@@ -5715,21 +5740,33 @@ def detect_image_extension(data: bytes, content_type: str = "") -> str:
 
 
 def get_service_icon_url(service_name: str | None) -> str | None:
-    """Return local cached URL for service / product icon if it exists on disk."""
+    """
+    Return local cached URL for service / product icon if it exists on disk.
+    Priority 1: On-device specific slug up to first dot (e.g. fridge-temperature.<ext>)
+    Priority 2: Generic product slug (e.g. fridge.<ext>)
+    """
     if not service_name or service_name.strip().upper() in ("", "NONE"):
         return None
-    slug = slugify_service_name(service_name)
-    for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
-        icon_path = SERVICE_ICONS_DIR / f"{slug}{ext}"
-        if icon_path.is_file() and icon_path.stat().st_size > 0:
-            try:
-                data = icon_path.read_bytes()
-                if is_godaddy_or_parked_icon(data):
-                    icon_path.unlink(missing_ok=True)
-                    continue
-            except Exception:
-                pass
-            return f"/static/service-icons/{slug}{ext}"
+
+    device_slug = extract_service_device_slug(service_name)
+    product_slug = slugify_service_name(service_name)
+
+    candidates = [device_slug]
+    if product_slug and product_slug != device_slug:
+        candidates.append(product_slug)
+
+    for slug in candidates:
+        for ext in (".png", ".ico", ".jpg", ".svg", ".webp", ".gif"):
+            icon_path = SERVICE_ICONS_DIR / f"{slug}{ext}"
+            if icon_path.is_file() and icon_path.stat().st_size > 0:
+                try:
+                    data = icon_path.read_bytes()
+                    if is_godaddy_or_parked_icon(data):
+                        icon_path.unlink(missing_ok=True)
+                        continue
+                except Exception:
+                    pass
+                return f"/static/service-icons/{slug}{ext}"
     return None
 
 
@@ -6287,22 +6324,29 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     if not product or len(product) < 2:
         return None
 
-    slug = slugify_service_name(service_name)
+    device_slug = extract_service_device_slug(service_name)
+    product_slug = slugify_service_name(service_name)
+
     # Check disk cache first across all extensions, discarding corrupted/parked icons unless force_refresh is True
+    # Priority check: device-specific slug first, then product slug
     if not force_refresh:
-        for ext in (".png", ".ico", ".jpg", ".svg", ".webp"):
-            cached_file = SERVICE_ICONS_DIR / f"{slug}{ext}"
-            if cached_file.is_file() and cached_file.stat().st_size > 0:
-                try:
-                    data = cached_file.read_bytes()
-                    if is_godaddy_or_parked_icon(data):
-                        cached_file.unlink(missing_ok=True)
-                        continue
-                except Exception:
-                    pass
-                return f"/static/service-icons/{slug}{ext}"
+        for check_slug in (device_slug, product_slug):
+            if not check_slug:
+                continue
+            for ext in (".png", ".ico", ".jpg", ".svg", ".webp", ".gif"):
+                cached_file = SERVICE_ICONS_DIR / f"{check_slug}{ext}"
+                if cached_file.is_file() and cached_file.stat().st_size > 0:
+                    try:
+                        data = cached_file.read_bytes()
+                        if is_godaddy_or_parked_icon(data):
+                            cached_file.unlink(missing_ok=True)
+                            continue
+                    except Exception:
+                        pass
+                    return f"/static/service-icons/{check_slug}{ext}"
 
     icon_bytes = None
+    is_device_origin = False
     ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
 
     # =========================================================================
@@ -6316,6 +6360,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 data, status, _ = AsyncHttpManager.get_url(target_val, headers={"User-Agent": ua}, timeout=4.0)
                 if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
                     icon_bytes = data
+                    is_device_origin = False
             except Exception:
                 pass
 
@@ -6335,6 +6380,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                             data, status, _ = AsyncHttpManager.get_url(target, headers={"User-Agent": ua}, timeout=3.5)
                             if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
                                 icon_bytes = data
+                                is_device_origin = False
                                 break
                         except Exception:
                             pass
@@ -6348,6 +6394,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         decoded_bytes, _ = decode_data_uri_image(link_href)
                         if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
                             icon_bytes = decoded_bytes
+                            is_device_origin = True
                             break
                     elif clean_host_guess:
                         # Attempt to resolve URL against https:// then http://
@@ -6363,6 +6410,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                 t_ctype = (t_hdrs.get("Content-Type") or t_hdrs.get("content-type") or "").lower()
                                 if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
                                     icon_bytes = t_data
+                                    is_device_origin = True
                                     break
                             except Exception:
                                 pass
@@ -6391,6 +6439,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                     ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
                     if status == 200 and len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
                         icon_bytes = data
+                        is_device_origin = True
                         break
                 except Exception:
                     pass
@@ -6407,6 +6456,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                     decoded_bytes, _ = decode_data_uri_image(link_href)
                                     if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
                                         icon_bytes = decoded_bytes
+                                        is_device_origin = True
                                         break
                                 else:
                                     target = urljoin(f"{base_url}/", link_href)
@@ -6416,14 +6466,12 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                         t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
                                         if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
                                             icon_bytes = t_data
+                                            is_device_origin = True
                                             break
                                     except Exception:
                                         continue
                     except Exception:
                         pass
-
-                if icon_bytes:
-                    break
 
                 if icon_bytes:
                     break
@@ -6451,6 +6499,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 data, status, _ = AsyncHttpManager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=2.0)
                 if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
                     icon_bytes = data
+                    is_device_origin = False
                     break
             except Exception:
                 pass
@@ -6472,6 +6521,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         img_data, img_status, _ = AsyncHttpManager.get_url(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"}, timeout=2.0)
                         if img_status == 200 and len(img_data) > 100 and not is_godaddy_or_parked_icon(img_data):
                             icon_bytes = img_data
+                            is_device_origin = False
             except Exception:
                 pass
 
@@ -6495,6 +6545,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         data, status, _ = AsyncHttpManager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=2.0)
                         if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
                             icon_bytes = data
+                            is_device_origin = False
                     except Exception:
                         pass
 
@@ -6505,18 +6556,21 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                 data, status, _ = AsyncHttpManager.get_url(probe_url, headers={"User-Agent": ua}, timeout=2.5)
                                 if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
                                     icon_bytes = data
+                                    is_device_origin = False
                                     break
                             except Exception:
                                 continue
 
     # Save to disk cache if a valid non-parked icon was obtained
     if icon_bytes and not is_godaddy_or_parked_icon(icon_bytes):
+        # Choose slug based on resolution origin: device vs external
+        save_slug = device_slug if is_device_origin else product_slug
         ext = detect_image_extension(icon_bytes)
-        actual_path = SERVICE_ICONS_DIR / f"{slug}{ext}"
+        actual_path = SERVICE_ICONS_DIR / f"{save_slug}{ext}"
         try:
             with open(actual_path, "wb") as f:
                 f.write(icon_bytes)
-            return f"/static/service-icons/{slug}{ext}"
+            return f"/static/service-icons/{save_slug}{ext}"
         except Exception as exc:
             print(f"[ServiceIconCache] Failed to write {actual_path}: {exc}")
 

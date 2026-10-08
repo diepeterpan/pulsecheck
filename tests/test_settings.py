@@ -1953,6 +1953,33 @@ direct.example,direct,,Direct site,0,0,8080
         cached_mfg_file.unlink(missing_ok=True)
         cached_svc_file.unlink(missing_ok=True)
 
+    def test_icon_regeneration_exclude_paused(self):
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO services (name, paused) VALUES (?, ?)",
+            ("ActiveServiceMissingIcon", 0),
+        )
+        conn.execute(
+            "INSERT INTO services (name, paused) VALUES (?, ?)",
+            ("PausedServiceMissingIcon", 1),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch.object(pulsecheck_app, "resolve_and_cache_service_icon", return_value=None) as mock_svc_resolve:
+            # When exclude_paused is True, only ActiveServiceMissingIcon should be processed
+            pulsecheck_app._run_icon_regeneration_worker("service", force=False, exclude_paused=True)
+            called_svc_args = [call.args[0] for call in mock_svc_resolve.call_args_list]
+            self.assertIn("ActiveServiceMissingIcon", called_svc_args)
+            self.assertNotIn("PausedServiceMissingIcon", called_svc_args)
+
+        with patch.object(pulsecheck_app, "resolve_and_cache_service_icon", return_value=None) as mock_svc_resolve:
+            # When exclude_paused is False, both services should be processed
+            pulsecheck_app._run_icon_regeneration_worker("service", force=False, exclude_paused=False)
+            called_svc_args = [call.args[0] for call in mock_svc_resolve.call_args_list]
+            self.assertIn("ActiveServiceMissingIcon", called_svc_args)
+            self.assertIn("PausedServiceMissingIcon", called_svc_args)
+
     def test_service_icon_resolves_from_direct_image_url(self):
         # Configure known service domain with direct image URL
         img_url = "https://example.com/icons/mycustomapp.png"
@@ -2172,9 +2199,57 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertTrue(dest_file.is_file())
         dest_file.unlink(missing_ok=True)
 
+    def test_device_specific_icon_resolution_and_hierarchical_fallback(self):
+        # 1. Device with subdomains (e.g. fridge-temperature.galleon.co.za)
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            mock_r = MagicMock()
+            if "favicon.ico" in url:
+                mock_r.read.return_value = dummy_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            else:
+                mock_r.read.return_value = b"<html></html>"
+                mock_r.headers = {"Content-Type": "text/html"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("fridge-temperature.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        # Should be saved as fridge-temperature.png, NOT generic fridge.png
+        self.assertEqual(res, "/static/service-icons/fridge-temperature.png")
+        saved_file = pulsecheck_app.SERVICE_ICONS_DIR / "fridge-temperature.png"
+        self.assertTrue(saved_file.is_file())
+
+        # Test get_service_icon_url prioritizes specific device slug
+        found_icon = pulsecheck_app.get_service_icon_url("fridge-temperature.galleon.co.za")
+        self.assertEqual(found_icon, "/static/service-icons/fridge-temperature.png")
+
+        # Now test that fridge-power.galleon.co.za does NOT match fridge-temperature.png,
+        # but if a generic fridge.png exists, it will fall back to fridge.png
+        generic_file = pulsecheck_app.SERVICE_ICONS_DIR / "fridge.png"
+        generic_file.write_bytes(dummy_png)
+
+        # fridge-power does not have fridge-power.png yet, so it should fall back to fridge.png
+        power_icon = pulsecheck_app.get_service_icon_url("fridge-power.galleon.co.za")
+        self.assertEqual(power_icon, "/static/service-icons/fridge.png")
+
+        # But fridge-temperature still matches fridge-temperature.png (higher priority than generic)
+        temp_icon = pulsecheck_app.get_service_icon_url("fridge-temperature.galleon.co.za")
+        self.assertEqual(temp_icon, "/static/service-icons/fridge-temperature.png")
+
+        # Cleanup
+        saved_file.unlink(missing_ok=True)
+        generic_file.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
 
