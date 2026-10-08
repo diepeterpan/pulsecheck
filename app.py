@@ -6,6 +6,7 @@ import csv
 import functools
 import gzip
 import hashlib
+from html.parser import HTMLParser
 import http.client
 import io
 import json
@@ -68,7 +69,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.3")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.5")
 __version__ = APP_VERSION
 
 # Safe @profile decorator fallback:
@@ -6102,6 +6103,118 @@ def get_html_content_icon_mappings() -> list[list[str]]:
     return [list(item) for item in DEFAULT_HTML_CONTENT_ICON_MAPPINGS]
 
 
+def decode_data_uri_image(uri: str) -> tuple[bytes | None, str | None]:
+    """
+    Parse and decode a data URI (e.g. data:image/png;base64,... or data:image/svg+xml;utf8,...).
+    Returns (raw_bytes, extension) if valid, or (None, None).
+    """
+    if not uri or not isinstance(uri, str):
+        return None, None
+    s = uri.strip()
+    if not s.lower().startswith("data:"):
+        return None, None
+    header, sep, data_part = s[5:].partition(",")
+    if not sep or not data_part:
+        return None, None
+
+    header_lower = header.lower()
+    raw_bytes = None
+    if ";base64" in header_lower:
+        try:
+            raw_bytes = base64.b64decode(data_part)
+        except Exception:
+            return None, None
+    else:
+        try:
+            raw_bytes = urllib.parse.unquote_to_bytes(data_part)
+        except Exception:
+            try:
+                raw_bytes = urllib.parse.unquote(data_part).encode("utf-8")
+            except Exception:
+                return None, None
+
+    if not raw_bytes or len(raw_bytes) < 10 or is_godaddy_or_parked_icon(raw_bytes):
+        return None, None
+
+    ext = detect_image_extension(raw_bytes, content_type=header)
+    return raw_bytes, ext
+
+
+class _HtmlIconLinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.candidates: list[dict] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "link":
+            return
+        attr_map = {k.lower(): (v or "") for k, v in attrs}
+        rel_val = attr_map.get("rel", "").lower()
+        if not rel_val:
+            return
+        rels = re.split(r"\s+", rel_val.strip())
+        is_icon = "icon" in rels or ("shortcut" in rels and "icon" in rels) or "shortcut-icon" in rels
+        is_apple = "apple-touch-icon" in rels or "apple-touch-icon-precomposed" in rels
+        if not (is_icon or is_apple):
+            return
+
+        href = attr_map.get("href", "").strip()
+        if not href:
+            return
+
+        # Determine dimension preference: prefer larger valid icons
+        dim = 0
+        sizes = attr_map.get("sizes", "").lower()
+        if "x" in sizes:
+            try:
+                parts = sizes.split("x")
+                dim = max(int(parts[0]), int(parts[1]))
+            except Exception:
+                dim = 0
+        elif is_apple:
+            dim = 180
+        elif "shortcut" in rels and "icon" in rels:
+            dim = 32
+        else:
+            dim = 16
+
+        self.candidates.append({
+            "href": href,
+            "dim": dim,
+            "is_apple": is_apple,
+            "type": attr_map.get("type", "").lower()
+        })
+
+
+def extract_icon_links_from_html(html: str) -> list[str]:
+    """
+    Extract icon link hrefs from HTML, sorted so larger/higher-res candidates
+    come first, falling back to smaller ones (e.g. shortcut icon / standard favicon).
+    """
+    if not html or "<link" not in html.lower():
+        return []
+    parser = _HtmlIconLinkParser()
+    try:
+        parser.feed(html)
+    except Exception:
+        pass
+
+    # Sort descending by dimension; for equal dimensions, standard icon before apple-touch-icon
+    sorted_candidates = sorted(
+        parser.candidates,
+        key=lambda c: (c["dim"], 1 if not c["is_apple"] else 0),
+        reverse=True
+    )
+    seen = set()
+    result = []
+    for c in sorted_candidates:
+        h = c["href"]
+        if h not in seen:
+            seen.add(h)
+            result.append(h)
+    return result
+
+
 def fetch_service_html_body(service_name: str, max_redirects: int = 3, http_username: str = "", http_password: str = "") -> str | None:
     """
     Retrieve the landing page HTML of a service across https:// and http://,
@@ -6200,12 +6313,13 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 pass
 
     # =========================================================================
-    # Priority 2: Explicit URL from HTML Content Signatures
+    # Priority 2: Explicit URL from HTML Content Signatures & Embedded Icon Links
     # =========================================================================
     html_page = None
     if not icon_bytes:
         html_page = fetch_service_html_body(service_name, http_username=auth_user, http_password=auth_pass)
         if html_page:
+            # 2A: Content signatures to known external icon URLs
             html_mappings = get_html_content_icon_mappings()
             for pattern, target in html_mappings:
                 if target.lower().startswith(("http://", "https://")):
@@ -6217,6 +6331,36 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                 break
                         except Exception:
                             pass
+
+            # 2B: Resolve icon directly from HTML <link rel="shortcut icon" ...> tags (including embedded data: URIs)
+            if not icon_bytes:
+                clean_host_guess = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
+                html_icon_links = extract_icon_links_from_html(html_page)
+                for link_href in html_icon_links:
+                    if link_href.lower().startswith("data:"):
+                        decoded_bytes, _ = decode_data_uri_image(link_href)
+                        if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                            icon_bytes = decoded_bytes
+                            break
+                    elif clean_host_guess:
+                        # Attempt to resolve URL against https:// then http://
+                        for proto in ("https", "http"):
+                            target_url = urljoin(f"{proto}://{clean_host_guess}/", link_href)
+                            direct_hdrs = {"User-Agent": ua}
+                            if DEFAULT_SCANNER_BYPASS_KEY:
+                                direct_hdrs["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+                            if basic_auth_hdrs:
+                                direct_hdrs.update(basic_auth_hdrs)
+                            try:
+                                t_data, t_status, t_hdrs = AsyncHttpManager.get_url(target_url, headers=direct_hdrs, timeout=2.0)
+                                t_ctype = (t_hdrs.get("Content-Type") or t_hdrs.get("content-type") or "").lower()
+                                if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
+                                    icon_bytes = t_data
+                                    break
+                            except Exception:
+                                pass
+                        if icon_bytes:
+                            break
 
     # =========================================================================
     # Priority 3: Direct Site Probe (https:// then http://)
@@ -6244,26 +6388,35 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 except Exception:
                     pass
 
-                # 3B. Inspect root homepage HTML for <link rel="icon">
+                # 3B. Inspect root homepage HTML for <link rel="icon"> / <link rel="shortcut icon">
                 if not icon_bytes:
                     try:
                         home_data, home_status, _ = AsyncHttpManager.get_url(f"{base_url}/", headers=direct_headers, timeout=1.5)
                         if home_status == 200:
                             html = home_data.decode("utf-8", errors="ignore")
-                            found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
+                            found_links = extract_icon_links_from_html(html)
                             for link_href in found_links:
-                                target = urljoin(f"{base_url}/", link_href)
-                                target_headers = direct_headers if clean_host in target else {"User-Agent": ua}
-                                try:
-                                    t_data, t_status, t_headers = AsyncHttpManager.get_url(target, headers=target_headers, timeout=1.5)
-                                    t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
-                                    if t_status == 200 and len(t_data) > 100 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
-                                        icon_bytes = t_data
+                                if link_href.lower().startswith("data:"):
+                                    decoded_bytes, _ = decode_data_uri_image(link_href)
+                                    if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                                        icon_bytes = decoded_bytes
                                         break
-                                except Exception:
-                                    continue
+                                else:
+                                    target = urljoin(f"{base_url}/", link_href)
+                                    target_headers = direct_headers if clean_host in target else {"User-Agent": ua}
+                                    try:
+                                        t_data, t_status, t_headers = AsyncHttpManager.get_url(target, headers=target_headers, timeout=1.5)
+                                        t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
+                                        if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
+                                            icon_bytes = t_data
+                                            break
+                                    except Exception:
+                                        continue
                     except Exception:
                         pass
+
+                if icon_bytes:
+                    break
 
                 if icon_bytes:
                     break

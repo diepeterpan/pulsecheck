@@ -1,3 +1,4 @@
+import base64
 from datetime import datetime, timezone
 import io
 import json
@@ -2077,6 +2078,99 @@ direct.example,direct,,Direct site,0,0,8080
             html_requests[0].headers.get("X-scanner-bypass-key"),
             pulsecheck_app.DEFAULT_SCANNER_BYPASS_KEY
         )
+
+    def test_decode_data_uri_image(self):
+        # Base64 GIF (valid > 50 bytes)
+        gif_b64 = "data:image/gif;base64,R0lGODlhAQABAIAAAP8AAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOyAgICAgICAgICAgICAgICAgICAg"
+        raw, ext = pulsecheck_app.decode_data_uri_image(gif_b64)
+        self.assertIsNotNone(raw)
+        self.assertEqual(ext, ".gif")
+        self.assertTrue(raw.startswith(b"GIF89a"))
+
+        # Base64 PNG
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+        png_b64 = "data:image/png;base64," + base64.b64encode(dummy_png).decode("ascii")
+        raw, ext = pulsecheck_app.decode_data_uri_image(png_b64)
+        self.assertIsNotNone(raw)
+        self.assertEqual(ext, ".png")
+
+        # URL-encoded SVG
+        svg_uri = "data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20100%20100%22%3E%3Cpath%20d=%22M0%200%22/%3E%3C/svg%3E"
+        raw, ext = pulsecheck_app.decode_data_uri_image(svg_uri)
+        self.assertIsNotNone(raw)
+        self.assertEqual(ext, ".svg")
+        self.assertIn(b"<svg", raw)
+
+        # Invalid data URIs
+        self.assertEqual(pulsecheck_app.decode_data_uri_image("http://example.com/logo.png"), (None, None))
+        self.assertEqual(pulsecheck_app.decode_data_uri_image("data:image/png;base64,invalid!@#"), (None, None))
+
+    def test_extract_icon_links_from_html_ranking_and_apple_touch(self):
+        html = """
+        <html>
+        <head>
+            <link rel="shortcut icon" href="/favicon.ico">
+            <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+            <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+            <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch.png">
+            <link href="data:image/gif;base64,R0lGODlhAQABAIAAAP8AAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOyAgICAgICAgICAgICAgICAgICAg" rel="shortcut icon">
+        </head>
+        </html>
+        """
+        links = pulsecheck_app.extract_icon_links_from_html(html)
+        self.assertIn("/icon-192.png", links)
+        self.assertIn("/apple-touch.png", links)
+        self.assertIn("/favicon.ico", links)
+        # Larger icon (192x192) should rank before apple-touch-icon (180x180), which ranks before 32x32 / favicon.ico
+        self.assertEqual(links[0], "/icon-192.png")
+        self.assertEqual(links[1], "/apple-touch.png")
+
+    def test_service_icon_resolves_from_html_embedded_data_uri(self):
+        # Service returns HTML containing an embedded base64 shortcut icon
+        gif_data = "data:image/gif;base64,R0lGODlhAQABAIAAAP8AAAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOyAgICAgICAgICAgICAgICAgICAg"
+        service_html = f'<html><head><link rel="shortcut icon" href="{gif_data}"></head></html>'
+
+        mock_r = MagicMock()
+        mock_r.read.return_value = service_html.encode("utf-8")
+        mock_r.headers = {"Content-Type": "text/html"}
+        mock_r.__enter__.return_value = mock_r
+        mock_r.__exit__.return_value = None
+
+        with patch("urllib.request.urlopen", return_value=mock_r):
+            cached_url = pulsecheck_app.resolve_and_cache_service_icon("datauriservice.local", force_refresh=True)
+
+        self.assertIsNotNone(cached_url)
+        self.assertTrue(cached_url.startswith("/static/service-icons/datauriservice"))
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "datauriservice.gif"
+        self.assertTrue(dest_file.is_file())
+        dest_file.unlink(missing_ok=True)
+
+    def test_service_icon_resolves_from_html_shortcut_icon_href_first(self):
+        # Service HTML has href BEFORE rel attribute
+        service_html = '<html><head><link href="/custom/app-logo.png" rel="shortcut icon"></head></html>'
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            mock_r = MagicMock()
+            if "/custom/app-logo.png" in url:
+                mock_r.read.return_value = dummy_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            else:
+                mock_r.read.return_value = service_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            cached_url = pulsecheck_app.resolve_and_cache_service_icon("hreffirstsvc.local", force_refresh=True)
+
+        self.assertIsNotNone(cached_url)
+        self.assertTrue(cached_url.startswith("/static/service-icons/hreffirstsvc"))
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "hreffirstsvc.png"
+        self.assertTrue(dest_file.is_file())
+        dest_file.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
