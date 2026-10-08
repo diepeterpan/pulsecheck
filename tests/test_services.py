@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import os
@@ -1268,6 +1269,123 @@ custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
         svc_id = pulsecheck_app.add_service("bad-status-svc.local", ports=[22])
         res = pulsecheck_app.scan_service(svc_id, "bad-status-svc.local", [{"port": 22, "protocol": ""}])
         self.assertIsNotNone(res)
+        pulsecheck_app.delete_service(svc_id)
+
+    def test_service_basic_auth_crud_and_preservation(self):
+        """Test adding and updating service with Basic Auth username and password."""
+        svc_id = pulsecheck_app.add_service(
+            "basicauth.test.local",
+            ports=[80],
+            http_username="admin",
+            http_password="secretpassword",
+        )
+        self.assertIsNotNone(svc_id)
+        svc = pulsecheck_app.get_service_by_id(svc_id)
+        self.assertEqual(svc["http_username"], "admin")
+        self.assertEqual(svc["http_password"], "secretpassword")
+
+        # Update without changing password (empty password submitted should preserve existing password)
+        pulsecheck_app.update_service(
+            svc_id,
+            "basicauth.test.local",
+            ports_input=[{"port": 80, "protocol": "http", "request_type": "web"}],
+            http_username="admin",
+            http_password="",
+        )
+        updated = pulsecheck_app.get_service_by_id(svc_id)
+        self.assertEqual(updated["http_username"], "admin")
+        self.assertEqual(updated["http_password"], "secretpassword")
+
+        # If username is cleared, password is also cleared
+        pulsecheck_app.update_service(
+            svc_id,
+            "basicauth.test.local",
+            ports_input=[{"port": 80, "protocol": "http", "request_type": "web"}],
+            http_username="",
+            http_password="",
+        )
+        cleared = pulsecheck_app.get_service_by_id(svc_id)
+        self.assertEqual(cleared["http_username"], "")
+        self.assertEqual(cleared["http_password"], "")
+
+        pulsecheck_app.delete_service(svc_id)
+
+    def test_web_scan_injects_basic_auth_headers(self):
+        """Test that scan_service injects Authorization: Basic header for WEB Get."""
+        svc_id = pulsecheck_app.add_service(
+            "web-auth.test.local",
+            ports=[80],
+            http_username="testuser",
+            http_password="testpass",
+        )
+        with patch("app.fetch_response", return_value=(b"HTTP/1.1 200 OK\r\n\r\nOK", 200, "http://web-auth.test.local:80/")) as mock_fetch:
+            pulsecheck_app.scan_service(
+                svc_id,
+                "web-auth.test.local",
+                [{"port": 80, "protocol": "http", "request_type": "web"}],
+            )
+            mock_fetch.assert_called_once()
+            called_kwargs = mock_fetch.call_args[1]
+            hdrs = called_kwargs.get("custom_headers") or {}
+            self.assertIn("Authorization", hdrs)
+            expected_b64 = base64.b64encode(b"testuser:testpass").decode("ascii")
+            self.assertEqual(hdrs["Authorization"], f"Basic {expected_b64}")
+
+        pulsecheck_app.delete_service(svc_id)
+
+    def test_live_probe_and_generic_test_injects_basic_auth(self):
+        """Test that live diagnostic probe injects Authorization: Basic header."""
+        with patch("app.fetch_response", return_value=(b"HTTP/1.1 200 OK\r\n\r\nOK", 200, "http://probe-auth.test:80/")) as mock_fetch:
+            res = pulsecheck_app.probe_single_port_diagnostics(
+                "probe-auth.test",
+                80,
+                "",
+                preferred_protocol="http",
+                request_type="web",
+                http_username="myuser",
+                http_password="mypassword",
+            )
+            mock_fetch.assert_called_once()
+            called_kwargs = mock_fetch.call_args[1]
+            hdrs = called_kwargs.get("custom_headers") or {}
+            self.assertIn("Authorization", hdrs)
+            expected_b64 = base64.b64encode(b"myuser:mypassword").decode("ascii")
+            self.assertEqual(hdrs["Authorization"], f"Basic {expected_b64}")
+
+    def test_icon_probes_inject_basic_auth_header(self):
+        """Test that direct site icon and HTML probes inject Authorization: Basic header."""
+        svc_id = pulsecheck_app.add_service(
+            "icon-auth-target.local",
+            ports=[80],
+            http_username="iconuser",
+            http_password="iconpassword",
+        )
+        expected_token = f"Basic {base64.b64encode(b'iconuser:iconpassword').decode('ascii')}"
+
+        with patch("app.AsyncHttpManager.get_url", return_value=(b"<html><body>test</body></html>", 200, {"Content-Type": "text/html"})) as mock_get_url:
+            html = pulsecheck_app.fetch_service_html_body(
+                "icon-auth-target.local",
+                http_username="iconuser",
+                http_password="iconpassword",
+            )
+            self.assertIsNotNone(html)
+            self.assertTrue(mock_get_url.called)
+            called_headers = mock_get_url.call_args[1].get("headers") or {}
+            self.assertEqual(called_headers.get("Authorization"), expected_token)
+
+        # Test resolve_and_cache_service_icon
+        with patch("app.AsyncHttpManager.get_url", return_value=(b"\x89PNG\r\n\x1a\n" + b"\x00" * 120, 200, {"Content-Type": "image/png"})) as mock_get_url:
+            icon_url = pulsecheck_app.resolve_and_cache_service_icon(
+                "icon-auth-target.local",
+                force_refresh=True,
+                http_username="iconuser",
+                http_password="iconpassword",
+            )
+            self.assertIsNotNone(icon_url)
+            self.assertTrue(mock_get_url.called)
+            called_headers = mock_get_url.call_args[1].get("headers") or {}
+            self.assertEqual(called_headers.get("Authorization"), expected_token)
+
         pulsecheck_app.delete_service(svc_id)
 
 

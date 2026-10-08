@@ -68,7 +68,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.2")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.3.3")
 __version__ = APP_VERSION
 
 # Safe @profile decorator fallback:
@@ -149,6 +149,8 @@ def init_db():
             discovered_ip TEXT DEFAULT NULL,
             discovered_mac TEXT DEFAULT NULL,
             discovered_manufacturer TEXT DEFAULT NULL,
+            http_username TEXT NOT NULL DEFAULT '',
+            http_password TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -326,6 +328,10 @@ def init_db():
             conn.execute("ALTER TABLE services ADD COLUMN discovered_mac TEXT DEFAULT NULL")
         if "discovered_manufacturer" not in svc_cols:
             conn.execute("ALTER TABLE services ADD COLUMN discovered_manufacturer TEXT DEFAULT NULL")
+        if "http_username" not in svc_cols:
+            conn.execute("ALTER TABLE services ADD COLUMN http_username TEXT NOT NULL DEFAULT ''")
+        if "http_password" not in svc_cols:
+            conn.execute("ALTER TABLE services ADD COLUMN http_password TEXT NOT NULL DEFAULT ''")
     except Exception:
         pass
 
@@ -706,7 +712,7 @@ def service_list():
     conn = get_db_connection()
     rows = conn.execute(
         "SELECT id, name, comment, paused, use_proxy, request_type, port_protocol, created_at, "
-        "discovered_ip, discovered_mac, discovered_manufacturer FROM services ORDER BY name ASC"
+        "discovered_ip, discovered_mac, discovered_manufacturer, http_username, http_password FROM services ORDER BY name ASC"
     ).fetchall()
     conn.close()
     services = []
@@ -732,6 +738,8 @@ def service_list():
             "discovered_ip": row["discovered_ip"] if "discovered_ip" in row.keys() else None,
             "discovered_mac": row["discovered_mac"] if "discovered_mac" in row.keys() else None,
             "discovered_manufacturer": row["discovered_manufacturer"] if "discovered_manufacturer" in row.keys() else None,
+            "http_username": row["http_username"] if "http_username" in row.keys() else "",
+            "http_password": row["http_password"] if "http_password" in row.keys() else "",
         })
     return services
 
@@ -740,7 +748,7 @@ def get_service_by_id(service_id):
     conn = get_db_connection()
     row = conn.execute(
         "SELECT id, name, comment, paused, use_proxy, request_type, port_protocol, created_at, "
-        "discovered_ip, discovered_mac, discovered_manufacturer FROM services WHERE id = ?",
+        "discovered_ip, discovered_mac, discovered_manufacturer, http_username, http_password FROM services WHERE id = ?",
         (service_id,),
     ).fetchone()
     conn.close()
@@ -767,6 +775,8 @@ def get_service_by_id(service_id):
         "discovered_ip": row["discovered_ip"] if "discovered_ip" in row.keys() else None,
         "discovered_mac": row["discovered_mac"] if "discovered_mac" in row.keys() else None,
         "discovered_manufacturer": row["discovered_manufacturer"] if "discovered_manufacturer" in row.keys() else None,
+        "http_username": row["http_username"] if "http_username" in row.keys() else "",
+        "http_password": row["http_password"] if "http_password" in row.keys() else "",
     }
 
 
@@ -1596,6 +1606,16 @@ def fetch_icmp_ping_response(service_name: str, timeout: float = 2.0) -> tuple[b
         return False, latency_ms, str(exc)
 
 
+def make_basic_auth_headers(username: str | None, password: str | None) -> dict[str, str]:
+    """Generate Basic Authorization header dictionary if username or password provided."""
+    u = str(username or "").strip()
+    p = str(password or "")
+    if not u and not p:
+        return {}
+    token = base64.b64encode(f"{u}:{p}".encode("latin1")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
+
+
 @profile
 def scan_service(
     service_id: int,
@@ -1606,6 +1626,8 @@ def scan_service(
     url_path: str = "",
     use_proxy: bool | None = None,
     protocol: str | None = None,
+    http_username: str | None = None,
+    http_password: str | None = None,
     **kwargs,
 ):
     """Probe each port/protocol entry in `ports` and store results.
@@ -1621,6 +1643,11 @@ def scan_service(
         use_proxy = bool(service["use_proxy"]) if service and "use_proxy" in service else False
     proxy_settings = get_settings() if use_proxy else None
     debug_enabled = EXPLICIT_DEBUG if explicit_debug is None else explicit_debug
+
+    # Determine Basic Auth credentials
+    auth_user = http_username if http_username is not None else (service.get("http_username", "") if service else "")
+    auth_pass = http_password if http_password is not None else (service.get("http_password", "") if service else "")
+    basic_auth_headers = make_basic_auth_headers(auth_user, auth_pass)
 
     # Normalise ports to list[dict]
     if not isinstance(ports, list):
@@ -1685,7 +1712,14 @@ def scan_service(
         match_bytes = port_match.lower().encode() if port_match else b""
         url_path = port_url_path
 
-        web_custom_headers = {"X-Scanner-Bypass-Key": DEFAULT_SCANNER_BYPASS_KEY} if (port_req_type == "web" and DEFAULT_SCANNER_BYPASS_KEY) else None
+        web_custom_headers = {}
+        if port_req_type == "web":
+            if DEFAULT_SCANNER_BYPASS_KEY:
+                web_custom_headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+            if basic_auth_headers:
+                web_custom_headers.update(basic_auth_headers)
+        if not web_custom_headers:
+            web_custom_headers = None
 
         if debug_enabled:
             print(f"[DEBUG scan] Probing port={port} pref_proto={per_port_pref!r} effective_proto={protocol_used!r} req_type={port_req_type}")
@@ -2047,6 +2081,8 @@ def probe_single_port_diagnostics(
     request_type: str = "web",
     request_payload: str = "",
     response_payload: str = "",
+    http_username: str = "",
+    http_password: str = "",
 ) -> dict:
     t0 = time.monotonic()
     status = "offline"
@@ -2070,7 +2106,15 @@ def probe_single_port_diagnostics(
     if req_type not in ("web", "custom"):
         req_type = "web"
 
-    web_custom_headers = {"X-Scanner-Bypass-Key": DEFAULT_SCANNER_BYPASS_KEY} if (req_type == "web" and DEFAULT_SCANNER_BYPASS_KEY) else None
+    web_custom_headers = {}
+    if req_type == "web":
+        if DEFAULT_SCANNER_BYPASS_KEY:
+            web_custom_headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+        basic_hdrs = make_basic_auth_headers(http_username, http_password)
+        if basic_hdrs:
+            web_custom_headers.update(basic_hdrs)
+    if not web_custom_headers:
+        web_custom_headers = None
 
     req_bytes = None
     resp_expected_bytes = None
@@ -2532,6 +2576,8 @@ def diagnose_service_ports(
     explicit_debug: bool | None = None,
     preferred_protocol: str = "",
     port_protocols: list[dict] | None = None,
+    http_username: str = "",
+    http_password: str = "",
 ) -> dict:
     """Probe each port with its own protocol and return diagnostic results.
 
@@ -2591,6 +2637,8 @@ def diagnose_service_ports(
                     port_entry.get("request_type") or "http",
                     port_entry.get("request_payload") or "",
                     port_entry.get("response_payload") or "",
+                    http_username,
+                    http_password,
                 ): port_entry["port"]
                 for port_entry in tcp_udp_ports
             }
@@ -2711,6 +2759,8 @@ def add_service(
     icmp_enabled: bool | None = None,
     protocol: str = "",
     port_protocol: list | str | None = None,
+    http_username: str = "",
+    http_password: str = "",
 ):
     """Add a new service. `ports` or `port_protocol` may be a JSON string, a list[dict], or a list[int]."""
     target_name = service_name if service_name is not None else name
@@ -2755,16 +2805,19 @@ def add_service(
             p["match"] = ""
             p["url_path"] = ""
 
+    clean_user = (http_username or "").strip()
+    clean_pass = str(http_password or "")
+
     conn = get_db_connection()
     cursor = conn.execute(
-        "INSERT INTO services (name, comment, paused, use_proxy, request_type, port_protocol) VALUES (?, ?, ?, ?, 'web', ?)",
-        (normalized, (comment or "").strip(), int(paused), int(use_proxy), port_protocol_to_json(detected)),
+        "INSERT INTO services (name, comment, paused, use_proxy, request_type, port_protocol, http_username, http_password) VALUES (?, ?, ?, ?, 'web', ?, ?, ?)",
+        (normalized, (comment or "").strip(), int(paused), int(use_proxy), port_protocol_to_json(detected), clean_user, clean_pass),
     )
     conn.commit()
     service_id = cursor.lastrowid
     conn.close()
     if detected and not paused:
-        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy)
+        scan_service(service_id, normalized, detected, service_match, url_path=normalized_path, use_proxy=use_proxy, http_username=clean_user, http_password=clean_pass)
     return service_id
 
 
@@ -3269,6 +3322,8 @@ def update_service(
     use_proxy: bool | None = None,
     icmp_enabled: bool | None = None,
     protocol: str | None = None,
+    http_username: str | None = None,
+    http_password: str | None = None,
 ):
     """Update a service. `ports_input` can be:
       - A JSON string from the new port table form: '[{"port":80,"protocol":"http"},...]'
@@ -3280,7 +3335,7 @@ def update_service(
     service_match = (match if match is not None else derive_match(normalized)).strip().lower()
     normalized_path = normalize_url_path(url_path)
     existing_service = None
-    if paused is None or comment is None or use_proxy is None:
+    if paused is None or comment is None or use_proxy is None or http_username is None or http_password is None:
         existing_service = get_service_by_id(service_id)
 
     if paused is None:
@@ -3295,6 +3350,20 @@ def update_service(
         comment_val = existing_service["comment"] if existing_service and "comment" in existing_service.keys() else ""
     else:
         comment_val = str(comment).strip()
+
+    if http_username is None:
+        user_val = existing_service["http_username"] if existing_service and "http_username" in existing_service.keys() else ""
+    else:
+        user_val = str(http_username).strip()
+
+    if http_password is None or (http_password == "" and existing_service and existing_service.get("http_password") and user_val):
+        pass_val = existing_service["http_password"] if existing_service and "http_password" in existing_service.keys() else ""
+    else:
+        pass_val = str(http_password)
+
+    # If username is cleared, clear password as well
+    if not user_val:
+        pass_val = ""
 
     # Parse incoming ports to list[dict]
     parsed_ports = parse_diagnostic_ports(ports_input) if ports_input else []
@@ -3344,13 +3413,15 @@ def update_service(
 
     conn = get_db_connection()
     conn.execute(
-        "UPDATE services SET name = ?, comment = ?, paused = ?, use_proxy = ?, port_protocol = ? WHERE id = ?",
+        "UPDATE services SET name = ?, comment = ?, paused = ?, use_proxy = ?, port_protocol = ?, http_username = ?, http_password = ? WHERE id = ?",
         (
             normalized,
             comment_val,
             int(paused),
             int(use_proxy_val),
             port_protocol_to_json(incoming_ports),
+            user_val,
+            pass_val,
             service_id,
         ),
     )
@@ -3370,7 +3441,7 @@ def update_service(
     conn.commit()
     conn.close()
     if incoming_ports and not paused:
-        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val)
+        scan_service(service_id, normalized, incoming_ports, service_match, url_path=normalized_path, use_proxy=use_proxy_val, http_username=user_val, http_password=pass_val)
 
 
 
@@ -4233,6 +4304,8 @@ def add_service_route():
         match = request.form.get("match", "").strip()
         comment = request.form.get("comment", "").strip()
         url_path = request.form.get("url_path", "").strip()
+        http_username = request.form.get("http_username", "").strip()
+        http_password = request.form.get("http_password", "")
         # New: per-port protocol JSON from hidden field, or legacy plain text
         ports_json_input = request.form.get("ports_json", "").strip()
         ports_input = ports_json_input or request.form.get("ports", "").strip()
@@ -4253,6 +4326,8 @@ def add_service_route():
                 use_proxy=use_proxy,
                 ports=ports_input if ports_input else [],
                 icmp_enabled=icmp_enabled,
+                http_username=http_username,
+                http_password=http_password,
             )
         except ValueError as exc:
             flash(str(exc))
@@ -4261,7 +4336,7 @@ def add_service_route():
             flash("That service already exists.")
             return redirect(url_for("services"))
         trigger_discovery_async(result, normalize_service(name))
-        trigger_service_icon_resolution_async(name)
+        trigger_service_icon_resolution_async(name, http_username=http_username, http_password=http_password)
         flash(f"Added service {name}.")
         return redirect(url_for("services"))
 
@@ -4337,6 +4412,8 @@ def edit_service(service_id):
         match = request.form.get("match", "").strip()
         url_path = request.form.get("url_path", "")
         comment = request.form.get("comment", "").strip()
+        http_username = request.form.get("http_username", "").strip()
+        http_password = request.form.get("http_password", "")
         # New: per-port protocol JSON from hidden field, or legacy plain text
         ports_json_input = request.form.get("ports_json", "").strip()
         ports_input = ports_json_input or request.form.get("ports", "")
@@ -4346,7 +4423,19 @@ def edit_service(service_id):
         use_proxy = request.form.get("use_proxy") == "on" or request.form.get("use_proxy") == "1"
         old_name = service["name"]
         try:
-            update_service(service_id, name, ports_input, match, url_path, paused, comment=comment, use_proxy=use_proxy, icmp_enabled=icmp_enabled)
+            update_service(
+                service_id,
+                name,
+                ports_input,
+                match,
+                url_path,
+                paused,
+                comment=comment,
+                use_proxy=use_proxy,
+                icmp_enabled=icmp_enabled,
+                http_username=http_username,
+                http_password=http_password,
+            )
         except ValueError as exc:
             flash(str(exc))
             return redirect(url_for("edit_service", service_id=service_id, return_to=return_to))
@@ -4354,7 +4443,12 @@ def edit_service(service_id):
             svc = get_service_by_id(service_id)
             trigger_discovery_async(service_id, normalize_service(name),
                                     prev_mac=svc.get("discovered_mac") if svc else None)
-        trigger_service_icon_resolution_async(name)
+        svc_fresh = get_service_by_id(service_id) or {}
+        trigger_service_icon_resolution_async(
+            name,
+            http_username=svc_fresh.get("http_username", ""),
+            http_password=svc_fresh.get("http_password", ""),
+        )
         flash(f"Updated service {name}.")
         return redirect(return_to or url_for("services"))
 
@@ -4372,6 +4466,13 @@ def test_service_edit_route(service_id):
     service_name = (data.get("name") or data.get("service_name") or service["name"]).strip()
     match = data.get("match") if "match" in data else service["match"]
     url_path = data.get("url_path") if "url_path" in data else service.get("url_path", "")
+
+    # Basic Auth credentials: form overrides, fallback to existing saved credentials
+    http_username = data.get("http_username") if "http_username" in data else service.get("http_username", "")
+    http_username = (http_username or "").strip()
+    http_password = data.get("http_password") if "http_password" in data else service.get("http_password", "")
+    if (http_password is None or http_password == "") and http_username and service.get("http_password"):
+        http_password = service.get("http_password", "")
 
     raw_proxy = data.get("use_proxy")
     if raw_proxy is not None:
@@ -4404,6 +4505,8 @@ def test_service_edit_route(service_id):
         match=match or "",
         url_path=url_path or "",
         use_proxy=use_proxy,
+        http_username=http_username,
+        http_password=http_password,
     )
     return jsonify(results)
 
@@ -4414,6 +4517,8 @@ def test_service_generic_route():
     service_name = (data.get("name") or data.get("service_name") or "").strip()
     match = (data.get("match") or "").strip()
     url_path = data.get("url_path") or ""
+    http_username = (data.get("http_username") or "").strip()
+    http_password = data.get("http_password") or ""
     raw_proxy = data.get("use_proxy")
     use_proxy = raw_proxy is True or str(raw_proxy).lower() in ("true", "1", "on")
     ports_input = data.get("ports") or ""
@@ -4436,6 +4541,8 @@ def test_service_generic_route():
         match=match_to_use,
         url_path=url_path,
         use_proxy=use_proxy,
+        http_username=http_username,
+        http_password=http_password,
     )
     return jsonify(results)
 
@@ -5995,7 +6102,7 @@ def get_html_content_icon_mappings() -> list[list[str]]:
     return [list(item) for item in DEFAULT_HTML_CONTENT_ICON_MAPPINGS]
 
 
-def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | None:
+def fetch_service_html_body(service_name: str, max_redirects: int = 3, http_username: str = "", http_password: str = "") -> str | None:
     """
     Retrieve the landing page HTML of a service across https:// and http://,
     following redirects and accepting self-signed TLS certificates.
@@ -6014,6 +6121,9 @@ def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | 
     headers = {"User-Agent": ua}
     if DEFAULT_SCANNER_BYPASS_KEY:
         headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+    basic_hdrs = make_basic_auth_headers(http_username, http_password)
+    if basic_hdrs:
+        headers.update(basic_hdrs)
 
     for proto in ("https", "http"):
         current_url = f"{proto}://{clean_host}/"
@@ -6028,7 +6138,7 @@ def fetch_service_html_body(service_name: str, max_redirects: int = 3) -> str | 
     return None
 
 
-def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = False) -> str | None:
+def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = False, http_username: str = "", http_password: str = "") -> str | None:
     """
     Find, download, and cache an icon for the product/service in SERVICE_ICONS_DIR.
     1. Primary Method: Access service name directly as a site via https:// then http://.
@@ -6037,6 +6147,21 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     """
     if not service_name or service_name.strip().upper() in ("", "NONE"):
         return None
+
+    # Retrieve credentials from DB if not explicitly passed
+    auth_user = http_username
+    auth_pass = http_password
+    if not auth_user and not auth_pass:
+        try:
+            conn = get_db_connection()
+            row = conn.execute("SELECT http_username, http_password FROM services WHERE name = ? OR name = ?", (service_name, normalize_service(service_name))).fetchone()
+            conn.close()
+            if row:
+                auth_user = row["http_username"] or ""
+                auth_pass = row["http_password"] or ""
+        except Exception:
+            pass
+    basic_auth_hdrs = make_basic_auth_headers(auth_user, auth_pass)
 
     product = extract_service_product_name(service_name)
     if not product or len(product) < 2:
@@ -6079,7 +6204,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     # =========================================================================
     html_page = None
     if not icon_bytes:
-        html_page = fetch_service_html_body(service_name)
+        html_page = fetch_service_html_body(service_name, http_username=auth_user, http_password=auth_pass)
         if html_page:
             html_mappings = get_html_content_icon_mappings()
             for pattern, target in html_mappings:
@@ -6102,6 +6227,8 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
             direct_headers = {"User-Agent": ua}
             if DEFAULT_SCANNER_BYPASS_KEY:
                 direct_headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+            if basic_auth_hdrs:
+                direct_headers.update(basic_auth_hdrs)
 
             for proto in ("https", "http"):
                 base_url = f"{proto}://{clean_host}"
@@ -6236,13 +6363,14 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     return None
 
 
-def trigger_service_icon_resolution_async(service_name: str):
+def trigger_service_icon_resolution_async(service_name: str, http_username: str = "", http_password: str = ""):
     """Fire-and-forget service icon lookup on add or edit."""
     if not service_name:
         return
     t = threading.Thread(
         target=resolve_and_cache_service_icon,
         args=(service_name,),
+        kwargs={"http_username": http_username, "http_password": http_password},
         daemon=True,
     )
     t.start()

@@ -109,7 +109,7 @@
           </div>
         </div>
 
-        <div style="display: flex; gap: 24px; align-items: center; margin: 16px 0 24px;">
+        <div style="display: flex; gap: 24px; align-items: center; margin: 16px 0 20px;">
           <label for="paused" style="margin: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.88rem; font-weight: 500;">
             <input type="checkbox" id="paused" name="paused" {% if item.paused %}checked{% endif %}>
             Paused <span style="font-size: 0.8rem; color: #64748b; font-weight: 400;">(Excluded from Status screen)</span>
@@ -118,6 +118,27 @@
             <input type="checkbox" id="use_proxy" name="use_proxy" {% if item.use_proxy %}checked{% endif %}>
             Use Proxy Server <span style="font-size: 0.8rem; color: #64748b; font-weight: 400;">(HTTP and HTTPS only)</span>
           </label>
+        </div>
+
+        <!-- ===== Basic Authentication (WEB Get only) ===== -->
+        <div id="service-basic-auth-section" style="display: none; margin-bottom: 22px; padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
+            <label style="font-weight: 600; font-size: 0.90rem; margin: 0; color: #0f172a; display: inline-flex; align-items: center; gap: 6px;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              Basic Authentication (WEB Get)
+            </label>
+            <span style="font-size: 0.78rem; color: #64748b;">Injected as Basic Authorization header during WEB Get scans, diagnostics, and icon resolution</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+            <div>
+              <label for="http_username" style="font-weight: 600; font-size: 0.82rem; color: #475569; display: block; margin-bottom: 5px;">Username</label>
+              <input type="text" id="http_username" name="http_username" value="{{ item.http_username or '' }}" placeholder="Leave blank if not required" autocomplete="off" style="width: 100%; box-sizing: border-box; font-size: 0.88rem; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+            </div>
+            <div>
+              <label for="http_password" style="font-weight: 600; font-size: 0.82rem; color: #475569; display: block; margin-bottom: 5px;">Password</label>
+              <input type="password" id="http_password" name="http_password" placeholder="{% if item.http_password %}•••••••• (saved, leave blank to keep){% else %}Basic Auth password{% endif %}" autocomplete="new-password" style="width: 100%; box-sizing: border-box; font-size: 0.88rem; padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 6px;">
+            </div>
+          </div>
         </div>
 
         <!-- ===== Port Configuration Table ===== -->
@@ -363,6 +384,15 @@
       }
     }
 
+    function updateBasicAuthVisibility() {
+      const basicAuthSection = document.getElementById("service-basic-auth-section");
+      if (!basicAuthSection) return;
+      const rtypeSels = Array.from(portRowsEl.querySelectorAll(".port-row-rtype"));
+      // Show if any port is "web" (or if a newly added row defaults to web)
+      const hasWeb = rtypeSels.length > 0 && rtypeSels.some(s => (s.value || "web") === "web");
+      basicAuthSection.style.display = hasWeb ? "block" : "none";
+    }
+
     function syncRowFieldVisibility(tr) {
       const rtypeSel = tr.querySelector(".port-row-rtype");
       const matchInput = tr.querySelector(".port-row-match");
@@ -395,6 +425,7 @@
         delBtn.addEventListener("click", () => {
           tr.remove();
           updateHeaderLabels();
+          updateBasicAuthVisibility();
           updatePortsHidden();
         });
         delBtn.addEventListener("mouseenter", () => { delBtn.style.color = "#dc2626"; });
@@ -406,6 +437,7 @@
         rtypeSel.addEventListener("change", () => {
           syncRowFieldVisibility(tr);
           updateHeaderLabels();
+          updateBasicAuthVisibility();
           updatePortsHidden();
         });
       }
@@ -493,6 +525,7 @@
 
       wireRowEvents(tr);
       updateHeaderLabels();
+      updateBasicAuthVisibility();
       updatePortsHidden();
     }
 
@@ -533,6 +566,7 @@
     // Attach listeners to server-rendered rows
     portRowsEl.querySelectorAll(".port-config-row").forEach(wireRowEvents);
     updateHeaderLabels();
+    updateBasicAuthVisibility();
 
     const isAdd = {{ 'true' if is_add else 'false' }};
 
@@ -749,6 +783,9 @@
         portsToSend.push({ port: null, protocol: "icmp-ping", match: "", url_path: "" });
       }
 
+      const httpUsernameVal = (document.getElementById("http_username") ? document.getElementById("http_username").value : "").trim();
+      const httpPasswordVal = document.getElementById("http_password") ? document.getElementById("http_password").value : "";
+
       const payload = {
         name: nameVal,
         match: "",
@@ -756,6 +793,8 @@
         use_proxy: useProxyVal,
         ports: portsToSend,
         icmp_enabled: icmpEnabled,
+        http_username: httpUsernameVal,
+        http_password: httpPasswordVal,
       };
 
       try {
