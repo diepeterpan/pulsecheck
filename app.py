@@ -65,10 +65,31 @@ inject_globals = inject_version
 IMPORT_STATE = {}
 IMPORT_LOCK = threading.Lock()
 GLOBAL_SCHEDULER = None
+GLOBAL_SERVER = None
 IS_SCANNING = False
 IS_SCANNING_LOCK = threading.Lock()
 
 
+def run_web_server(host: str = DEFAULT_IP, port: int = DEFAULT_PORT):
+    """Run Werkzeug WSGI server, tracking GLOBAL_SERVER and ensuring clean socket reuse."""
+    global GLOBAL_SERVER
+    from werkzeug.serving import make_server
+
+    server = make_server(host, port, app, threaded=True)
+    try:
+        server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        os.set_inheritable(server.socket.fileno(), False)
+    except Exception:
+        pass
+    GLOBAL_SERVER = server
+    try:
+        server.serve_forever()
+    finally:
+        try:
+            server.server_close()
+        except Exception:
+            pass
+        GLOBAL_SERVER = None
 
 
 def store_port_check(service_id: int, port: int | None, status: str, response_ms: int | None):
@@ -284,6 +305,25 @@ app.url_build_error_handlers.append(_resolve_blueprint_url)
 
 
 
+def start_mode(mode: str):
+    """Start application in the requested mode ('1': standard, '2': debug, '3': profiler)."""
+    os.environ["PULSECHECK_AUTORUN_MODE"] = str(mode)
+    if mode == "1":
+        print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+        run_web_server(host=DEFAULT_IP, port=DEFAULT_PORT)
+    elif mode == "2":
+        global EXPLICIT_DEBUG
+        EXPLICIT_DEBUG = True
+        print(f"Starting web application with explicit debugging on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+        run_web_server(host=DEFAULT_IP, port=DEFAULT_PORT)
+    elif mode == "3":
+        if enable_line_profiling():
+            print(f"Starting web application with Line-Profiler on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
+            print("Line-by-line profiling active for check_all_services, scan_service, scan_service_with_retries, fetch_response, and /status.")
+            print("Timing stats will display after each scan cycle and when shutting down.\n")
+            run_web_server(host=DEFAULT_IP, port=DEFAULT_PORT)
+
+
 def cli_menu():
     while True:
         print("\nPulseCheck menu")
@@ -293,26 +333,9 @@ def cli_menu():
         print("4. Exit")
         choice = input("Select an option: ").strip()
 
-        if choice == "1":
-            print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
-            app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
+        if choice in ("1", "2", "3"):
+            start_mode(choice)
             break
-
-        elif choice == "2":
-            global EXPLICIT_DEBUG
-            EXPLICIT_DEBUG = True
-            print(f"Starting web application with explicit debugging on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
-            app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
-            break
-
-        elif choice == "3":
-            if enable_line_profiling():
-                print(f"Starting web application with Line-Profiler on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
-                print("Line-by-line profiling active for check_all_services, scan_service, scan_service_with_retries, fetch_response, and /status.")
-                print("Timing stats will display after each scan cycle and when shutting down.\n")
-                app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
-                break
-
         elif choice == "4":
             print("Exiting PulseCheck.")
             break
@@ -345,9 +368,12 @@ if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not s
 if __name__ == "__main__":
     ensure_app_initialized()
     try:
-        if os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
+        autorun_mode = os.getenv("PULSECHECK_AUTORUN_MODE", "").strip()
+        if autorun_mode in ("1", "2", "3"):
+            start_mode(autorun_mode)
+        elif os.getenv("PULSECHECK_HEADLESS", "").lower() in ("1", "true", "yes") or not sys.stdin.isatty():
             print(f"Starting web application on {get_base_url()} (listening on {DEFAULT_IP}:{DEFAULT_PORT})")
-            app.run(host=DEFAULT_IP, port=DEFAULT_PORT, debug=False)
+            run_web_server(host=DEFAULT_IP, port=DEFAULT_PORT)
         else:
             cli_menu()
     finally:

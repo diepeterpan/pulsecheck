@@ -176,6 +176,47 @@ class TestSettingsBackup(unittest.TestCase):
         self.assertTrue(json_data["restarting"])
         mock_restart.assert_called_once_with(delay_seconds=1.0)
 
+    @patch("os.execv")
+    def test_trigger_server_restart_cleans_up_resources(self, mock_execv):
+        orig_server = pulsecheck_app.GLOBAL_SERVER
+        orig_scheduler = pulsecheck_app.GLOBAL_SCHEDULER
+        try:
+            mock_server = MagicMock()
+            mock_scheduler = MagicMock()
+            pulsecheck_app.GLOBAL_SERVER = mock_server
+            pulsecheck_app.GLOBAL_SCHEDULER = mock_scheduler
+
+            os.environ["WERKZEUG_SERVER_FD"] = "123"
+
+            # Trigger restart with minimal delay
+            trigger_server_restart(delay_seconds=0.01)
+
+            # Wait briefly for thread execution
+            import time
+            time.sleep(0.08)
+
+            mock_server.shutdown.assert_called_once()
+            mock_server.server_close.assert_called_once()
+            mock_scheduler.shutdown.assert_called_once_with(wait=False)
+            self.assertNotIn("WERKZEUG_SERVER_FD", os.environ)
+            mock_execv.assert_called_once()
+        finally:
+            pulsecheck_app.GLOBAL_SERVER = orig_server
+            pulsecheck_app.GLOBAL_SCHEDULER = orig_scheduler
+            os.environ.pop("WERKZEUG_SERVER_FD", None)
+
+    def test_start_mode_sets_autorun_env(self):
+        orig_env = os.environ.get("PULSECHECK_AUTORUN_MODE")
+        try:
+            with patch.object(pulsecheck_app, "run_web_server"):
+                pulsecheck_app.start_mode("1")
+                self.assertEqual(os.environ.get("PULSECHECK_AUTORUN_MODE"), "1")
+        finally:
+            if orig_env is not None:
+                os.environ["PULSECHECK_AUTORUN_MODE"] = orig_env
+            else:
+                os.environ.pop("PULSECHECK_AUTORUN_MODE", None)
+
 
 if __name__ == "__main__":
     unittest.main()

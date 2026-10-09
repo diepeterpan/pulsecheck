@@ -150,8 +150,22 @@ def trigger_server_restart(delay_seconds: float = 1.0) -> None:
     """Schedule a server restart via os.execv in a background daemon thread."""
     def _restart():
         time.sleep(delay_seconds)
-        # Attempt to shut down global scheduler if present
         app_mod = sys.modules.get("app") or sys.modules.get("__main__")
+
+        # 1. Gracefully shut down and close the WSGI server socket
+        if app_mod and hasattr(app_mod, "GLOBAL_SERVER"):
+            server = getattr(app_mod, "GLOBAL_SERVER")
+            if server:
+                try:
+                    server.shutdown()
+                except Exception:
+                    pass
+                try:
+                    server.server_close()
+                except Exception:
+                    pass
+
+        # 2. Shut down background scheduler
         if app_mod and hasattr(app_mod, "GLOBAL_SCHEDULER"):
             try:
                 scheduler = getattr(app_mod, "GLOBAL_SCHEDULER")
@@ -160,6 +174,10 @@ def trigger_server_restart(delay_seconds: float = 1.0) -> None:
             except Exception:
                 pass
 
+        # 3. Clean up any leftover inherited server fd env variable
+        os.environ.pop("WERKZEUG_SERVER_FD", None)
+
+        # 4. Re-execute current Python interpreter with same arguments
         try:
             os.execv(sys.executable, [sys.executable] + sys.argv)
         except Exception as exc:
