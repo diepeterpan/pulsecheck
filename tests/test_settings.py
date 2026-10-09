@@ -816,6 +816,12 @@ site3.com,site3,,0,80
         reneg_err = ssl.SSLError(1, "[SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe legacy renegotiation disabled")
         self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(reneg_err))
 
+        unsupported_proto_err = ssl.SSLError(1, "Cannot connect to host dcs-2132l-es.galleon.co.za:443 ssl:<ssl.SSLContext> [[SSL: UNSUPPORTED_PROTOCOL] unsupported protocol (_ssl.c:1029)]")
+        self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(unsupported_proto_err))
+
+        proto_version_err = ssl.SSLError(1, "[SSL: TLSV1_ALERT_PROTOCOL_VERSION] tlsv1 alert protocol version (_ssl.c:1029)")
+        self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(proto_version_err))
+
         wrapped_err = Exception("wrapped")
         wrapped_err.__cause__ = handshake_err
         self.assertTrue(pulsecheck_app.is_ssl_handshake_failure(wrapped_err))
@@ -832,6 +838,8 @@ site3.com,site3,,0,80
         legacy_ctx = pulsecheck_app.create_ssl_context(legacy=True)
         op_legacy = getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
         self.assertTrue(legacy_ctx.options & op_legacy)
+        self.assertEqual(legacy_ctx.minimum_version, ssl.TLSVersion.MINIMUM_SUPPORTED)
+        self.assertEqual(legacy_ctx.maximum_version, ssl.TLSVersion.MAXIMUM_SUPPORTED)
 
         # 3. Test fetch_response retries with legacy SSL upon handshake failure
         class FakeResponse:

@@ -84,9 +84,7 @@ def create_ssl_context(legacy: bool = False) -> ssl.SSLContext:
             try:
                 if hasattr(ssl, "TLSVersion"):
                     context.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
-                    max_v = getattr(ssl.TLSVersion, "TLSv1_1", getattr(ssl.TLSVersion, "TLSv1", None))
-                    if max_v is not None:
-                        context.maximum_version = max_v
+                    context.maximum_version = ssl.TLSVersion.MAXIMUM_SUPPORTED
             except Exception:
                 pass
     return context
@@ -124,6 +122,11 @@ def is_ssl_handshake_failure(exc: Exception) -> bool:
         "HANDSHAKE_FAILURE",
         "UNSAFE_LEGACY_RENEGOTIATION_DISABLED",
         "NO_PROTOCOLS_AVAILABLE",
+        "UNSUPPORTED_PROTOCOL",
+        "UNSUPPORTED PROTOCOL",
+        "ALERT_PROTOCOL_VERSION",
+        "PROTOCOL_VERSION",
+        "VERSION_TOO_LOW",
         "APPLICATION DATA AFTER CLOSE NOTIFY",
     ))
 
