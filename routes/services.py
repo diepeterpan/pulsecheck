@@ -29,6 +29,7 @@ from services.scanner import (
     discover_ports as _scanner_discover_ports,
 )
 from services.icons import trigger_service_icon_resolution_async
+from routes.auth import login_required
 
 services_bp = Blueprint("services_bp", __name__)
 
@@ -365,12 +366,14 @@ def delete_service(service_id: int):
 
 
 @services_bp.route("/services", endpoint="services")
+@login_required
 def services():
     items = service_list()
     return render_template("services.html", services=items)
 
 
 @services_bp.route("/services/add", methods=["GET", "POST"], endpoint="add_service_route")
+@login_required
 def add_service_route():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -420,6 +423,7 @@ def add_service_route():
 
 
 @services_bp.route("/services/bulk-ports", methods=["POST"], endpoint="bulk_ports_route")
+@login_required
 def bulk_ports_route():
     raw_ids = request.form.getlist("service_ids")
     return_to = request.form.get("return_to", "").strip()
@@ -444,6 +448,7 @@ def bulk_ports_route():
 
 
 @services_bp.route("/services/bulk-delete", methods=["POST"], endpoint="bulk_delete_route")
+@login_required
 def bulk_delete_route():
     raw_ids = request.form.getlist("service_ids")
     return_to = request.form.get("return_to", "").strip()
@@ -472,6 +477,7 @@ def bulk_delete_route():
 
 
 @services_bp.route("/services/<int:service_id>/edit", methods=["GET", "POST"], endpoint="edit_service")
+@login_required
 def edit_service(service_id):
     service = get_service_by_id(service_id)
     if service is None:
@@ -536,6 +542,7 @@ def edit_service(service_id):
 
 
 @services_bp.route("/services/<int:service_id>/test", methods=["POST"], endpoint="test_service_edit_route")
+@login_required
 def test_service_edit_route(service_id):
     service = get_service_by_id(service_id)
     if service is None:
@@ -590,6 +597,7 @@ def test_service_edit_route(service_id):
 
 
 @services_bp.route("/services/test", methods=["POST"], endpoint="test_service_generic_route")
+@login_required
 def test_service_generic_route():
     data = request.get_json(silent=True) or request.form
     service_name = (data.get("name") or data.get("service_name") or "").strip()
@@ -627,6 +635,7 @@ def test_service_generic_route():
 
 
 @services_bp.route("/services/<int:service_id>/delete", methods=["POST"], endpoint="delete_service_route")
+@login_required
 def delete_service_route(service_id):
     service = get_service_by_id(service_id)
     return_to = request.form.get("return_to") or request.args.get("return_to") or ""
@@ -643,6 +652,7 @@ def delete_service_route(service_id):
 
 
 @services_bp.route("/services/<int:service_id>/rescan", methods=["POST"], endpoint="rescan_service_route")
+@login_required
 def rescan_service_route(service_id):
     service = get_service_by_id(service_id)
     if service is None:

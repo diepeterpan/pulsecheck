@@ -30,7 +30,14 @@ from core.database import (
     get_settings,
     save_settings,
     get_current_local_time_str,
+    get_authorized_users,
+    get_authorized_user_by_id,
+    get_authorized_user_by_identifier,
+    add_authorized_user,
+    update_authorized_user,
+    delete_authorized_user,
 )
+from routes.auth import login_required, is_oidc_active, get_active_match_claim
 from services.backup import (
     export_settings_encrypted,
     import_settings_encrypted,
@@ -436,6 +443,7 @@ def _run_icon_regeneration_worker(category: str, force: bool = False, exclude_pa
 
 
 @settings_bp.route("/settings", methods=["GET", "POST"], endpoint="settings_route")
+@login_required
 def settings_route():
     current_settings = get_settings()
     if request.method == "POST":
@@ -461,6 +469,7 @@ def settings_route():
             "remote_source_key": request.form.get("remote_source_key", ""),
             "remote_source_command": request.form.get("remote_source_command", "").strip(),
             "remote_source_timeout": request.form.get("remote_source_timeout", "10").strip(),
+            "oidc_match_claim": request.form.get("oidc_match_claim", current_settings.get("oidc_match_claim", "email")).strip() or "email",
         }
         if not updated["remote_source_port"]:
             updated["remote_source_port"] = "22" if updated["remote_source_type"] == "ssh" else "23"
@@ -505,11 +514,21 @@ def settings_route():
         # Redirect back to tab if specified
         active_tab = request.form.get("active_tab", "")
         redirect_url = url_for("settings_route")
-        if active_tab in ("smtp", "proxy", "source", "icons", "backup"):
+        if active_tab in ("smtp", "proxy", "source", "icons", "backup", "users"):
             redirect_url += f"#{active_tab}"
         return redirect(redirect_url)
 
-    return render_template("settings.html", settings=current_settings)
+    authorized_users = get_authorized_users()
+    from core.config import OIDC_ISSUER
+    issuer_url = os.getenv("PULSECHECK_OIDC_ISSUER") or OIDC_ISSUER or ""
+    return render_template(
+        "settings.html",
+        settings=current_settings,
+        authorized_users=authorized_users,
+        oidc_active=is_oidc_active(),
+        oidc_issuer=issuer_url,
+        match_claim=get_active_match_claim(),
+    )
 
 
 @settings_bp.route("/api/settings/remote-source/test", methods=["POST"], endpoint="api_test_remote_source")
@@ -813,6 +832,7 @@ def api_reset_icon_mappings():
 
 
 @settings_bp.route("/api/settings/backup/export", methods=["POST"], endpoint="api_backup_export")
+@login_required
 def api_backup_export():
     """Export encrypted settings package as a downloadable attachment."""
     from flask import Response
@@ -845,6 +865,7 @@ def api_backup_export():
 
 
 @settings_bp.route("/api/settings/backup/import", methods=["POST"], endpoint="api_backup_import")
+@login_required
 def api_backup_import():
     """Import encrypted settings package and trigger graceful server restart."""
     password = request.form.get("password") or ""
@@ -876,4 +897,108 @@ def api_backup_import():
         "count": count,
         "restarting": True,
     })
+
+
+# ── Authorized Users CRUD Endpoints ─────────────────────────────────────────
+
+@settings_bp.route("/api/settings/users", methods=["GET"], endpoint="api_list_users")
+@login_required
+def api_list_users():
+    users = get_authorized_users()
+    return jsonify({
+        "success": True,
+        "users": [
+            {
+                "id": u["id"],
+                "identifier": u["identifier"],
+                "display_name": u["display_name"] or "",
+                "created_at": u["created_at"],
+                "updated_at": u["updated_at"],
+            }
+            for u in users
+        ],
+    })
+
+
+@settings_bp.route("/api/settings/users/add", methods=["POST"], endpoint="api_add_user")
+@login_required
+def api_add_user():
+    data = request.get_json(silent=True) or request.form
+    identifier = (data.get("identifier") or "").strip()
+    display_name = (data.get("display_name") or "").strip()
+
+    if not identifier:
+        return jsonify({"success": False, "error": "User identifier (e.g. email or username) is required."}), 400
+
+    if get_authorized_user_by_identifier(identifier) is not None:
+        return jsonify({"success": False, "error": f"A user with identifier '{identifier}' already exists."}), 400
+
+    try:
+        user_id = add_authorized_user(identifier, display_name)
+        return jsonify({
+            "success": True,
+            "message": f"User '{identifier}' added successfully.",
+            "user": {
+                "id": user_id,
+                "identifier": identifier,
+                "display_name": display_name,
+            },
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@settings_bp.route("/api/settings/users/<int:user_id>/update", methods=["POST"], endpoint="api_update_user")
+@login_required
+def api_update_user(user_id):
+    existing = get_authorized_user_by_id(user_id)
+    if not existing:
+        return jsonify({"success": False, "error": "User not found."}), 404
+
+    data = request.get_json(silent=True) or request.form
+    identifier = (data.get("identifier") or "").strip()
+    display_name = (data.get("display_name") or "").strip()
+
+    if not identifier:
+        return jsonify({"success": False, "error": "User identifier cannot be empty."}), 400
+
+    conflict = get_authorized_user_by_identifier(identifier)
+    if conflict and conflict["id"] != user_id:
+        return jsonify({"success": False, "error": f"Another user already has identifier '{identifier}'."}), 400
+
+    try:
+        updated = update_authorized_user(user_id, identifier, display_name)
+        if not updated:
+            return jsonify({"success": False, "error": "Failed to update user."}), 500
+        return jsonify({
+            "success": True,
+            "message": f"User '{identifier}' updated successfully.",
+            "user": {
+                "id": user_id,
+                "identifier": identifier,
+                "display_name": display_name,
+            },
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@settings_bp.route("/api/settings/users/<int:user_id>/delete", methods=["POST"], endpoint="api_delete_user")
+@login_required
+def api_delete_user(user_id):
+    existing = get_authorized_user_by_id(user_id)
+    if not existing:
+        return jsonify({"success": False, "error": "User not found."}), 404
+
+    identifier = existing["identifier"]
+    try:
+        deleted = delete_authorized_user(user_id)
+        if not deleted:
+            return jsonify({"success": False, "error": "Could not delete user."}), 500
+        return jsonify({
+            "success": True,
+            "message": f"User '{identifier}' deleted successfully.",
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
 

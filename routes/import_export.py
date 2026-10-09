@@ -26,6 +26,7 @@ from services.importer import (
     import_services_from_csv,
     has_encrypted_csv_fields,
 )
+from routes.auth import login_required
 
 import_bp = Blueprint("import_bp", __name__)
 
@@ -183,6 +184,7 @@ def run_csv_import_worker(token, csv_content, decryption_password=""):
 
 
 @import_bp.route("/import", methods=["GET", "POST"], endpoint="handle_import")
+@login_required
 def handle_import():
     if request.method == "POST":
         # Check if CSV file was uploaded
@@ -219,6 +221,7 @@ def handle_import():
 
 @import_bp.route("/import/export", methods=["GET", "POST"], endpoint="export_services_route")
 @import_bp.route("/services/export.csv", methods=["GET", "POST"])
+@login_required
 def export_services_route():
     enc_pass = request.values.get("encryption_password") or ""
     csv_content, count = export_services_csv(encryption_password=enc_pass)
@@ -229,6 +232,7 @@ def export_services_route():
 
 
 @import_bp.route("/import/csv/check-encrypted", methods=["POST"], endpoint="check_encrypted_csv")
+@login_required
 def check_encrypted_csv():
     if "csv_file" not in request.files or not request.files["csv_file"].filename:
         return {"error": "No CSV file provided."}, 400
@@ -239,6 +243,7 @@ def check_encrypted_csv():
 
 
 @import_bp.route("/import/start", methods=["POST"], endpoint="start_import")
+@login_required
 def start_import():
     raw_text = request.form.get("services") or ""
     items = [line.strip() for line in raw_text.splitlines() if line.strip()]
@@ -250,6 +255,7 @@ def start_import():
 
 
 @import_bp.route("/import/csv/start", methods=["POST"], endpoint="start_csv_import")
+@login_required
 def start_csv_import():
     if "csv_file" not in request.files or not request.files["csv_file"].filename:
         return {"error": "No CSV file provided."}, 400
@@ -279,6 +285,7 @@ def start_csv_import():
 
 
 @import_bp.route("/import/<token>/status", endpoint="import_status")
+@login_required
 def import_status(token):
     state = IMPORT_STATE.get(token)
     if not state:
@@ -300,6 +307,7 @@ def import_status(token):
 
 
 @import_bp.route("/import/<token>/cancel", methods=["POST"], endpoint="cancel_import")
+@login_required
 def cancel_import(token):
     state = IMPORT_STATE.get(token)
     if not state:

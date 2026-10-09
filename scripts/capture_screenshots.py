@@ -80,6 +80,14 @@ cursor.execute("UPDATE settings SET value = 'alerts@dummy.net' WHERE key = 'from
 cursor.execute("UPDATE settings SET value = 'ops-team@dummy.net' WHERE key = 'recipient_email'")
 cursor.execute("UPDATE settings SET value = 'proxy.dummy.net' WHERE key = 'proxy_host'")
 cursor.execute("UPDATE settings SET value = '8080' WHERE key = 'proxy_port'")
+cursor.execute("UPDATE settings SET value = 'email' WHERE key = 'oidc_match_claim'")
+
+# Seed demo authorized users for settings tab
+cursor.execute("CREATE TABLE IF NOT EXISTS authorized_users (id INTEGER PRIMARY KEY AUTOINCREMENT, identifier TEXT NOT NULL UNIQUE COLLATE NOCASE, display_name TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
+cursor.execute("DELETE FROM authorized_users")
+cursor.execute("INSERT INTO authorized_users (identifier, display_name, created_at, updated_at) VALUES ('admin@dummy.net', 'Primary Administrator', '2026-10-01 08:00:00 UTC', '2026-10-01 08:00:00 UTC')")
+cursor.execute("INSERT INTO authorized_users (identifier, display_name, created_at, updated_at) VALUES ('operator@dummy.net', 'DevOps On-Call', '2026-10-05 14:20:00 UTC', '2026-10-05 14:20:00 UTC')")
+cursor.execute("INSERT INTO authorized_users (identifier, display_name, created_at, updated_at) VALUES ('auditor@dummy.net', 'Security Reviewer', '2026-10-08 09:15:00 UTC', '2026-10-08 09:15:00 UTC')")
 
 # Ensure bitwarden.dummy.net has ports 80, 443 with per-port match and url_path
 bitwarden_pp = json.dumps([
@@ -281,6 +289,15 @@ try:
 
     # 5. Settings & SMTP Alerts
     capture("settings", "/settings", height=920)
+
+    # 5b. Settings - Access Control & OIDC Users Tab
+    js_users_tab = """
+    (function() {
+      const tabBtn = document.getElementById('tab-users');
+      if (tabBtn) tabBtn.click();
+    })();
+    """
+    capture("settings_users", "/settings#users", js_action=js_users_tab, wait=1.2, height=920)
 
     # 6. Data Import & Export
     js_import = """

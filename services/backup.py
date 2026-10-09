@@ -47,18 +47,33 @@ def export_settings_encrypted(password: str) -> bytes:
 
     conn = get_db_connection()
     rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    user_rows = []
+    try:
+        user_rows = conn.execute("SELECT identifier, display_name, created_at, updated_at FROM authorized_users ORDER BY id ASC").fetchall()
+    except Exception:
+        pass
     conn.close()
 
     settings_dict = {}
     for row in rows:
         settings_dict[row["key"]] = row["value"]
 
+    users_list = []
+    for u in user_rows:
+        users_list.append({
+            "identifier": u["identifier"],
+            "display_name": u["display_name"] or "",
+            "created_at": u["created_at"],
+            "updated_at": u["updated_at"],
+        })
+
     payload = {
         "format": "pulsecheck-settings",
-        "version": 1,
+        "version": 2,
         "app_version": APP_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "settings": settings_dict,
+        "authorized_users": users_list,
     }
     payload_bytes = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
 
@@ -128,11 +143,13 @@ def import_settings_encrypted(file_content: bytes | str, password: str) -> tuple
         return False, "Decrypted package missing valid settings dictionary.", 0
 
     settings_to_apply = data["settings"]
-    if not settings_to_apply:
-        return False, "Backup file contains no settings entries.", 0
+    users_to_apply = data.get("authorized_users", [])
+    if not settings_to_apply and not users_to_apply:
+        return False, "Backup file contains no settings or user entries.", 0
 
-    # Write settings into DB within a single transaction
+    # Write settings and users into DB within a single transaction
     conn = get_db_connection()
+    restored_users_count = 0
     try:
         with conn:
             for k, v in settings_to_apply.items():
@@ -140,10 +157,34 @@ def import_settings_encrypted(file_content: bytes | str, password: str) -> tuple
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                     (str(k), str(v)),
                 )
+            if isinstance(users_to_apply, list):
+                for u in users_to_apply:
+                    if isinstance(u, dict) and u.get("identifier"):
+                        ident = str(u["identifier"]).strip()
+                        dname = str(u.get("display_name") or "").strip()
+                        c_at = u.get("created_at") or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                        u_at = u.get("updated_at") or c_at
+                        # Upsert user by identifier (case-insensitive check)
+                        existing = conn.execute("SELECT id FROM authorized_users WHERE LOWER(identifier) = LOWER(?)", (ident,)).fetchone()
+                        if existing:
+                            conn.execute(
+                                "UPDATE authorized_users SET identifier = ?, display_name = ?, updated_at = ? WHERE id = ?",
+                                (ident, dname, u_at, existing["id"]),
+                            )
+                        else:
+                            conn.execute(
+                                "INSERT INTO authorized_users (identifier, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                                (ident, dname, c_at, u_at),
+                            )
+                        restored_users_count += 1
     finally:
         conn.close()
 
-    return True, f"Successfully imported {len(settings_to_apply)} settings.", len(settings_to_apply)
+    msg = f"Successfully imported {len(settings_to_apply)} settings"
+    if restored_users_count > 0:
+        msg += f" and {restored_users_count} authorized users"
+    msg += "."
+    return True, msg, len(settings_to_apply)
 
 
 def trigger_server_restart(delay_seconds: float = 1.0) -> None:

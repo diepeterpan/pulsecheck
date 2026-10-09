@@ -60,7 +60,7 @@ Dedicated tabbed workflow for adding and editing services with automated network
 - **Response Token Highlighting**: Scrollable dark console viewer displaying HTTP headers and response body with matching tokens highlighted in real time.
 
 ### 4. System Settings & SMTP Configuration
-Centralized settings for automated notification dispatch, test emails, and HTTP proxy configuration.
+Centralized settings for automated notification dispatch, test emails, HTTP proxy configuration, and encrypted backup/restore.
 
 <p align="center">
   <img src="docs/screenshots/settings.png" alt="System Settings and Alerts" width="100%">
@@ -70,8 +70,23 @@ Centralized settings for automated notification dispatch, test emails, and HTTP 
 - **Automatic State Change Alerts**: Dispatches notifications when services transition between states (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
 - **Send Test Email**: Built-in verification tool to validate SMTP credentials and delivery path immediately.
 - **HTTP Proxy Server**: Centralized proxy configuration with per-service routing toggles.
+- **Encrypted Backup & Restore**: AES-256-GCM encrypted backup of all system settings and authorized user registries with automatic server reboot.
 
-### 5. Automated Email Alerts
+### 5. Access Control & OpenID Connect (OIDC) Authentication
+Protect administrative views with your corporate or self-hosted identity provider (Authelia, Authentik, Keycloak).
+
+<p align="center">
+  <img src="docs/screenshots/settings_users.png" alt="Users and Access Control Management" width="100%">
+</p>
+
+- **Public Status Dashboard by Default**: Live health indicators, service statuses, and check states remain publicly readable without requiring a login.
+- **Protected Administrative Endpoints**: Clicks on **Services**, **Import & Export**, or **Settings** seamlessly redirect unauthenticated visitors to your OIDC provider login and return them to their destination upon successful sign-in.
+- **Strict Authorization Registry (No Auto-Provisioning)**: Only explicitly approved accounts listed in PulseCheck's **Authorized Users** table are granted access.
+- **Configurable Claim Matching**: Match incoming tokens against user records using configurable claims (default `email`, or `preferred_username`, `sub`).
+- **User Administration**: Add, update, and revoke authorized users directly from the Settings interface.
+- **Initial Admin Bootstrapping**: Optional `PULSECHECK_OIDC_INITIAL_ADMIN` seeds the first administrator to prevent lockout when booting on clean installations.
+
+### 6. Automated Email Alerts
 Modern responsive HTML alert notifications dispatched to your inbox whenever a monitored service changes state.
 
 <p align="center">
@@ -83,7 +98,7 @@ Modern responsive HTML alert notifications dispatched to your inbox whenever a m
 - **One-Click Portal Access**: Direct "View Live Status" CTA button jumping straight to your PulseCheck dashboard.
 - **Branded Header & Footer**: Clean dark header with embedded logo and version, plus direct GitHub project link in the footer.
 
-### 6. Data Import & Export
+### 7. Data Import & Export
 Rapid onboarding and data portability through raw text blocks and standard CSV files.
 
 <p align="center">
@@ -173,11 +188,17 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
    pip install -r requirements.txt
    ```
 
-2. **Run PulseCheck**:
+2. **Run PulseCheck (Standard Mode)**:
    ```bash
    python app.py
    ```
    *When running in an interactive terminal, the console menu will appear.*
+
+   **Or Run in OIDC Development Mode**:
+   ```bash
+   ./run_dev_oidc.sh
+   ```
+   *Automatically creates `.env.oidc` from `.env.oidc.example` on first run to configure Authelia, Authentik, or Keycloak.*
 
 3. **Access the Web Interface**:
    Open your browser at [http://127.0.0.1:8182](http://127.0.0.1:8182).
@@ -270,6 +291,15 @@ PulseCheck includes built-in line-by-line performance profiling to pinpoint exac
 | `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a service check fails |
 | `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
 | `PULSECHECK_SCANNER_BYPASS_KEY` | `b94d27b9...` | Custom header `X-Scanner-Bypass-Key` value injected during `web` health checks, diagnostic probes, and direct service icon/favicon retrieval (can also use `SCANNER_BYPASS_KEY`) |
+| `PULSECHECK_OIDC_ENABLED` | `false` | Master toggle: when `true`, protects Services, Import/Export, and Settings with OIDC authentication |
+| `PULSECHECK_OIDC_ISSUER` | `""` | OpenID Connect discovery/issuer URL (e.g. `https://auth.example.com`) |
+| `PULSECHECK_OIDC_CLIENT_ID` | `""` | OIDC client identifier registered with your provider |
+| `PULSECHECK_OIDC_CLIENT_SECRET` | `""` | OIDC client secret registered with your provider |
+| `PULSECHECK_OIDC_REDIRECT_URI` | `""` | Explicit redirect URI callback (defaults to `<host>/auth/callback`) |
+| `PULSECHECK_OIDC_SCOPES` | `openid email profile` | OAuth 2.0 / OIDC scopes requested during login |
+| `PULSECHECK_OIDC_MATCH_CLAIM` | `email` | Token claim matched against `authorized_users` table (e.g. `email`, `preferred_username`, `sub`) |
+| `PULSECHECK_OIDC_INITIAL_ADMIN` | `""` | Admin user identifier auto-provisioned into database on first startup if table is empty |
+| `PULSECHECK_SECRET_KEY` | `pulsecheck-local-dev` | Flask session cookie encryption secret key |
 
 ---
 
@@ -314,7 +344,7 @@ PulseCheck uses [`aiohttp`](https://docs.aiohttp.org/) for high-throughput, non-
 
 ## Testing
 
-PulseCheck includes a comprehensive automated test suite (102 tests) covering settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
+PulseCheck includes a comprehensive automated test suite (148 tests) covering OIDC authentication and authorization, user administration, encrypted backup/restore, settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 

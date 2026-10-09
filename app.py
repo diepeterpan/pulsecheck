@@ -46,18 +46,23 @@ from core.config import *
 from core.database import *
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "pulsecheck-local-dev"
+app.config["SECRET_KEY"] = os.getenv("PULSECHECK_SECRET_KEY", "pulsecheck-local-dev")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 compress = Compress(app)
 
 
 @app.context_processor
 def inject_version():
+    from routes.auth import is_oidc_active
+    from flask import session
+    user = session.get("user") if is_oidc_active() else None
     return {
         "app_version": APP_VERSION,
         "version": APP_VERSION,
         "get_manufacturer_icon_url": get_manufacturer_icon_url,
         "get_service_icon_url": get_service_icon_url,
+        "oidc_enabled": is_oidc_active(),
+        "current_user": user,
     }
 
 
@@ -286,11 +291,18 @@ from routes.import_export import (
     import_status,
     cancel_import,
 )
+from routes.auth import auth_bp, init_oauth, is_oidc_active
 
 app.register_blueprint(home_bp)
 app.register_blueprint(services_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(import_bp)
+app.register_blueprint(auth_bp)
+
+try:
+    init_oauth(app)
+except Exception as _oauth_init_err:
+    print(f"[OIDC] Warning initializing OAuth client: {_oauth_init_err}", file=sys.stderr)
 
 
 def _resolve_blueprint_url(error, endpoint, values):
@@ -358,6 +370,8 @@ def ensure_app_initialized():
                 if LINE_PROFILER_ENABLED and GLOBAL_LINE_PROFILER is None:
                     enable_line_profiling()
                 init_db()
+                if OIDC_INITIAL_ADMIN:
+                    bootstrap_initial_admin(OIDC_INITIAL_ADMIN)
                 run_background_tasks()
                 _APP_INITIALIZED = True
 

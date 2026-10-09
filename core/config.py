@@ -42,8 +42,18 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.4.3")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.5.0 Alpha")
 __version__ = APP_VERSION
+
+# OIDC Configuration
+OIDC_ENABLED = os.getenv("PULSECHECK_OIDC_ENABLED", "FALSE").strip().lower() in ("true", "1", "yes")
+OIDC_ISSUER = os.getenv("PULSECHECK_OIDC_ISSUER", "").strip()
+OIDC_CLIENT_ID = os.getenv("PULSECHECK_OIDC_CLIENT_ID", "").strip()
+OIDC_CLIENT_SECRET = os.getenv("PULSECHECK_OIDC_CLIENT_SECRET", "").strip()
+OIDC_REDIRECT_URI = os.getenv("PULSECHECK_OIDC_REDIRECT_URI", "").strip()
+OIDC_SCOPES = os.getenv("PULSECHECK_OIDC_SCOPES", "openid email profile").strip()
+OIDC_MATCH_CLAIM = os.getenv("PULSECHECK_OIDC_MATCH_CLAIM", "email").strip()
+OIDC_INITIAL_ADMIN = os.getenv("PULSECHECK_OIDC_INITIAL_ADMIN", "").strip()
 
 if "profile" not in builtins.__dict__:
     def profile(func):
@@ -73,6 +83,7 @@ DEFAULT_SETTINGS = {
     "remote_source_key": "",
     "remote_source_command": "",
     "remote_source_timeout": "10",
+    "oidc_match_claim": OIDC_MATCH_CLAIM or "email",
 }
 
 

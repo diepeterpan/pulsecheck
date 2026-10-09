@@ -31,6 +31,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
           Backup &amp; Restore
         </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-users" aria-selected="false" aria-controls="panel-users" data-tab="users">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Users &amp; Access Control
+        </button>
       </div>
     </div>
 
@@ -765,6 +769,130 @@
           </div>
         </div>
       </div>
+
+      <!-- TAB F: Users & Access Control (OIDC & Authorized Users) -->
+      <div id="panel-users" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-users">
+        <div class="tab-2col-layout">
+          <!-- Left Column: OIDC Status & Configuration -->
+          <div class="tab-side-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                OIDC Provider Status
+              </h3>
+              {% if oidc_active %}
+                <span class="hub-tag" style="background: #ecfdf5; color: #059669; font-weight: 600;">OIDC Active</span>
+              {% else %}
+                <span class="hub-tag" style="background: #f1f5f9; color: #64748b; font-weight: 600;">Disabled</span>
+              {% endif %}
+            </div>
+            <p class="tab-card-subtitle">
+              PulseCheck delegates authentication to your OpenID Connect identity provider (e.g. Authelia, Authentik, Keycloak).
+            </p>
+
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">Integration Details</h3>
+              <div style="font-size: 0.85rem; color: #475569; margin-bottom: 14px; line-height: 1.5;">
+                <div style="margin-bottom: 8px;">
+                  <strong style="color: #1e293b;">OIDC Mode:</strong> 
+                  {% if oidc_active %}
+                    <span style="color: #059669; font-weight: 600;">Enabled</span> via <code>PULSECHECK_OIDC_ENABLED=true</code>
+                  {% else %}
+                    <span style="color: #64748b;">Disabled</span> (Public mode active)
+                  {% endif %}
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <strong style="color: #1e293b;">Issuer URL:</strong> 
+                  <span style="font-family: monospace; color: #2563eb;">{{ oidc_issuer or 'Not configured' }}</span>
+                </div>
+                <div style="margin-bottom: 8px;">
+                  <strong style="color: #1e293b;">Callback URI:</strong> 
+                  <span style="font-family: monospace; color: #64748b;">{{ request.host_url }}auth/callback</span>
+                </div>
+              </div>
+
+              <!-- Matched Claim Setting -->
+              <div class="form-group" style="margin-top: 16px;">
+                <label for="oidc_match_claim" style="font-weight: 600; font-size: 0.85rem; color: #334155; display: block; margin-bottom: 4px;">
+                  OIDC Claim for User Matching
+                </label>
+                <input type="text" id="oidc_match_claim" name="oidc_match_claim" value="{{ settings.get('oidc_match_claim', 'email') }}" placeholder="email" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
+                <p style="font-size: 0.78rem; color: #64748b; margin: 4px 0 0 0;">
+                  Claim in provider token matched against Authorized Users below (e.g. <code>email</code>, <code>preferred_username</code>, or <code>sub</code>).
+                </p>
+              </div>
+
+              <div style="display: flex; justify-content: flex-start; margin-top: 14px;">
+                <button type="submit" class="button secondary" style="font-size: 0.82rem; padding: 6px 14px;">
+                  Save Claim Preference
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Authorized Users Management Table -->
+          <div class="tab-main-card">
+            <div class="tab-card-header">
+              <div>
+                <h3 style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  Authorized Users
+                </h3>
+                <span class="tab-card-subtitle" style="display: block; margin-top: 4px;">
+                  Only explicitly permitted users have access to Services, Import/Export, and Settings. There is no auto-provisioning.
+                </span>
+              </div>
+              <button type="button" class="button primary" id="btn-open-add-user-modal" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 7px 14px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add User
+              </button>
+            </div>
+
+            <div class="table-container" style="margin-top: 14px; overflow-x: auto;">
+              <table class="services-table" id="users-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
+                <thead>
+                  <tr style="border-bottom: 2px solid #e2e8f0; background: #f8fafc;">
+                    <th style="padding: 10px 12px; font-weight: 600; color: #475569;">User Identifier (Claim Value)</th>
+                    <th style="padding: 10px 12px; font-weight: 600; color: #475569;">Display Name / Description</th>
+                    <th style="padding: 10px 12px; font-weight: 600; color: #475569;">Added On</th>
+                    <th style="padding: 10px 12px; font-weight: 600; color: #475569; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="users-table-body">
+                  {% if authorized_users %}
+                    {% for u in authorized_users %}
+                      <tr data-user-id="{{ u.id }}" data-identifier="{{ u.identifier }}" data-display-name="{{ u.display_name or '' }}" style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 10px 12px; font-weight: 600; color: #1e293b;">
+                          <div style="display: flex; align-items: center; gap: 6px;">
+                            <span>{{ u.identifier }}</span>
+                            {% if current_user and current_user.identifier and current_user.identifier.lower() == u.identifier.lower() %}
+                              <span style="font-size: 0.7rem; font-weight: 700; background: #dbeafe; color: #1d4ed8; padding: 2px 6px; border-radius: 9999px;">You</span>
+                            {% endif %}
+                          </div>
+                        </td>
+                        <td style="padding: 10px 12px; color: #64748b;">{{ u.display_name or '—' }}</td>
+                        <td style="padding: 10px 12px; color: #94a3b8; font-size: 0.82rem;">{{ u.created_at }}</td>
+                        <td style="padding: 10px 12px; text-align: right;">
+                          <div style="display: inline-flex; gap: 6px;">
+                            <button type="button" class="button secondary btn-edit-user" data-user-id="{{ u.id }}" style="padding: 4px 8px; font-size: 0.78rem;">Edit</button>
+                            <button type="button" class="button secondary btn-delete-user" data-user-id="{{ u.id }}" data-identifier="{{ u.identifier }}" style="padding: 4px 8px; font-size: 0.78rem; color: #ef4444; border-color: #fecaca;">Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  {% else %}
+                    <tr id="no-users-row">
+                      <td colspan="4" style="text-align: center; padding: 24px; color: #94a3b8; font-size: 0.9rem;">
+                        No authorized users configured yet. Click "Add User" to grant access to an OIDC account.
+                      </td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
     </form>
   </section>
 
@@ -845,6 +973,50 @@
     </div>
   </div>
 
+  <!-- MODAL: Add / Edit User Dialog -->
+  <div id="modal-user-form" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1050; backdrop-filter: blur(2px);">
+    <div style="background: white; border-radius: 12px; width: min(460px, 92vw); padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: #2563eb; flex-shrink: 0;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; color: #0f172a;" id="user-modal-title">Add Authorized User</h3>
+          <p style="margin: 0; font-size: 0.82rem; color: #64748b;" id="user-modal-subtitle">Grant access to an OIDC account identifier</p>
+        </div>
+      </div>
+
+      <input type="hidden" id="user-modal-id" value="">
+
+      <div style="margin-bottom: 14px;">
+        <label for="user-modal-identifier" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          User Identifier (Matched Claim Value) <span style="color: #dc2626;">*</span>
+        </label>
+        <input type="text" id="user-modal-identifier" placeholder="e.g. user@example.com or username" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" required>
+        <p style="font-size: 0.78rem; color: #64748b; margin: 4px 0 0 0;">
+          Must exactly match the value returned by your OIDC provider for claim <code>{{ settings.get('oidc_match_claim', 'email') }}</code>.
+        </p>
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label for="user-modal-name" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Display Name / Description (Optional)
+        </label>
+        <input type="text" id="user-modal-name" placeholder="e.g. Primary Admin or John Doe" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;">
+      </div>
+
+      <div id="user-modal-error" class="hidden" style="color: #dc2626; font-size: 0.83rem; margin-bottom: 14px; background: #fef2f2; padding: 8px 10px; border-radius: 6px;"></div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
+        <button type="button" id="btn-user-modal-cancel" class="button secondary">Cancel</button>
+        <button type="button" id="btn-user-modal-save" class="button primary" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Save User
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- OVERLAY: Restarting System Progress Screen -->
   <div id="overlay-system-restarting" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 2000; color: white; backdrop-filter: blur(4px);">
     <div style="background: white; border-radius: 16px; padding: 36px 32px; width: min(440px, 90vw); text-align: center; color: #0f172a; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
@@ -888,6 +1060,7 @@
       'source': document.getElementById('panel-source'),
       'icons': document.getElementById('panel-icons'),
       'backup': document.getElementById('panel-backup'),
+      'users': document.getElementById('panel-users'),
     };
     const activeTabInput = document.getElementById('active_tab_input');
 
@@ -1992,6 +2165,130 @@
             }
           });
       }, 1800);
+    }
+
+    // User Management JavaScript Handlers
+    const modalUserForm = document.getElementById('modal-user-form');
+    const userModalTitle = document.getElementById('user-modal-title');
+    const userModalSubtitle = document.getElementById('user-modal-subtitle');
+    const userModalId = document.getElementById('user-modal-id');
+    const userModalIdentifier = document.getElementById('user-modal-identifier');
+    const userModalName = document.getElementById('user-modal-name');
+    const userModalError = document.getElementById('user-modal-error');
+    const btnOpenAddUser = document.getElementById('btn-open-add-user-modal');
+    const btnUserModalCancel = document.getElementById('btn-user-modal-cancel');
+    const btnUserModalSave = document.getElementById('btn-user-modal-save');
+
+    function openAddUserModal() {
+      userModalId.value = '';
+      userModalIdentifier.value = '';
+      userModalName.value = '';
+      userModalTitle.textContent = 'Add Authorized User';
+      userModalSubtitle.textContent = 'Grant access to an OIDC account identifier';
+      userModalError.classList.add('hidden');
+      userModalError.textContent = '';
+      modalUserForm.classList.remove('hidden');
+      userModalIdentifier.focus();
+    }
+
+    function openEditUserModal(id, identifier, displayName) {
+      userModalId.value = id;
+      userModalIdentifier.value = identifier;
+      userModalName.value = displayName;
+      userModalTitle.textContent = 'Edit Authorized User';
+      userModalSubtitle.textContent = `Update authorization settings for ${identifier}`;
+      userModalError.classList.add('hidden');
+      userModalError.textContent = '';
+      modalUserForm.classList.remove('hidden');
+      userModalIdentifier.focus();
+    }
+
+    function closeUserModal() {
+      modalUserForm.classList.add('hidden');
+    }
+
+    if (btnOpenAddUser) {
+      btnOpenAddUser.addEventListener('click', openAddUserModal);
+    }
+    if (btnUserModalCancel) {
+      btnUserModalCancel.addEventListener('click', closeUserModal);
+    }
+
+    // Attach edit and delete listeners to table
+    function attachUserRowEvents() {
+      document.querySelectorAll('.btn-edit-user').forEach(btn => {
+        btn.onclick = () => {
+          const row = btn.closest('tr');
+          const id = btn.dataset.userId;
+          const identifier = row.dataset.identifier;
+          const displayName = row.dataset.displayName;
+          openEditUserModal(id, identifier, displayName);
+        };
+      });
+
+      document.querySelectorAll('.btn-delete-user').forEach(btn => {
+        btn.onclick = async () => {
+          const id = btn.dataset.userId;
+          const identifier = btn.dataset.identifier;
+          if (!confirm(`Are you sure you want to revoke access for user '${identifier}'?\n\nThey will immediately be blocked from accessing protected menus.`)) {
+            return;
+          }
+          try {
+            const resp = await fetch(`/api/settings/users/${id}/delete`, { method: 'POST' });
+            const res = await resp.json();
+            if (res.success) {
+              window.location.href = '/settings#users';
+              window.location.reload();
+            } else {
+              alert(`Error: ${res.error || 'Failed to delete user'}`);
+            }
+          } catch (err) {
+            alert(`Network error: ${err.message}`);
+          }
+        };
+      });
+    }
+
+    attachUserRowEvents();
+
+    if (btnUserModalSave) {
+      btnUserModalSave.addEventListener('click', async () => {
+        const id = userModalId.value;
+        const identifier = userModalIdentifier.value.trim();
+        const displayName = userModalName.value.trim();
+
+        if (!identifier) {
+          userModalError.textContent = 'User identifier is required.';
+          userModalError.classList.remove('hidden');
+          return;
+        }
+
+        btnUserModalSave.disabled = true;
+        userModalError.classList.add('hidden');
+
+        const url = id ? `/api/settings/users/${id}/update` : '/api/settings/users/add';
+        try {
+          const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: identifier, display_name: displayName })
+          });
+          const res = await resp.json();
+          if (res.success) {
+            closeUserModal();
+            window.location.href = '/settings#users';
+            window.location.reload();
+          } else {
+            userModalError.textContent = res.error || 'Failed to save user.';
+            userModalError.classList.remove('hidden');
+          }
+        } catch (err) {
+          userModalError.textContent = `Network error: ${err.message}`;
+          userModalError.classList.remove('hidden');
+        } finally {
+          btnUserModalSave.disabled = false;
+        }
+      });
     }
   </script>
 {% endblock %}

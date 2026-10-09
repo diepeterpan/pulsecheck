@@ -666,6 +666,103 @@ def save_settings(new_settings: dict[str, str]) -> None:
     conn.close()
 
 
+def get_authorized_users() -> list[sqlite3.Row]:
+    conn = get_db_connection()
+    rows = conn.execute("SELECT id, identifier, display_name, created_at, updated_at FROM authorized_users ORDER BY id ASC").fetchall()
+    conn.close()
+    return rows
+
+
+def get_authorized_user_by_id(user_id: int) -> sqlite3.Row | None:
+    conn = get_db_connection()
+    row = conn.execute("SELECT id, identifier, display_name, created_at, updated_at FROM authorized_users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return row
+
+
+def get_authorized_user_by_identifier(identifier: str) -> sqlite3.Row | None:
+    if not identifier:
+        return None
+    conn = get_db_connection()
+    row = conn.execute("SELECT id, identifier, display_name, created_at, updated_at FROM authorized_users WHERE LOWER(identifier) = LOWER(?)", (identifier.strip(),)).fetchone()
+    conn.close()
+    return row
+
+
+def is_user_authorized(identifier: str) -> bool:
+    if not identifier:
+        return False
+    conn = get_db_connection()
+    row = conn.execute("SELECT 1 FROM authorized_users WHERE LOWER(identifier) = LOWER(?)", (identifier.strip(),)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def add_authorized_user(identifier: str, display_name: str = "") -> int:
+    ident = (identifier or "").strip()
+    if not ident:
+        raise ValueError("User identifier cannot be empty.")
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "INSERT INTO authorized_users (identifier, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            (ident, (display_name or "").strip(), now_str, now_str),
+        )
+        user_id = cur.lastrowid
+        conn.commit()
+        return user_id
+    finally:
+        conn.close()
+
+
+def update_authorized_user(user_id: int, identifier: str, display_name: str = "") -> bool:
+    ident = (identifier or "").strip()
+    if not ident:
+        raise ValueError("User identifier cannot be empty.")
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    conn = get_db_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE authorized_users SET identifier = ?, display_name = ?, updated_at = ? WHERE id = ?",
+            (ident, (display_name or "").strip(), now_str, user_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def delete_authorized_user(user_id: int) -> bool:
+    conn = get_db_connection()
+    try:
+        cur = conn.execute("DELETE FROM authorized_users WHERE id = ?", (user_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def bootstrap_initial_admin(admin_identifier: str = "") -> bool:
+    admin_ident = (admin_identifier or "").strip()
+    if not admin_ident:
+        return False
+    conn = get_db_connection()
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM authorized_users").fetchone()[0]
+        if count == 0:
+            now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            conn.execute(
+                "INSERT INTO authorized_users (identifier, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (admin_ident, "Initial Administrator", now_str, now_str),
+            )
+            conn.commit()
+            return True
+        return False
+    finally:
+        conn.close()
+
+
 def get_status_rows():
     conn = get_db_connection()
     check_rows = conn.execute(
@@ -837,6 +934,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS authorized_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            identifier TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            display_name TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
         """
     )
