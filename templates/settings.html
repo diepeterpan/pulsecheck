@@ -27,6 +27,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           Icons
         </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-backup" aria-selected="false" aria-controls="panel-backup" data-tab="backup">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Backup &amp; Restore
+        </button>
       </div>
     </div>
 
@@ -682,8 +686,198 @@
           </div>
         </div>
       </div>
+
+      <!-- TAB E: Backup & Restore (Export / Import Settings) -->
+      <div id="panel-backup" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-backup">
+        <div class="tab-2col-layout">
+          <!-- Left Column: Export Settings -->
+          <div class="tab-main-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export Settings Backup
+              </h3>
+              <span class="hub-tag" style="background: #eff6ff; color: #2563eb;">Encrypted Backup</span>
+            </div>
+            <p class="tab-card-subtitle">
+              Export an encrypted backup of all system configuration, including SMTP credentials, HTTP proxy configurations, remote service discovery connections, and icon domain mappings.
+            </p>
+
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Security &amp; Encryption Guarantee
+              </h3>
+              <p style="font-size: 0.88rem; color: #475569; margin: 0 0 14px 0; line-height: 1.5;">
+                All sensitive configurations (including mail passwords, proxy credentials, and private SSH keys) are securely encrypted using industry-standard <strong>AES-256-GCM</strong> and a key derived via <strong>PBKDF2-HMAC-SHA256</strong> (100,000 iterations).
+              </p>
+              <ul style="font-size: 0.85rem; color: #64748b; margin: 0 0 18px 20px; line-height: 1.55;">
+                <li>Full backup of all configuration keys from the system settings repository</li>
+                <li>Single self-contained <code>.pulsecheck-settings</code> encrypted file</li>
+                <li>Passphrase is strictly required to both create and decrypt this backup</li>
+              </ul>
+
+              <div style="display: flex; align-items: center; justify-content: flex-start; margin-top: 10px;">
+                <button type="button" class="button primary" id="btn-open-export-modal" style="display: inline-flex; align-items: center; gap: 8px;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export Settings...
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Column: Import Settings -->
+          <div class="tab-side-card">
+            <div class="tab-card-header">
+              <h3>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #059669;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Restore Settings Backup
+              </h3>
+              <span class="hub-tag" style="background: #ecfdf5; color: #059669;">Auto Restart</span>
+            </div>
+            <p class="tab-card-subtitle">
+              Upload and decrypt a previous PulseCheck settings backup. After applying new settings, PulseCheck will automatically restart.
+            </p>
+
+            <div class="settings-section-block">
+              <h3 class="settings-section-title">Select Backup File</h3>
+              
+              <!-- Dropzone / File Picker -->
+              <div id="backup-file-dropzone" style="border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px 16px; text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s ease;">
+                <input type="file" id="backup-file-input" accept=".pulsecheck-settings,.json" style="display: none;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color: #64748b; margin-bottom: 8px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+                <div style="font-size: 0.9rem; font-weight: 600; color: #334155;" id="backup-file-name-display">Choose a .pulsecheck-settings file or drag here</div>
+                <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 4px;">Only encrypted PulseCheck backup archives are supported</div>
+              </div>
+
+              <div id="backup-import-warning" style="margin-top: 14px; padding: 10px 12px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; font-size: 0.82rem; color: #92400e; display: flex; align-items: flex-start; gap: 8px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span>Restoring settings will overwrite matching configuration entries and restart PulseCheck immediately upon completion.</span>
+              </div>
+
+              <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button type="button" class="button primary" id="btn-open-import-modal" disabled style="display: inline-flex; align-items: center; gap: 8px; opacity: 0.6; cursor: not-allowed;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Restore Settings...
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </form>
   </section>
+
+  <!-- MODAL: Export Settings Password Dialog -->
+  <div id="modal-settings-export" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1050; backdrop-filter: blur(2px);">
+    <div style="background: white; border-radius: 12px; width: min(460px, 92vw); padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: #2563eb; flex-shrink: 0;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; color: #0f172a;">Password-Protect Export</h3>
+          <p style="margin: 0; font-size: 0.82rem; color: #64748b;">Enter a mandatory passphrase to encrypt your backup</p>
+        </div>
+      </div>
+      <p style="font-size: 0.87rem; color: #475569; margin: 0 0 16px 0; line-height: 1.45;">
+        Choose a strong passphrase. You will need this exact passphrase later to restore or decrypt these settings.
+      </p>
+
+      <div style="margin-bottom: 14px;">
+        <label for="export-modal-pwd" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Passphrase <span style="color: #dc2626;">*</span>
+        </label>
+        <input type="password" id="export-modal-pwd" placeholder="Enter encryption passphrase" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="new-password">
+      </div>
+
+      <div style="margin-bottom: 14px;">
+        <label for="export-modal-pwd-confirm" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Confirm Passphrase <span style="color: #dc2626;">*</span>
+        </label>
+        <input type="password" id="export-modal-pwd-confirm" placeholder="Re-enter encryption passphrase" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="new-password">
+      </div>
+
+      <div id="export-modal-error" class="hidden" style="color: #dc2626; font-size: 0.83rem; margin-bottom: 14px; background: #fef2f2; padding: 8px 10px; border-radius: 6px;"></div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
+        <button type="button" id="btn-export-modal-cancel" class="button secondary">Cancel</button>
+        <button type="button" id="btn-export-modal-confirm" class="button primary" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Encrypt &amp; Download
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Import Settings Password Dialog -->
+  <div id="modal-settings-import" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); display: flex; justify-content: center; align-items: center; z-index: 1050; backdrop-filter: blur(2px);">
+    <div style="background: white; border-radius: 12px; width: min(460px, 92vw); padding: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <div style="width: 40px; height: 40px; border-radius: 10px; background: #ecfdf5; display: flex; align-items: center; justify-content: center; color: #059669; flex-shrink: 0;">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; color: #0f172a;">Decrypt &amp; Restore Settings</h3>
+          <p style="margin: 0; font-size: 0.82rem; color: #64748b;">Enter the decryption passphrase for this backup</p>
+        </div>
+      </div>
+      <p style="font-size: 0.87rem; color: #475569; margin: 0 0 16px 0; line-height: 1.45;">
+        This file is encrypted. Provide the passphrase used during export to unlock and apply settings.
+      </p>
+
+      <div style="margin-bottom: 14px;">
+        <label for="import-modal-pwd" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Decryption Passphrase <span style="color: #dc2626;">*</span>
+        </label>
+        <input type="password" id="import-modal-pwd" placeholder="Enter decryption passphrase" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="current-password">
+      </div>
+
+      <div id="import-modal-error" class="hidden" style="color: #dc2626; font-size: 0.83rem; margin-bottom: 14px; background: #fef2f2; padding: 8px 10px; border-radius: 6px;"></div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
+        <button type="button" id="btn-import-modal-cancel" class="button secondary">Cancel</button>
+        <button type="button" id="btn-import-modal-confirm" class="button primary" style="background: #059669; border-color: #059669; display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          Unlock &amp; Restore
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OVERLAY: Restarting System Progress Screen -->
+  <div id="overlay-system-restarting" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 2000; color: white; backdrop-filter: blur(4px);">
+    <div style="background: white; border-radius: 16px; padding: 36px 32px; width: min(440px, 90vw); text-align: center; color: #0f172a; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+      <div style="width: 56px; height: 56px; margin: 0 auto 18px auto; border-radius: 50%; background: #ecfdf5; display: flex; align-items: center; justify-content: center; color: #059669;">
+        <svg class="spin-animation" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+      </div>
+      <h3 style="margin: 0 0 8px 0; font-size: 1.25rem;">Applying Settings &amp; Restarting</h3>
+      <p style="margin: 0 0 20px 0; font-size: 0.88rem; color: #64748b; line-height: 1.5;">
+        Settings have been successfully restored to the database. PulseCheck is rebooting to load your changes...
+      </p>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.82rem; color: #059669; font-weight: 600;">
+        <span class="pulse-dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #059669;"></span>
+        <span id="restarting-status-text">Reconnecting to server...</span>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spin-animation {
+      animation: spin 1.4s linear infinite;
+    }
+    @keyframes pulse-anim {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    .pulse-dot {
+      animation: pulse-anim 1.2s ease-in-out infinite;
+    }
+  </style>
 
   <script>
     // Tab Navigation Logic
@@ -693,6 +887,7 @@
       'proxy': document.getElementById('panel-proxy'),
       'source': document.getElementById('panel-source'),
       'icons': document.getElementById('panel-icons'),
+      'backup': document.getElementById('panel-backup'),
     };
     const activeTabInput = document.getElementById('active_tab_input');
 
@@ -730,7 +925,7 @@
       });
     });
 
-    // Deep-linking via URL hash (e.g. #proxy, #source, #smtp, #icons)
+    // Deep-linking via URL hash (e.g. #proxy, #source, #smtp, #icons, #backup)
     window.addEventListener('DOMContentLoaded', () => {
       const hash = (window.location.hash || '').replace('#', '').toLowerCase();
       if (hash === 'proxy' || hash === 'http-proxy' || hash === 'httpproxy') {
@@ -739,6 +934,8 @@
         activateTab('source');
       } else if (hash === 'icons' || hash === 'icon') {
         activateTab('icons');
+      } else if (hash === 'backup' || hash === 'restore' || hash === 'export' || hash === 'import') {
+        activateTab('backup');
       } else {
         activateTab('smtp');
       }
@@ -1536,5 +1733,265 @@
     document.getElementById('btn-mfg-reset-prefixes')?.addEventListener('click', () => resetMapping('regional_prefixes'));
     document.getElementById('btn-svc-reset-domains')?.addEventListener('click', () => resetMapping('known_service_domains'));
     document.getElementById('btn-html-reset')?.addEventListener('click', () => resetMapping('html_content_icon_mappings'));
+
+    // ==========================================
+    // BACKUP & RESTORE (EXPORT / IMPORT) LOGIC
+    // ==========================================
+    const modalExport = document.getElementById('modal-settings-export');
+    const modalImport = document.getElementById('modal-settings-import');
+    const overlayRestarting = document.getElementById('overlay-system-restarting');
+    const btnOpenExport = document.getElementById('btn-open-export-modal');
+    const btnOpenImport = document.getElementById('btn-open-import-modal');
+    const btnExportCancel = document.getElementById('btn-export-modal-cancel');
+    const btnExportConfirm = document.getElementById('btn-export-modal-confirm');
+    const btnImportCancel = document.getElementById('btn-import-modal-cancel');
+    const btnImportConfirm = document.getElementById('btn-import-modal-confirm');
+    const exportPwdInput = document.getElementById('export-modal-pwd');
+    const exportPwdConfirmInput = document.getElementById('export-modal-pwd-confirm');
+    const exportErrorBox = document.getElementById('export-modal-error');
+    const importPwdInput = document.getElementById('import-modal-pwd');
+    const importErrorBox = document.getElementById('import-modal-error');
+
+    const fileInput = document.getElementById('backup-file-input');
+    const fileDropzone = document.getElementById('backup-file-dropzone');
+    const fileNameDisplay = document.getElementById('backup-file-name-display');
+
+    let selectedBackupFile = null;
+
+    // File selection & Drag-and-drop
+    if (fileDropzone && fileInput) {
+      fileDropzone.addEventListener('click', () => fileInput.click());
+
+      fileDropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fileDropzone.style.borderColor = '#2563eb';
+        fileDropzone.style.background = '#eff6ff';
+      });
+
+      ['dragleave', 'dragend'].forEach(evt => {
+        fileDropzone.addEventListener(evt, () => {
+          fileDropzone.style.borderColor = '#cbd5e1';
+          fileDropzone.style.background = '#f8fafc';
+        });
+      });
+
+      fileDropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        fileDropzone.style.borderColor = '#cbd5e1';
+        fileDropzone.style.background = '#f8fafc';
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleFileChosen(e.dataTransfer.files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files && fileInput.files.length > 0) {
+          handleFileChosen(fileInput.files[0]);
+        }
+      });
+    }
+
+    function handleFileChosen(file) {
+      selectedBackupFile = file;
+      if (fileNameDisplay) {
+        fileNameDisplay.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        fileNameDisplay.style.color = '#059669';
+      }
+      if (btnOpenImport) {
+        btnOpenImport.disabled = false;
+        btnOpenImport.style.opacity = '1';
+        btnOpenImport.style.cursor = 'pointer';
+      }
+    }
+
+    // Export Modal Open/Close
+    btnOpenExport?.addEventListener('click', () => {
+      exportPwdInput.value = '';
+      exportPwdConfirmInput.value = '';
+      exportErrorBox.classList.add('hidden');
+      exportErrorBox.textContent = '';
+      modalExport.classList.remove('hidden');
+      setTimeout(() => exportPwdInput.focus(), 50);
+    });
+
+    btnExportCancel?.addEventListener('click', () => {
+      modalExport.classList.add('hidden');
+    });
+
+    // Perform Export Download
+    btnExportConfirm?.addEventListener('click', async () => {
+      const pwd = exportPwdInput.value;
+      const pwdConfirm = exportPwdConfirmInput.value;
+
+      if (!pwd) {
+        showExportError('Please enter an encryption passphrase.');
+        return;
+      }
+      if (pwd !== pwdConfirm) {
+        showExportError('Passphrases do not match. Please verify.');
+        return;
+      }
+
+      exportErrorBox.classList.add('hidden');
+      btnExportConfirm.disabled = true;
+      btnExportConfirm.textContent = 'Encrypting...';
+
+      try {
+        const formData = new FormData();
+        formData.append('password', pwd);
+
+        const response = await fetch('/api/settings/backup/export', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Server responded with status ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        let filename = 'pulsecheck-settings.pulsecheck-settings';
+        const disposition = response.headers.get('Content-Disposition');
+        if (disposition && disposition.indexOf('filename=') !== -1) {
+          const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+          if (matches != null && matches[1]) {
+            filename = matches[1].replace(/['"]/g, '');
+          }
+        }
+
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(downloadUrl);
+        a.remove();
+
+        modalExport.classList.add('hidden');
+      } catch (err) {
+        showExportError(err.message || 'Failed to export settings.');
+      } finally {
+        btnExportConfirm.disabled = false;
+        btnExportConfirm.innerHTML = `
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Encrypt &amp; Download
+        `;
+      }
+    });
+
+    function showExportError(msg) {
+      exportErrorBox.textContent = msg;
+      exportErrorBox.classList.remove('hidden');
+    }
+
+    // Import Modal Open/Close
+    btnOpenImport?.addEventListener('click', () => {
+      if (!selectedBackupFile) {
+        alert('Please select a backup file first.');
+        return;
+      }
+      importPwdInput.value = '';
+      importErrorBox.classList.add('hidden');
+      importErrorBox.textContent = '';
+      modalImport.classList.remove('hidden');
+      setTimeout(() => importPwdInput.focus(), 50);
+    });
+
+    btnImportCancel?.addEventListener('click', () => {
+      modalImport.classList.add('hidden');
+    });
+
+    // Perform Import & Restart
+    btnImportConfirm?.addEventListener('click', async () => {
+      const pwd = importPwdInput.value;
+      if (!pwd) {
+        showImportError('Please enter the decryption passphrase.');
+        return;
+      }
+      if (!selectedBackupFile) {
+        showImportError('No backup file selected.');
+        return;
+      }
+
+      importErrorBox.classList.add('hidden');
+      btnImportConfirm.disabled = true;
+      btnImportConfirm.textContent = 'Decrypting & Restoring...';
+
+      try {
+        const formData = new FormData();
+        formData.append('file', selectedBackupFile);
+        formData.append('password', pwd);
+
+        const response = await fetch('/api/settings/backup/import', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok || !result.success) {
+          throw new Error(result.error || `Restore failed (${response.status})`);
+        }
+
+        // Close import modal and show full-page restarting overlay
+        modalImport.classList.add('hidden');
+        if (overlayRestarting) {
+          overlayRestarting.classList.remove('hidden');
+        }
+
+        pollServerRestart();
+      } catch (err) {
+        showImportError(err.message || 'Error importing settings.');
+        btnImportConfirm.disabled = false;
+        btnImportConfirm.innerHTML = `
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          Unlock &amp; Restore
+        `;
+      }
+    });
+
+    function showImportError(msg) {
+      importErrorBox.textContent = msg;
+      importErrorBox.classList.remove('hidden');
+    }
+
+    // Ping server until back online, then reload
+    function pollServerRestart() {
+      const statusText = document.getElementById('restarting-status-text');
+      let attempts = 0;
+      const maxAttempts = 30;
+
+      // Allow 1.8 seconds initial grace for server to shut down and re-exec
+      setTimeout(function checkHealth() {
+        attempts++;
+        if (statusText) {
+          statusText.textContent = `Reconnecting to PulseCheck (attempt ${attempts})...`;
+        }
+
+        fetch('/status', { method: 'HEAD', cache: 'no-store' })
+          .then((res) => {
+            if (res.ok || res.status < 500) {
+              if (statusText) statusText.textContent = 'PulseCheck online! Reloading...';
+              setTimeout(() => {
+                window.location.href = '/settings#backup';
+                window.location.reload();
+              }, 700);
+            } else {
+              throw new Error('Not ready');
+            }
+          })
+          .catch(() => {
+            if (attempts < maxAttempts) {
+              setTimeout(checkHealth, 1500);
+            } else {
+              if (statusText) statusText.textContent = 'Server restart taking longer than expected. Click to refresh.';
+              statusText.style.cursor = 'pointer';
+              statusText.onclick = () => window.location.reload();
+            }
+          });
+      }, 1800);
+    }
   </script>
 {% endblock %}

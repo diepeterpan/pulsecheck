@@ -246,6 +246,8 @@ from routes.settings import (
     api_get_icon_mappings,
     api_save_icon_mappings,
     api_reset_icon_mappings,
+    api_backup_export,
+    api_backup_import,
 )
 from routes.import_export import (
     import_bp,

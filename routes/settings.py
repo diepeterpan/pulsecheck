@@ -31,6 +31,11 @@ from core.database import (
     save_settings,
     get_current_local_time_str,
 )
+from services.backup import (
+    export_settings_encrypted,
+    import_settings_encrypted,
+    trigger_server_restart,
+)
 from services.notifications import send_email
 from services.icons import (
     get_manufacturer_icons_dir,
@@ -500,7 +505,7 @@ def settings_route():
         # Redirect back to tab if specified
         active_tab = request.form.get("active_tab", "")
         redirect_url = url_for("settings_route")
-        if active_tab in ("smtp", "proxy", "source", "icons"):
+        if active_tab in ("smtp", "proxy", "source", "icons", "backup"):
             redirect_url += f"#{active_tab}"
         return redirect(redirect_url)
 
@@ -805,3 +810,70 @@ def api_reset_icon_mappings():
         })
     except Exception as exc:
         return jsonify({"success": False, "error": f"Database error resetting mapping: {exc}"}), 500
+
+
+@settings_bp.route("/api/settings/backup/export", methods=["POST"], endpoint="api_backup_export")
+def api_backup_export():
+    """Export encrypted settings package as a downloadable attachment."""
+    from flask import Response
+    from datetime import datetime
+
+    password = request.form.get("password") or ""
+    if not password.strip():
+        # Also check JSON body if posted as application/json
+        data = request.get_json(silent=True) or {}
+        password = data.get("password", "")
+
+    if not password or not str(password).strip():
+        return jsonify({"success": False, "error": "Password is required to export settings."}), 400
+
+    try:
+        encrypted_bytes = export_settings_encrypted(password.strip())
+        now_tag = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"pulsecheck-settings-{now_tag}.pulsecheck-settings"
+
+        return Response(
+            encrypted_bytes,
+            mimetype="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": "application/octet-stream",
+            },
+        )
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Failed to export settings: {exc}"}), 500
+
+
+@settings_bp.route("/api/settings/backup/import", methods=["POST"], endpoint="api_backup_import")
+def api_backup_import():
+    """Import encrypted settings package and trigger graceful server restart."""
+    password = request.form.get("password") or ""
+    if not password.strip():
+        return jsonify({"success": False, "error": "Decryption password is required."}), 400
+
+    uploaded_file = request.files.get("file")
+    if not uploaded_file:
+        return jsonify({"success": False, "error": "No settings backup file was uploaded."}), 400
+
+    try:
+        content_bytes = uploaded_file.read()
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Could not read uploaded file: {exc}"}), 400
+
+    if not content_bytes:
+        return jsonify({"success": False, "error": "Uploaded file is empty."}), 400
+
+    success, message, count = import_settings_encrypted(content_bytes, password.strip())
+    if not success:
+        return jsonify({"success": False, "error": message}), 400
+
+    # Trigger graceful restart after 1.0 second delay to allow response delivery
+    trigger_server_restart(delay_seconds=1.0)
+
+    return jsonify({
+        "success": True,
+        "message": f"{message} PulseCheck is restarting to apply changes...",
+        "count": count,
+        "restarting": True,
+    })
+
