@@ -446,6 +446,20 @@ invalid service host,,,,,
         self.assertEqual(res_icmp["ports"][0]["protocol"], "icmp-ping")
         self.assertEqual(res_icmp["discovered_protocol"], "icmp-ping")
 
+    def test_build_dtls_client_hello_struct_packing(self):
+        # Verify that build_dtls_client_hello creates valid packets with and without hostnames without missing imports
+        from services.scanner import build_dtls_client_hello
+        packet_with_host = build_dtls_client_hello("DCS930L.galleon.co.za")
+        self.assertIsInstance(packet_with_host, bytes)
+        self.assertTrue(len(packet_with_host) > 50)
+        # Check DTLS record header starts with content type 22 (handshake) and DTLS 1.2 version (\xfe\xfd)
+        self.assertEqual(packet_with_host[0], 22)
+        self.assertEqual(packet_with_host[1:3], b"\xfe\xfd")
+
+        packet_no_host = build_dtls_client_hello("")
+        self.assertIsInstance(packet_no_host, bytes)
+        self.assertTrue(len(packet_no_host) > 30)
+
     def test_scan_service_skips_ports_without_protocol(self):
         # Service created with a port that has no protocol
         conn = pulsecheck_app.get_db_connection()
@@ -503,10 +517,10 @@ invalid service host,,,,,
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 3)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response")
-        self.assertIn("dns-server.local,,0,0,udp,53,web,,dns,,", lines)
-        self.assertIn("vpn-gateway.local,,0,0,udp-ssl,4433,web,,vpn,,", lines)
-        self.assertIn("core-router.local,,0,0,icmp-ping,1,web,,router,,", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response,HTTP Username,HTTP Password")
+        self.assertIn("dns-server.local,,0,0,udp,53,web,,dns,,,,", lines)
+        self.assertIn("vpn-gateway.local,,0,0,udp-ssl,4433,web,,vpn,,,,", lines)
+        self.assertIn("core-router.local,,0,0,icmp-ping,1,web,,router,,,,", lines)
 
         # 3. Clean DB and import the CSV
         conn = pulsecheck_app.get_db_connection()
@@ -1149,8 +1163,9 @@ router-import.example,router,,Router Test,0,0,icmp-ping,icmp
         self.assertEqual(summary["imported"], 1)
         mock_icon.assert_called_once_with("icon-imported.service.local")
 
+    @patch("app.trigger_service_icon_resolution_async")
     @patch("app.scan_service")
-    def test_csv_import_export_custom_requests(self, mock_scan):
+    def test_csv_import_export_custom_requests(self, mock_scan, mock_icon):
         csv_content = """Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response
 custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
 """

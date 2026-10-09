@@ -229,10 +229,24 @@
                   <strong>Custom expected response hex payload.</strong> Space-separated hex bytes expected in the received bytes when Request Type is <code>custom</code> (e.g. <code>"04 05"</code>). Leave blank to treat any response as online.
                 </td>
               </tr>
+              <tr>
+                <td><code>HTTP Username</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>
+                  HTTP Basic authentication username used for HTTP/HTTPS web probes.
+                </td>
+              </tr>
+              <tr>
+                <td><code>HTTP Password</code></td>
+                <td><span class="tag-optional">Optional</span></td>
+                <td>
+                  HTTP Basic authentication password. Can be in plain text or encrypted format <code>ENC:v1:...</code> (prompted for password if encrypted).
+                </td>
+              </tr>
             </tbody>
           </table>
           <div style="margin-top: 14px;">
-            <a href="data:text/csv;charset=utf-8,Service%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%2CRequest%20Type%2CURL%20path%2CMatch%2CRequest%2CResponse%0Ainternal.corp.local%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%2Cweb%2C%22%2F%2C%20%2Fhealth%22%2C%22welcome%2C%20api%22%2C%2C%0Aapi.example.com%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%2Cweb%2C%2Capi%2C%2C%0Aedge-router.local%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%2Cweb%2C%2C%2C%2C%0Acustom-device.local%2CHex%20Device%2C0%2C0%2Ctcp%2C%229000%22%2Ccustom%2C%2C%2C%2201%2002%2003%22%2C%2204%2005%22%0Amulti-probe.example%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20tcp%2C%20icmp-ping%22%2C%2280%2C%209000%2C%20icmp%22%2C%22web%2C%20custom%2C%20web%22%2C%22%2Fping%2C%20%2C%22%2C%22ok%2C%20%2C%22%2C%22%2C%2001%2002%2C%20%22%2C%22%2C%2003%2004%2C%20%22%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
+            <a href="data:text/csv;charset=utf-8,Service%2CComment%2CPaused%2CProxy%2CProtocol%2CPorts%2CRequest%20Type%2CURL%20path%2CMatch%2CRequest%2CResponse%2CHTTP%20Username%2CHTTP%20Password%0Ainternal.corp.local%2CInternal%20Gateway%2C0%2C1%2C%22http%2C%20https%22%2C%2280%2C%20443%22%2Cweb%2C%22%2F%2C%20%2Fhealth%22%2C%22welcome%2C%20api%22%2C%2C%2Cadmin%2Csecret123%0Aapi.example.com%2CProduction%20API%2C0%2C0%2Chttps%2C%22443%22%2Cweb%2C%2Capi%2C%2C%2C%2C%0Aedge-router.local%2CRouter%20Ping%2C0%2C0%2Cicmp-ping%2C%22icmp%22%2Cweb%2C%2C%2C%2C%2C%2C%0Acustom-device.local%2CHex%20Device%2C0%2C0%2Ctcp%2C%229000%22%2Ccustom%2C%2C%2C%2201%2002%2003%22%2C%2204%2005%22%2C%2C%0Amulti-probe.example%2CHybrid%20Host%2C0%2C0%2C%22http%2C%20tcp%2C%20icmp-ping%22%2C%2280%2C%209000%2C%20icmp%22%2C%22web%2C%20custom%2C%20web%22%2C%22%2Fping%2C%20%2C%22%2C%22ok%2C%20%2C%22%2C%22%2C%2001%2002%2C%20%22%2C%22%2C%2003%2004%2C%20%22%2Cadmin%2Csecret123%0A" download="pulsecheck_template.csv" class="button secondary btn-sm" style="display: inline-flex; align-items: center; gap: 6px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download Sample CSV Template
             </a>
@@ -261,7 +275,7 @@
               <span class="export-stat-lbl">Saved Services</span>
             </div>
             <div class="export-stat-box">
-              <span class="export-stat-val">8</span>
+              <span class="export-stat-val">13</span>
               <span class="export-stat-lbl">Columns Included</span>
             </div>
             <div class="export-stat-box">
@@ -271,14 +285,14 @@
           </div>
 
           <p class="tab-card-subtitle">
-            Download a full snapshot of your monitored services. Match tokens and URL paths are stored per-port rather than service-wide. The export includes service names, per-port match tokens, health check paths, comments, paused states, proxy routing flags, preferred protocols, and monitored port lists (including portless ICMP ping).
+            Download a full snapshot of your monitored services. The export includes service names, per-port match tokens, health check paths, comments, paused states, proxy routing flags, preferred protocols, monitored port lists (including portless ICMP ping), and HTTP Basic Authentication credentials. Passwords can be encrypted with an optional master passphrase.
           </p>
 
           <div style="margin-top: 20px;">
-            <a href="{{ url_for('export_services_route') }}" id="btn-export-csv" class="button primary btn-large" style="display: inline-flex; align-items: center; gap: 8px;">
+            <button type="button" id="btn-export-csv" class="button primary btn-large" style="display: inline-flex; align-items: center; gap: 8px;">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Download All Services (CSV)
-            </a>
+            </button>
           </div>
 
           <div id="export-stats-banner" class="export-stats-banner hidden">
@@ -294,14 +308,14 @@
               Export Structure &amp; Preview
             </h3>
           </div>
-          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured with per-port Match strings, URL paths, and protocols positionally aligned with the <code>Ports</code> column:</p>
-          <div class="code-preview-block">Service,Comment,Paused,Proxy,Protocol,Ports,URL path,Match
-internal.corp.local,Gateway,0,1,"http, https","80, 443","/, /health","welcome, api"
-api.example.com,Production API,0,0,http,"443, 8443",,api
-edge-router.local,Edge Router,0,0,icmp-ping,icmp,,
-hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/ping, , ","ok, , "</div>
+          <p class="hub-description" style="margin-bottom: 8px;">The exported CSV file is structured with per-port Match strings, URL paths, protocols, request types, and Basic Auth credentials:</p>
+          <div class="code-preview-block">Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response,HTTP Username,HTTP Password
+internal.corp.local,Gateway,0,1,"http, https","80, 443",web,"/, /health","welcome, api",,,admin,ENC:v1:...
+api.example.com,Production API,0,0,https,"443",web,,api,,,,
+edge-router.local,Edge Router,0,0,icmp-ping,icmp,web,,,,,,
+custom-device.local,Hex Device,0,0,tcp,"9000",custom,,,"01 02 03","04 05",,</div>
           <p class="hub-description" style="margin: 0; font-size: 0.82rem; color: #64748b;">
-            <strong>Per-Port Configuration:</strong> Match tokens and URL paths are configured per individual port and appear as the last two columns. When all non-ICMP ports share the same value (or only one port exists), a single value is exported. When ports differ, a comma-separated list aligned 1-to-1 with the non-ICMP ports in <code>Ports</code> is exported. ICMP ping probes are portless and never have match tokens or URL paths.
+            <strong>Per-Port Configuration &amp; Security:</strong> Match tokens, URL paths, and protocols are positionally aligned with <code>Ports</code>. When an export encryption password is provided, sensitive <code>HTTP Password</code> fields are encrypted using AES-256-GCM.
           </p>
         </div>
       </div>
@@ -321,6 +335,68 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
       </div>
       <div class="import-progress-actions">
         <button type="button" id="cancel-import" class="btn-action danger">Cancel import</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Password Modal -->
+  <div id="export-password-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; border-radius: 12px; width: min(460px, 92vw); padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.25);">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: #ecfdf5; display: flex; align-items: center; justify-content: center; color: #059669; flex-shrink: 0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.1rem; color: #0f172a;">CSV Export Encryption</h3>
+          <p style="margin: 0; font-size: 0.82rem; color: #64748b;">Protect sensitive HTTP Basic authentication passwords</p>
+        </div>
+      </div>
+      <p style="font-size: 0.87rem; color: #475569; margin: 0 0 16px 0; line-height: 1.45;">
+        You can optionally provide a password to encrypt all Basic Auth passwords using <strong>AES-256-GCM</strong>. If left blank, passwords will be exported in plain text.
+      </p>
+      <div style="margin-bottom: 20px;">
+        <label for="export-password-input" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Encryption Password (Optional)
+        </label>
+        <input type="password" id="export-password-input" placeholder="Enter encryption passphrase or leave blank" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="new-password">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" id="btn-export-modal-cancel" class="button secondary">Cancel</button>
+        <button type="button" id="btn-export-modal-confirm" class="button primary">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download CSV
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import Password Modal -->
+  <div id="import-password-modal" class="hidden" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: flex; justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; border-radius: 12px; width: min(460px, 92vw); padding: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.25);">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+        <div style="width: 36px; height: 36px; border-radius: 8px; background: #eff6ff; display: flex; align-items: center; justify-content: center; color: #2563eb; flex-shrink: 0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.1rem; color: #0f172a;">Encrypted Passwords Detected</h3>
+          <p style="margin: 0; font-size: 0.82rem; color: #64748b;">This CSV contains password-protected auth fields</p>
+        </div>
+      </div>
+      <p style="font-size: 0.87rem; color: #475569; margin: 0 0 16px 0; line-height: 1.45;">
+        Encrypted password cells (<code>ENC:v1:...</code>) were detected in this file. Please enter the decryption passphrase used when this CSV was exported.
+      </p>
+      <div style="margin-bottom: 20px;">
+        <label for="import-password-input" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Decryption Password
+        </label>
+        <input type="password" id="import-password-input" placeholder="Enter decryption passphrase" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="current-password">
+        <div id="import-password-error" class="hidden" style="color: #dc2626; font-size: 0.82rem; margin-top: 6px;"></div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" id="btn-import-modal-cancel" class="button secondary">Cancel</button>
+        <button type="button" id="btn-import-modal-confirm" class="button primary">
+          Unlock &amp; Import
+        </button>
       </div>
     </div>
   </div>
@@ -449,19 +525,79 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
     const removeFileBtn = document.getElementById('remove-file-btn');
     const csvImportBtn = document.getElementById('csv-import-button');
 
+    // Decryption Password Modal state
+    const importPasswordModal = document.getElementById('import-password-modal');
+    const importPasswordInput = document.getElementById('import-password-input');
+    const importPasswordError = document.getElementById('import-password-error');
+    const btnImportModalCancel = document.getElementById('btn-import-modal-cancel');
+    const btnImportModalConfirm = document.getElementById('btn-import-modal-confirm');
+    let cachedDecryptionPassword = '';
+
+    async function checkEncryptedFile(file) {
+      if (!file) return;
+      const formData = new FormData();
+      formData.append('csv_file', file);
+      try {
+        const res = await fetch('/import/csv/check-encrypted', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (data.encrypted) {
+          importPasswordInput.value = '';
+          importPasswordError.classList.add('hidden');
+          importPasswordError.textContent = '';
+          importPasswordModal.classList.remove('hidden');
+          setTimeout(() => importPasswordInput.focus(), 50);
+        }
+      } catch (err) {
+        console.warn('Could not inspect CSV encryption state:', err);
+      }
+    }
+
     function handleFileSelected(file) {
       if (!file) return;
+      cachedDecryptionPassword = '';
       selectedFileLabel.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
       dropzone.classList.add('hidden');
       fileSelectedBox.classList.remove('hidden');
       csvImportBtn.disabled = false;
+      checkEncryptedFile(file);
     }
 
     function clearFileSelected() {
       fileInput.value = '';
+      cachedDecryptionPassword = '';
       dropzone.classList.remove('hidden');
       fileSelectedBox.classList.add('hidden');
       csvImportBtn.disabled = true;
+      importPasswordModal.classList.add('hidden');
+    }
+
+    if (btnImportModalCancel) {
+      btnImportModalCancel.addEventListener('click', () => {
+        importPasswordModal.classList.add('hidden');
+      });
+    }
+
+    if (btnImportModalConfirm) {
+      btnImportModalConfirm.addEventListener('click', () => {
+        cachedDecryptionPassword = importPasswordInput.value;
+        importPasswordModal.classList.add('hidden');
+        // Automatically start the import since user clicked "Unlock & Import"
+        if (csvForm) {
+          csvForm.requestSubmit ? csvForm.requestSubmit() : csvForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+      });
+    }
+
+    if (importPasswordInput) {
+      importPasswordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnImportModalConfirm.click();
+        }
+      });
     }
 
     if (fileInput) {
@@ -506,12 +642,62 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
       });
     }
 
-    // CSV Export Banner feedback
+    // Export Password Modal logic
     const exportBtn = document.getElementById('btn-export-csv');
     const exportBanner = document.getElementById('export-stats-banner');
-    if (exportBtn && exportBanner) {
-      exportBtn.addEventListener('click', () => {
-        exportBanner.classList.remove('hidden');
+    const exportPasswordModal = document.getElementById('export-password-modal');
+    const exportPasswordInput = document.getElementById('export-password-input');
+    const btnExportModalCancel = document.getElementById('btn-export-modal-cancel');
+    const btnExportModalConfirm = document.getElementById('btn-export-modal-confirm');
+
+    if (exportBtn && exportPasswordModal) {
+      exportBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        exportPasswordInput.value = '';
+        exportPasswordModal.classList.remove('hidden');
+        setTimeout(() => exportPasswordInput.focus(), 50);
+      });
+    }
+
+    if (btnExportModalCancel) {
+      btnExportModalCancel.addEventListener('click', () => {
+        exportPasswordModal.classList.add('hidden');
+      });
+    }
+
+    function triggerExportDownload(password) {
+      exportPasswordModal.classList.add('hidden');
+      if (exportBanner) exportBanner.classList.remove('hidden');
+
+      // Use a hidden form POST to download the file seamlessly with encryption_password
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = "{{ url_for('export_services_route') }}";
+      form.style.display = 'none';
+
+      const pwdField = document.createElement('input');
+      pwdField.type = 'hidden';
+      pwdField.name = 'encryption_password';
+      pwdField.value = password || '';
+      form.appendChild(pwdField);
+
+      document.body.appendChild(form);
+      form.submit();
+      setTimeout(() => document.body.removeChild(form), 1000);
+    }
+
+    if (btnExportModalConfirm) {
+      btnExportModalConfirm.addEventListener('click', () => {
+        triggerExportDownload(exportPasswordInput.value);
+      });
+    }
+
+    if (exportPasswordInput) {
+      exportPasswordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnExportModalConfirm.click();
+        }
       });
     }
 
@@ -581,6 +767,9 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
 
         const formData = new FormData();
         formData.append('csv_file', fileInput.files[0]);
+        if (cachedDecryptionPassword) {
+          formData.append('decryption_password', cachedDecryptionPassword);
+        }
 
         progressTitle.textContent = 'Importing CSV Records';
         progressText.textContent = 'Record 0 / 0';
@@ -597,7 +786,14 @@ hybrid-node.example,Multi Probe,0,0,"http, https, icmp-ping","80, 443, icmp","/p
           if (!response.ok) {
             const err = await response.json();
             setOverlay(false);
-            alert(err.error || 'CSV import could not be started.');
+            if (err.requires_password || (err.error && err.error.toLowerCase().includes('password'))) {
+              importPasswordError.textContent = err.error || 'Incorrect decryption password.';
+              importPasswordError.classList.remove('hidden');
+              importPasswordModal.classList.remove('hidden');
+              importPasswordInput.focus();
+            } else {
+              alert(err.error || 'CSV import could not be started.');
+            }
             return;
           }
 

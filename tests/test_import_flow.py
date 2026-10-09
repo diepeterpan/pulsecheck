@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 import unittest
@@ -283,6 +284,119 @@ class ImportFlowTests(unittest.TestCase):
         debug_print.assert_not_called()
         self.assertEqual(events, ["close"])
 
+    def test_quick_text_import_triggers_discovery_and_scans(self):
+        with patch("app.discover_ports", return_value=[{"port": 80, "protocol": "http"}]) as mock_disc, \
+             patch("app.diagnose_service_ports", return_value={"ports": [{"port": 80, "status": "online", "protocol": "http"}]}) as mock_diag, \
+             patch("app.trigger_discovery_async") as mock_sched, \
+             patch("app.trigger_service_icon_resolution_async") as mock_icon, \
+             patch("app.scan_service") as mock_scan:
+
+            summary = pulsecheck_app.import_service_names(["new-quick-service.internal"])
+
+            self.assertEqual(summary["imported"], 1)
+            mock_disc.assert_called_once()
+            self.assertEqual(mock_disc.call_args[0][0], "new-quick-service.internal")
+            mock_diag.assert_called_once()
+            mock_sched.assert_called_once_with(mock_sched.call_args[0][0], "new-quick-service.internal")
+            mock_icon.assert_called_once_with("new-quick-service.internal")
+            mock_scan.assert_called_once()
+
+    def test_csv_password_encryption_and_decryption_helpers(self):
+        raw_pwd = "MySuperSecretPassword#123"
+        key = "CorrectHorseBatteryStaple"
+
+        token = pulsecheck_app.encrypt_csv_password(raw_pwd, key)
+        self.assertTrue(token.startswith("ENC:v1:"))
+        self.assertTrue(pulsecheck_app.has_encrypted_csv_fields(f"Service,HTTP Password\nfoo,{token}"))
+
+        # Decrypt with correct key
+        decrypted = pulsecheck_app.decrypt_csv_password(token, key)
+        self.assertEqual(decrypted, raw_pwd)
+
+        # Decrypt with incorrect key raises EncryptedPasswordError
+        with self.assertRaises(pulsecheck_app.EncryptedPasswordError):
+            pulsecheck_app.decrypt_csv_password(token, "WrongPassword")
+
+        # Empty password handling
+        self.assertEqual(pulsecheck_app.encrypt_csv_password("", key), "")
+        self.assertEqual(pulsecheck_app.decrypt_csv_password("", key), "")
+
+    @patch("app.trigger_service_icon_resolution_async")
+    @patch("app.trigger_discovery_async")
+    @patch("app.scan_service")
+    def test_csv_export_and_import_with_encrypted_passwords(self, mock_scan, mock_disc, mock_icon):
+        # 1. Insert service with HTTP Basic Auth credentials
+        conn = pulsecheck_app.get_db_connection()
+        p_json = pulsecheck_app.port_protocol_to_json([{"port": 443, "protocol": "https", "match": "api", "url_path": "/"}])
+        conn.execute(
+            "INSERT INTO services (name, comment, paused, use_proxy, request_type, port_protocol, http_username, http_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            ("secure-api.internal", "Auth Service", 0, 0, "web", p_json, "admin_user", "SecretPass!"),
+        )
+        conn.commit()
+        conn.close()
+
+        # 2. Export with encryption password
+        export_csv, count = pulsecheck_app.export_services_csv(encryption_password="ExportKey456")
+        self.assertEqual(count, 1)
+        self.assertIn("admin_user", export_csv)
+        self.assertIn("ENC:v1:", export_csv)
+        self.assertNotIn("SecretPass!", export_csv)
+
+        # Check has_encrypted_csv_fields detects it
+        self.assertTrue(pulsecheck_app.has_encrypted_csv_fields(export_csv))
+
+        # 3. Clear services in DB
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services")
+        conn.commit()
+        conn.close()
+
+        # 4. Import without password fails / raises EncryptedPasswordError
+        with self.assertRaises(pulsecheck_app.EncryptedPasswordError):
+            pulsecheck_app.import_services_from_csv(export_csv, decryption_password="")
+
+        # 5. Import with wrong password fails / raises EncryptedPasswordError
+        with self.assertRaises(pulsecheck_app.EncryptedPasswordError):
+            pulsecheck_app.import_services_from_csv(export_csv, decryption_password="WrongKey")
+
+        # 6. Import with correct password succeeds
+        res = pulsecheck_app.import_services_from_csv(export_csv, decryption_password="ExportKey456")
+        self.assertEqual(res["imported"], 1)
+
+        svcs = pulsecheck_app.service_list()
+        self.assertEqual(len(svcs), 1)
+        imported_svc = svcs[0]
+        self.assertEqual(imported_svc["name"], "secure-api.internal")
+        self.assertEqual(imported_svc["http_username"], "admin_user")
+        self.assertEqual(imported_svc["http_password"], "SecretPass!")
+
+    def test_start_csv_import_endpoint_with_special_character_password(self):
+        c = pulsecheck_app.app.test_client()
+        csv_text = "Service,HTTP Username,HTTP Password\nspecial.local,user," + pulsecheck_app.encrypt_csv_password("mySecret", "@Password456") + "\n"
+        data = {
+            "csv_file": (io.BytesIO(csv_text.encode("utf-8")), "special.csv"),
+            "decryption_password": "@Password456",
+        }
+        res = c.post("/import/csv/start", data=data)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.get_json()["status"], "started")
+
+    @patch("app.trigger_service_icon_resolution_async")
+    @patch("app.trigger_discovery_async")
+    @patch("app.scan_service")
+    def test_csv_import_legacy_formats_backwards_compatible(self, mock_scan, mock_disc, mock_icon):
+        # 11 columns legacy format (no auth columns)
+        legacy_csv = """Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response
+legacy-1.local,Test 1,0,0,http,80,web,/status,ok,,
+"""
+        res = pulsecheck_app.import_services_from_csv(legacy_csv)
+        self.assertEqual(res["imported"], 1)
+        svc = pulsecheck_app.service_list()[0]
+        self.assertEqual(svc["name"], "legacy-1.local")
+        self.assertEqual(svc["http_username"], "")
+        self.assertEqual(svc["http_password"], "")
+
 
 if __name__ == "__main__":
     unittest.main()
+

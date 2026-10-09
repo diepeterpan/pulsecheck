@@ -336,9 +336,9 @@ class SettingsTests(unittest.TestCase):
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response")
-        self.assertIn('service-a.com,Internal gateway,0,0,,"80, 443",web,/test,service,,', lines)
-        self.assertIn("service-b.com,,1,0,,8080,web,,other,,", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response,HTTP Username,HTTP Password")
+        self.assertIn('service-a.com,Internal gateway,0,0,,"80, 443",web,/test,service,,,,', lines)
+        self.assertIn("service-b.com,,1,0,,8080,web,,other,,,,", lines)
 
     @patch("app.scan_service")
     def test_import_services_from_csv_success_and_skip_duplicates(self, mock_scan):
@@ -1118,9 +1118,9 @@ direct.example,direct,,Direct site,0,0,8080
         csv_text, count = pulsecheck_app.export_services_csv()
         self.assertEqual(count, 2)
         lines = [line.strip() for line in csv_text.strip().splitlines()]
-        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response")
-        self.assertIn('proxied.example,Gateway,0,1,,"80, 443",web,/health,proxied,,', lines)
-        self.assertIn("direct.example,Direct site,0,0,,8080,web,,direct,,", lines)
+        self.assertEqual(lines[0], "Service,Comment,Paused,Proxy,Protocol,Ports,Request Type,URL path,Match,Request,Response,HTTP Username,HTTP Password")
+        self.assertIn('proxied.example,Gateway,0,1,,"80, 443",web,/health,proxied,,,,', lines)
+        self.assertIn("direct.example,Direct site,0,0,,8080,web,,direct,,,,", lines)
 
     def test_fetch_response_http_uses_proxy_server(self):
         class FakeResponse:
@@ -2382,6 +2382,71 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertEqual(res, "/static/service-icons/test-fallback.png")
         dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "test-fallback.png"
         dest_file.unlink(missing_ok=True)
+
+    def test_protocol_content_signature_tcp_banner(self):
+        """Test that TCP socket responses are interrogated against content signatures."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services WHERE name = 'proxmox-node.local'")
+        ports_json = json.dumps([
+            {"port": 8006, "protocol": "tcp", "request_type": "custom", "request_payload": "010203"},
+            {"port": None, "protocol": "auto"},
+        ])
+        conn.execute(
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("proxmox-node.local", ports_json),
+        )
+        conn.commit()
+        conn.close()
+
+        dummy_png = b"\x89PNG\r\n\x1a\n" + (b"\x00" * 150)
+
+        with patch("services.icons._get_scanner_fn") as mock_get_scanner:
+            mock_tcp = MagicMock(return_value=b"Welcome to Proxmox Virtual Environment 8.2\n")
+            def _fake_scanner_fn(name):
+                if name == "fetch_tcp_response":
+                    return mock_tcp
+                return None
+            mock_get_scanner.side_effect = _fake_scanner_fn
+
+            mock_http = MagicMock()
+            mock_http.get_url.return_value = (dummy_png, 200, {"content-type": "image/png"})
+            with patch("services.icons._get_http_manager", return_value=mock_http):
+                res = pulsecheck_app.resolve_and_cache_service_icon("proxmox-node.local", force_refresh=True)
+
+            self.assertIsNotNone(res)
+            # Verify fetch_tcp_response was called with the custom payload
+            mock_tcp.assert_called_once_with("proxmox-node.local", 8006, url_path="/", custom_request_bytes=b"\x01\x02\x03")
+
+        dest_file = pulsecheck_app.SERVICE_ICONS_DIR / "proxmox-node.png"
+        dest_file.unlink(missing_ok=True)
+
+    def test_protocol_content_signature_web_priority(self):
+        """Test that WEB Get ports are interrogated before raw socket ports."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services WHERE name = 'dual-port-app.local'")
+        ports_json = json.dumps([
+            {"port": 9000, "protocol": "tcp", "request_type": "custom", "request_payload": ""},
+            {"port": 80, "protocol": "http", "request_type": "web", "url_path": "/"},
+        ])
+        conn.execute(
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("dual-port-app.local", ports_json),
+        )
+        conn.commit()
+        conn.close()
+
+        responses = pulsecheck_app.fetch_service_content_responses(
+            "dual-port-app.local",
+            port_protocol_data=ports_json,
+        )
+        # Port 80 (web) should be probed before port 9000 (custom TCP)
+        ports = pulsecheck_app.parse_port_protocol(ports_json)
+        valid = [p for p in ports if p.get("protocol") not in ("", "auto", "auto-detect", "icmp")]
+        web_p = [p for p in valid if (p.get("request_type") or "web").lower() == "web"]
+        non_web_p = [p for p in valid if (p.get("request_type") or "web").lower() != "web"]
+        ordered = web_p + non_web_p
+        self.assertEqual(ordered[0]["port"], 80)
+        self.assertEqual(ordered[1]["port"], 9000)
 
 
 if __name__ == "__main__":
