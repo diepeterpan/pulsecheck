@@ -313,8 +313,8 @@ def slugify_manufacturer(name: str) -> str:
     return s or "unknown"
 
 
-def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
-    """Return local cached URL for manufacturer icon if it exists on disk."""
+def get_manufacturer_icon_path(manufacturer: str | None) -> Path | None:
+    """Return local cached Path for manufacturer icon if it exists on disk."""
     if not manufacturer or manufacturer.strip().upper() in ("", "NONE"):
         return None
     slug = slugify_manufacturer(manufacturer)
@@ -329,7 +329,15 @@ def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
                     continue
             except Exception:
                 pass
-            return f"/static/manufacturer-icons/{slug}{ext}"
+            return icon_path
+    return None
+
+
+def get_manufacturer_icon_url(manufacturer: str | None) -> str | None:
+    """Return local cached URL for manufacturer icon if it exists on disk."""
+    path = get_manufacturer_icon_path(manufacturer)
+    if path is not None:
+        return f"/static/manufacturer-icons/{path.name}"
     return None
 
 
@@ -385,9 +393,9 @@ def detect_image_extension(data: bytes, content_type: str = "") -> str:
     return ".png"
 
 
-def get_service_icon_url(service_name: str | None) -> str | None:
+def get_service_icon_path(service_name: str | None) -> Path | None:
     """
-    Return local cached URL for service / product icon if it exists on disk.
+    Return local cached Path for service / product icon if it exists on disk.
     Priority 1: On-device specific slug up to first dot (e.g. fridge-temperature.<ext>)
     Priority 2: Generic product slug (e.g. fridge.<ext>)
     """
@@ -413,7 +421,17 @@ def get_service_icon_url(service_name: str | None) -> str | None:
                         continue
                 except Exception:
                     pass
-                return f"/static/service-icons/{slug}{ext}"
+                return icon_path
+    return None
+
+
+def get_service_icon_url(service_name: str | None) -> str | None:
+    """
+    Return local cached URL for service / product icon if it exists on disk.
+    """
+    path = get_service_icon_path(service_name)
+    if path is not None:
+        return f"/static/service-icons/{path.name}"
     return None
 
 

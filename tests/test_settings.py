@@ -1778,6 +1778,63 @@ direct.example,direct,,Direct site,0,0,8080
             self.assertIn("<strong style='color: #1e293b;'>ICMP Ping:</strong>", html_body)
             self.assertIn("<strong style='color: #16a34a;'>ONLINE</strong> &rarr; <strong style='color: #dc2626;'>OFFLINE</strong>", html_body)
 
+    def test_state_change_notification_includes_ip_mac_manufacturer_and_icons(self):
+        """Verify that state change notifications contain IP, MAC, manufacturer info and inline CID icons."""
+        pulsecheck_app.save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "alerts@test.com",
+            "recipient_email": "admin@test.com",
+        })
+
+        # Create dummy service and manufacturer icons in temp folders (>= 50 bytes to pass valid icon check)
+        fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 60
+        svc_icon = pulsecheck_app.SERVICE_ICONS_DIR / "mycustomsvc.png"
+        svc_icon.write_bytes(fake_png)
+
+        mfg_icon = pulsecheck_app.MANUFACTURER_ICONS_DIR / "raspberry_pi.png"
+        mfg_icon.write_bytes(fake_png)
+
+        changes = [
+            {
+                "service": "mycustomsvc.local",
+                "old_status": "offline",
+                "new_status": "online",
+                "port_changes": ["Port 443: OFFLINE -> ONLINE"],
+                "discovered_ip": "192.168.1.150",
+                "discovered_mac": "B8:27:EB:12:34:56",
+                "discovered_manufacturer": "Raspberry Pi",
+            }
+        ]
+
+        with patch("app.send_email") as mock_email:
+            mock_email.return_value = (True, "Sent")
+            success, msg = pulsecheck_app.send_state_change_notification(changes)
+            self.assertTrue(success)
+            mock_email.assert_called_once()
+
+            call_args = mock_email.call_args
+            body = call_args[0][2]
+            html_body = call_args[1].get("html_body", "")
+            inline_images = call_args[1].get("inline_images", [])
+
+            # Verify single-line plaintext metadata summary
+            self.assertIn("IP: 192.168.1.150 | MAC: B8:27:EB:12:34:56 | Mfg: Raspberry Pi", body)
+
+            # Verify HTML card metadata
+            self.assertIn("192.168.1.150", html_body)
+            self.assertIn("B8:27:EB:12:34:56", html_body)
+            self.assertIn("Raspberry Pi", html_body)
+
+            # Verify inline CID image references in HTML
+            self.assertIn('src="cid:svc_icon_', html_body)
+            self.assertIn('src="cid:mfg_icon_', html_body)
+
+            # Verify inline_images list was passed to send_email
+            self.assertIsNotNone(inline_images)
+            self.assertTrue(len(inline_images) >= 2)
+            cids = [item[0] for item in inline_images]
+            self.assertTrue(any(c.startswith("svc_icon") for c in cids))
+            self.assertTrue(any(c.startswith("mfg_icon") for c in cids))
 
     def test_status_page_offline_overrides_degraded(self):
         """Verify that on the Status page, a service with 2 or more ports/probes

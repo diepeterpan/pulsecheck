@@ -27,6 +27,7 @@ def send_email(
     timeout: int = 10,
     html_body: str | None = None,
     logo_path: str | Path | None = None,
+    inline_images: list[tuple[str, Path | bytes, str]] | None = None,
 ) -> tuple[bool, str]:
     cfg = get_settings() if settings is None else settings
     smtp_host = cfg.get("smtp_host", "").strip()
@@ -128,6 +129,28 @@ def send_email(
         except Exception:
             pass
 
+    if inline_images:
+        for cid_key, img_source, mime_type in inline_images:
+            try:
+                img_data = b""
+                if isinstance(img_source, (bytes, bytearray)):
+                    img_data = bytes(img_source)
+                elif isinstance(img_source, (str, Path)):
+                    p = Path(img_source)
+                    if p.is_file():
+                        img_data = p.read_bytes()
+                if img_data:
+                    subtype = mime_type.split("/")[-1] if "/" in mime_type else "png"
+                    clean_cid = cid_key.strip("<>")
+                    msg.get_payload()[-1].add_related(
+                        img_data,
+                        maintype="image",
+                        subtype=subtype,
+                        cid=f"<{clean_cid}>",
+                    )
+            except Exception:
+                pass
+
     try:
         if smtp_security == "ssl":
             ssl_context = ssl.create_default_context()
@@ -138,8 +161,8 @@ def send_email(
         else:
             with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
                 if smtp_security == "tls":
-                    ssl_context = ssl.create_default_context()
-                    server.starttls(context=ssl_context)
+                    context = ssl.create_default_context()
+                    server.starttls(context=context)
                 if smtp_username:
                     server.login(smtp_username, smtp_password)
                 server.send_message(msg)
@@ -180,6 +203,17 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         old_st = (item.get("old_status") or "").upper()
         new_st = (item.get("new_status") or "").upper()
         lines.append(f"• Service: {target_name} [{new_st}]")
+
+        meta_parts = []
+        if item.get("discovered_ip"):
+            meta_parts.append(f"IP: {item['discovered_ip']}")
+        if item.get("discovered_mac"):
+            meta_parts.append(f"MAC: {item['discovered_mac']}")
+        if item.get("discovered_manufacturer") and str(item["discovered_manufacturer"]).strip().upper() not in ("", "NONE"):
+            meta_parts.append(f"Mfg: {item['discovered_manufacturer']}")
+        if meta_parts:
+            lines.append(f"  {' | '.join(meta_parts)}")
+
         lines.append(f"  Overall Status: {old_st} -> {new_st}")
         if item.get("port_changes"):
             lines.append("  Port Details:")
@@ -219,6 +253,36 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
                 )
         return p_change
 
+    # Helper functions to look up icon paths
+    from services.icons import (
+        get_service_icon_path,
+        get_manufacturer_icon_path,
+    )
+    fn_get_svc_path = getattr(app_mod, "get_service_icon_path", get_service_icon_path) if app_mod else get_service_icon_path
+    fn_get_mfg_path = getattr(app_mod, "get_manufacturer_icon_path", get_manufacturer_icon_path) if app_mod else get_manufacturer_icon_path
+
+    inline_attachments: list[tuple[str, Path | bytes, str]] = []
+    seen_cids: dict[str, str] = {}
+
+    def get_inline_image_cid(file_path: Path, prefix: str) -> str:
+        f_str = str(file_path.resolve())
+        if f_str in seen_cids:
+            return seen_cids[f_str]
+        cid = f"{prefix}_{len(seen_cids)}"
+        ext = file_path.suffix.lower().lstrip(".")
+        mime_type = "image/png"
+        if ext in ("jpg", "jpeg"):
+            mime_type = "image/jpeg"
+        elif ext == "gif":
+            mime_type = "image/gif"
+        elif ext == "webp":
+            mime_type = "image/webp"
+        elif ext == "svg":
+            mime_type = "image/svg+xml"
+        inline_attachments.append((cid, file_path, mime_type))
+        seen_cids[f_str] = cid
+        return cid
+
     cards_html = []
     for item in changes:
         target_name = item.get("service") or item.get("name")
@@ -226,16 +290,53 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         new_st = (item.get("new_status") or "").upper()
         badge_color = get_status_badge_color(new_st)
         old_color = get_status_badge_color(old_st)
+
+        # Service icon
+        svc_path = fn_get_svc_path(target_name)
+        svc_img_html = ""
+        if svc_path and svc_path.is_file():
+            svc_cid = get_inline_image_cid(svc_path, "svc_icon")
+            svc_img_html = f'<img src="cid:{svc_cid}" alt="" width="22" height="22" style="width: 22px; height: 22px; max-width: 22px; max-height: 22px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 4px;" />'
+
+        # Hardware / network metadata
+        ip_val = item.get("discovered_ip")
+        mac_val = item.get("discovered_mac")
+        mfg_val = item.get("discovered_manufacturer")
+        if mfg_val and str(mfg_val).strip().upper() in ("", "NONE"):
+            mfg_val = None
+
+        mfg_img_html = ""
+        if mfg_val:
+            mfg_path = fn_get_mfg_path(mfg_val)
+            if mfg_path and mfg_path.is_file():
+                mfg_cid = get_inline_image_cid(mfg_path, "mfg_icon")
+                mfg_img_html = f'<img src="cid:{mfg_cid}" alt="" height="14" style="height: 14px; max-height: 14px; max-width: 24px; object-fit: contain; vertical-align: middle; margin-right: 4px;" />'
+
+        meta_chips = []
+        if ip_val:
+            meta_chips.append(f'<span style="display: inline-block; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; font-family: monospace; font-size: 11.5px; color: #0f172a; margin-right: 6px; margin-bottom: 4px;"><strong>IP:</strong> {ip_val}</span>')
+        if mac_val:
+            meta_chips.append(f'<span style="display: inline-block; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; font-family: monospace; font-size: 11.5px; color: #334155; margin-right: 6px; margin-bottom: 4px;"><strong>MAC:</strong> {mac_val}</span>')
+        if mfg_val:
+            meta_chips.append(f'<span style="display: inline-block; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; font-size: 11.5px; color: #334155; margin-right: 6px; margin-bottom: 4px; vertical-align: middle;">{mfg_img_html}<strong>Mfg:</strong> {mfg_val}</span>')
+
+        network_meta_html = ""
+        if meta_chips:
+            joined_chips = "".join(meta_chips)
+            network_meta_html = f'<div style="margin: 6px 0 8px 0; line-height: 1.5;">{joined_chips}</div>'
+
         ports_html = ""
         if item.get("port_changes"):
             p_items = "".join(f"<li style='margin: 4px 0;'>{format_port_change_html(str(p))}</li>" for p in item["port_changes"])
             ports_html = f"<div style='margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; color: #475569;'><strong style='color: #334155;'>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
+
         cards_html.append(
             f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
   <div style="margin-bottom: 6px;">
-    <strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>
+    {svc_img_html}<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>
     <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background-color: {badge_color}; color: #ffffff; vertical-align: middle;">{new_st}</span>
   </div>
+  {network_meta_html}
   <div style="font-size: 13px; color: #475569;">Status changed from <strong style="color: {old_color};">{old_st}</strong> to <strong style="color: {badge_color};">{new_st}</strong></div>
   {ports_html}
 </div>"""
@@ -288,7 +389,14 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
     try:
         app_mod = sys.modules.get("app")
         sender = getattr(app_mod, "send_email", send_email) if app_mod else send_email
-        success, msg = sender(recipient, subject, body, settings=settings, html_body=html_body)
+        success, msg = sender(
+            recipient,
+            subject,
+            body,
+            settings=settings,
+            html_body=html_body,
+            inline_images=inline_attachments if inline_attachments else None,
+        )
         if not success:
             print(f"[PulseCheck Alert Error] Failed to send state change notification: {msg}")
         return success, msg

@@ -334,6 +334,9 @@ def get_service_snapshots() -> dict[int, dict]:
                 "id": s_id,
                 "name": row["name"],
                 "service": row["name"],
+                "discovered_ip": row.get("discovered_ip"),
+                "discovered_mac": row.get("discovered_mac"),
+                "discovered_manufacturer": row.get("discovered_manufacturer"),
                 "has_checks": False,
                 "port_statuses": {},
             }
@@ -522,6 +525,9 @@ def check_all_services(
                     "old_status": before_info["overall_status"],
                     "new_status": after_info["overall_status"],
                     "port_changes": port_changes,
+                    "discovered_ip": after_info.get("discovered_ip"),
+                    "discovered_mac": after_info.get("discovered_mac"),
+                    "discovered_manufacturer": after_info.get("discovered_manufacturer"),
                 })
 
         if changes:
