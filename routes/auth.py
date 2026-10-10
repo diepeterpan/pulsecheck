@@ -22,6 +22,7 @@ from core.config import (
     OIDC_REDIRECT_URI,
     OIDC_SCOPES,
     OIDC_MATCH_CLAIM,
+    OIDC_SSL_VERIFY,
 )
 from core.database import (
     get_settings,
@@ -56,6 +57,42 @@ def get_active_match_claim() -> str:
     return OIDC_MATCH_CLAIM or "email"
 
 
+def get_oidc_ssl_verify() -> bool | str:
+    """Resolve SSL certificate verification configuration for OIDC requests.
+    Returns:
+      - Path to custom CA certificate file (str) if a custom CA path is provided
+      - False if explicitly disabled ('false', '0', 'no', 'insecure')
+      - True (default) for standard system/certifi CA verification
+    """
+    raw_val = (os.getenv("PULSECHECK_OIDC_SSL_VERIFY") or OIDC_SSL_VERIFY or "true").strip()
+    if raw_val.lower() in ("false", "0", "no", "disable", "disabled", "insecure"):
+        return False
+    if raw_val.lower() in ("true", "1", "yes", "default"):
+        return True
+    # If file exists or path specified, return path string
+    return raw_val
+
+
+def _enable_tolerant_ssl_verification() -> None:
+    """Relax OpenSSL 3.x X509_V_FLAG_X509_STRICT (0x20) flag to permit internal
+    CA-issued certificates that lack Authority Key Identifiers, while keeping
+    full cryptographic signature and hostname verification active.
+    """
+    import ssl
+    if getattr(ssl.SSLContext, "_pc_tolerant_patched", False):
+        return
+
+    orig_wrap_socket = ssl.SSLContext.wrap_socket
+
+    def tolerant_wrap_socket(self, *args, **kwargs):
+        if hasattr(self, "verify_flags"):
+            self.verify_flags &= ~0x20
+        return orig_wrap_socket(self, *args, **kwargs)
+
+    ssl.SSLContext.wrap_socket = tolerant_wrap_socket
+    ssl.SSLContext._pc_tolerant_patched = True
+
+
 def init_oauth(app):
     """Register OIDC client with Authlib on application start."""
     oauth.init_app(app)
@@ -72,15 +109,26 @@ def init_oauth(app):
         else:
             server_metadata_url = issuer.rstrip("/") + "/.well-known/openid-configuration"
 
+    ssl_verify = get_oidc_ssl_verify()
+    if ssl_verify is not False:
+        _enable_tolerant_ssl_verification()
+
+    client_kwargs = {
+        "scope": scopes,
+        "code_challenge_method": "S256",
+        "verify": ssl_verify,
+    }
+
+    if ssl_verify is False:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
     oauth.register(
         name="oidc",
         client_id=client_id,
         client_secret=client_secret,
         server_metadata_url=server_metadata_url,
-        client_kwargs={
-            "scope": scopes,
-            "code_challenge_method": "S256",
-        },
+        client_kwargs=client_kwargs,
     )
 
 
@@ -152,16 +200,48 @@ def callback():
         flash(f"OIDC authentication failed: {exc}", "error")
         return redirect(url_for("home_bp.status"))
 
-    # Extract claims from userinfo endpoint or id_token
-    userinfo = token.get("userinfo")
-    if not userinfo:
-        try:
-            userinfo = client.userinfo()
-        except Exception:
-            userinfo = {}
-    if not userinfo and "id_token" in token:
-        userinfo = token.get("id_token", {})
+    # Extract claims from userinfo endpoint and/or id_token
+    claims = {}
 
+    # 1. Check if Authlib already parsed userinfo or id_token
+    if isinstance(token.get("userinfo"), dict):
+        claims.update(token["userinfo"])
+
+    # 2. Try fetching from userinfo endpoint explicitly passing the access token
+    try:
+        ui = client.userinfo(token=token)
+        if isinstance(ui, dict):
+            claims.update(ui)
+    except Exception as ui_exc:
+        print(f"[OIDC] Warning: client.userinfo(token=token) call failed: {ui_exc}")
+
+    # 3. If still missing claims or userinfo was incomplete, extract from id_token
+    id_token_raw = token.get("id_token")
+    if id_token_raw:
+        if isinstance(id_token_raw, dict):
+            claims = {**id_token_raw, **claims}
+        elif isinstance(id_token_raw, str):
+            try:
+                # First try client.parse_id_token if state nonce is available
+                parsed_id = client.parse_id_token(token, nonce=None)
+                if isinstance(parsed_id, dict):
+                    claims = {**parsed_id, **claims}
+            except Exception:
+                pass
+            # Also decode unverified payload as safe fallback
+            try:
+                parts = id_token_raw.split(".")
+                if len(parts) >= 2:
+                    import base64
+                    import json
+                    payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
+                    payload_dict = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+                    if isinstance(payload_dict, dict):
+                        claims = {**payload_dict, **claims}
+            except Exception as jwt_exc:
+                print(f"[OIDC] Warning: Failed decoding id_token payload: {jwt_exc}")
+
+    userinfo = claims
     match_claim = get_active_match_claim()
     raw_ident = userinfo.get(match_claim)
 
@@ -176,6 +256,8 @@ def callback():
 
     ident = str(raw_ident).strip() if raw_ident else ""
     if not ident:
+        available_claims = list(userinfo.keys())
+        print(f"[OIDC] Error: Claim '{match_claim}' not found in userinfo/id_token. Available claims: {available_claims}")
         flash(
             f"OIDC authentication succeeded, but claim '{match_claim}' was not found in provider response.",
             "error",

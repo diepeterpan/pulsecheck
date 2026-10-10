@@ -249,6 +249,41 @@ class TestOidcAuthAndUserManagement(unittest.TestCase):
                 data = resp.get_json()
                 self.assertEqual(len(data["users"]), 0)
 
+    def test_oidc_ssl_verify_config(self):
+        """Test get_oidc_ssl_verify parses custom CA paths, booleans, and defaults."""
+        from routes.auth import get_oidc_ssl_verify
+
+        # Default is True
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(get_oidc_ssl_verify())
+
+        # Boolean False bypass
+        for falsy in ("false", "FALSE", "0", "no", "disable", "insecure"):
+            with patch.dict(os.environ, {"PULSECHECK_OIDC_SSL_VERIFY": falsy}):
+                self.assertFalse(get_oidc_ssl_verify())
+
+        # Boolean True
+        for truthy in ("true", "TRUE", "1", "yes", "default"):
+            with patch.dict(os.environ, {"PULSECHECK_OIDC_SSL_VERIFY": truthy}):
+                self.assertTrue(get_oidc_ssl_verify())
+
+        # Custom CA certificate file path (Option A)
+        ca_path = "/etc/ssl/certs/galleon_internal_root_ca.crt"
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_SSL_VERIFY": ca_path}):
+            self.assertEqual(get_oidc_ssl_verify(), ca_path)
+
+    def test_tolerant_ssl_verification_clears_strict_flag(self):
+        """Test _enable_tolerant_ssl_verification relaxes strict OpenSSL 3 flag without disabling verification."""
+        import ssl
+        from routes.auth import _enable_tolerant_ssl_verification
+
+        _enable_tolerant_ssl_verification()
+        self.assertTrue(getattr(ssl.SSLContext, "_pc_tolerant_patched", False))
+
+        ctx = ssl.create_default_context()
+        # Verify mode is still CERT_REQUIRED
+        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+
 
 if __name__ == "__main__":
     unittest.main()

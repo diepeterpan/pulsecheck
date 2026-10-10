@@ -299,6 +299,7 @@ PulseCheck includes built-in line-by-line performance profiling to pinpoint exac
 | `PULSECHECK_OIDC_SCOPES` | `openid email profile` | OAuth 2.0 / OIDC scopes requested during login |
 | `PULSECHECK_OIDC_MATCH_CLAIM` | `email` | Token claim matched against `authorized_users` table (e.g. `email`, `preferred_username`, `sub`) |
 | `PULSECHECK_OIDC_INITIAL_ADMIN` | `""` | Admin user identifier auto-provisioned into database on first startup if table is empty |
+| `PULSECHECK_OIDC_SSL_VERIFY` | `true` | SSL certificate verification for OIDC provider (`true`, path to custom internal CA PEM file, or `false`) |
 | `PULSECHECK_SECRET_KEY` | `pulsecheck-local-dev` | Flask session cookie encryption secret key |
 
 ---
