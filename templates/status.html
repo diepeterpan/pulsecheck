@@ -118,9 +118,16 @@
                   {% if svc_icon_url %}
                     <img src="{{ svc_icon_url }}" alt="" class="status-service-icon" loading="lazy">
                   {% endif %}
-                  <a class="status-card-name-link truncate-text" href="{{ url_for('services', filter=service_name) }}" title="{{ service_name }}" onclick="event.stopPropagation();">
-                    {{ service_name }}
-                  </a>
+                  {% set web_url = get_service_web_url(service_name, valid_ports) %}
+                  {% if web_url %}
+                    <a class="status-card-name-link truncate-text" href="{{ web_url }}" target="_blank" rel="noopener noreferrer" title="{{ web_url }}" onclick="event.stopPropagation();">
+                      {{ service_name }}
+                    </a>
+                  {% else %}
+                    <span class="status-card-name-link truncate-text" title="{{ service_name }}">
+                      {{ service_name }}
+                    </span>
+                  {% endif %}
                   {% if first_entry.use_proxy %}
                     <span class="badge badge-proxy" title="Accessed via Proxy Server">Proxy</span>
                   {% endif %}
@@ -202,12 +209,14 @@
                   {% endif %}
                 </div>
 
-                <div class="status-card-actions">
-                  <form method="post" action="{{ url_for('rescan_service_route', service_id=first_entry.id) }}" class="inline-form" onclick="event.stopPropagation();">
-                    <button type="submit" class="btn-action primary" title="Rescan this service now">Rescan</button>
-                  </form>
-                  <a class="btn-action edit" href="{{ url_for('edit_service', service_id=first_entry.id) }}" title="Edit service settings" onclick="event.stopPropagation();">Edit</a>
-                </div>
+                {% if not oidc_enabled or current_user %}
+                  <div class="status-card-actions">
+                    <form method="post" action="{{ url_for('rescan_service_route', service_id=first_entry.id) }}" class="inline-form" onclick="event.stopPropagation();">
+                      <button type="submit" class="btn-action primary" title="Rescan this service now">Rescan</button>
+                    </form>
+                    <a class="btn-action edit" href="{{ url_for('edit_service', service_id=first_entry.id) }}" title="Edit service settings" onclick="event.stopPropagation();">Edit</a>
+                  </div>
+                {% endif %}
               </div>
             </div>
           {% endfor %}

@@ -31,6 +31,8 @@ from core.database import (
     get_last_scheduled_check,
     get_status_rows,
     compute_overall_status,
+    clear_latest_port_checks,
+    get_service_web_url,
 )
 from services.notifications import send_state_change_notification
 from services.icons import (
@@ -43,6 +45,7 @@ from services.icons import (
 GLOBAL_SCHEDULER: BackgroundScheduler | None = None
 IS_SCANNING: bool = False
 IS_SCANNING_LOCK = threading.Lock()
+SCAN_RUN_COUNT: int = 0
 
 MACLOOKUP_API_KEY = os.getenv("PULSECHECK_MACLOOKUP_API_KEY", "")
 _MAC_LOOKUP_LOCK = threading.Lock()   # serialise API calls; one at a time
@@ -338,6 +341,7 @@ def get_service_snapshots() -> dict[int, dict]:
                 "discovered_mac": row.get("discovered_mac"),
                 "discovered_manufacturer": row.get("discovered_manufacturer"),
                 "has_checks": False,
+                "ports": row.get("ports") or [],
                 "port_statuses": {},
             }
         if row["checked_at"] is not None:
@@ -502,37 +506,52 @@ def check_all_services(
                     except Exception as exc:
                         print(f"[PulseCheck Scan Error] Service scan thread error: {exc}")
 
+        global SCAN_RUN_COUNT
+        SCAN_RUN_COUNT = _get_app_attr("SCAN_RUN_COUNT", SCAN_RUN_COUNT) + 1
+        if app_mod:
+            app_mod.SCAN_RUN_COUNT = SCAN_RUN_COUNT
+
         after_snapshots = get_service_snapshots()
         changes = []
 
-        for service_id, after_info in after_snapshots.items():
-            before_info = before_snapshots.get(service_id)
-            if not before_info or not before_info["has_checks"]:
-                continue
+        # State change notifications are only evaluated from the 2nd check_all_services run onwards
+        if SCAN_RUN_COUNT >= 2:
+            for service_id, after_info in after_snapshots.items():
+                before_info = before_snapshots.get(service_id)
+                if not before_info or not before_info.get("has_checks"):
+                    continue
 
-            port_changes = []
-            for port, new_status in after_info["port_statuses"].items():
-                old_status = before_info["port_statuses"].get(port)
-                if old_status and old_status != new_status:
-                    if port in ("icmp", None):
-                        port_changes.append(f"ICMP Ping: {old_status.upper()} -> {new_status.upper()}")
-                    else:
-                        port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
+                old_overall = before_info.get("overall_status")
+                new_overall = after_info.get("overall_status")
+                if not old_overall or not new_overall:
+                    continue
 
-            if before_info["overall_status"] != after_info["overall_status"] or port_changes:
-                changes.append({
-                    "service": after_info["name"],
-                    "old_status": before_info["overall_status"],
-                    "new_status": after_info["overall_status"],
-                    "port_changes": port_changes,
-                    "discovered_ip": after_info.get("discovered_ip"),
-                    "discovered_mac": after_info.get("discovered_mac"),
-                    "discovered_manufacturer": after_info.get("discovered_manufacturer"),
-                })
+                port_changes = []
+                for port, new_status in after_info.get("port_statuses", {}).items():
+                    old_status = before_info.get("port_statuses", {}).get(port)
+                    if old_status and new_status and old_status != new_status:
+                        if port in ("icmp", None):
+                            port_changes.append(f"ICMP Ping: {old_status.upper()} -> {new_status.upper()}")
+                        else:
+                            port_changes.append(f"Port {port}: {old_status.upper()} -> {new_status.upper()}")
 
-        if changes:
-            send_notification_fn = _get_app_attr("send_state_change_notification", send_state_change_notification)
-            send_notification_fn(changes)
+                if old_overall != new_overall or port_changes:
+                    svc_ports = after_info.get("ports") or []
+                    web_url = get_service_web_url(after_info["name"], svc_ports)
+                    changes.append({
+                        "service": after_info["name"],
+                        "old_status": old_overall,
+                        "new_status": new_overall,
+                        "port_changes": port_changes,
+                        "web_url": web_url,
+                        "discovered_ip": after_info.get("discovered_ip"),
+                        "discovered_mac": after_info.get("discovered_mac"),
+                        "discovered_manufacturer": after_info.get("discovered_manufacturer"),
+                    })
+
+            if changes:
+                send_notification_fn = _get_app_attr("send_state_change_notification", send_state_change_notification)
+                send_notification_fn(changes)
 
         return changes
     finally:
@@ -591,9 +610,22 @@ def get_scan_schedule_info() -> dict:
 
 
 def run_background_tasks():
-    global GLOBAL_SCHEDULER
+    global GLOBAL_SCHEDULER, SCAN_RUN_COUNT
+    clear_fn = _get_app_attr("clear_latest_port_checks", clear_latest_port_checks)
+    clear_fn()
+    SCAN_RUN_COUNT = 0
+    app_mod = sys.modules.get("app")
+    if app_mod:
+        app_mod.SCAN_RUN_COUNT = 0
+
     scheduler = BackgroundScheduler(daemon=True)
-    scheduler.add_job(check_all_services, "interval", minutes=10, id="pulsecheck_scan")
+    scheduler.add_job(
+        check_all_services,
+        "interval",
+        minutes=10,
+        id="pulsecheck_scan",
+        next_run_time=datetime.now(),
+    )
     scheduler.add_job(
         run_discovery_for_all_services,
         "interval",

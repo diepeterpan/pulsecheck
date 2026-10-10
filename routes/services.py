@@ -270,19 +270,17 @@ def update_service(
             service_id,
         ),
     )
-    # Clean up obsolete port_checks and latest_port_checks for removed ports
+    # Clean up obsolete port_checks for removed ports and remove all latest_port_checks records for this service
+    conn.execute("DELETE FROM latest_port_checks WHERE service_id = ?", (service_id,))
     configured_ports = {p.get("port") for p in incoming_ports}
     if None not in configured_ports:
         conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (service_id,))
-        conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NULL", (service_id,))
     numeric_ports = [p["port"] for p in incoming_ports if p.get("port") is not None]
     if numeric_ports:
         placeholders = ", ".join("?" for _ in numeric_ports)
         conn.execute(f"DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({placeholders})", (service_id, *numeric_ports))
-        conn.execute(f"DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({placeholders})", (service_id, *numeric_ports))
     else:
         conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL", (service_id,))
-        conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL", (service_id,))
     conn.commit()
     conn.close()
     if incoming_ports and not paused:

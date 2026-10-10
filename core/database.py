@@ -373,6 +373,41 @@ def port_protocol_to_json(ports) -> str:
     return json.dumps(normalized)
 
 
+def get_service_web_url(service_name: str | None, ports: list | None) -> str | None:
+    """Return normalized web URL for the first HTTP or HTTPS port with request_type 'web', or None.
+    Normalized format: protocol://servicename:port/urlpath (omits standard ports 80 for http, 443 for https)."""
+    if not service_name or not ports:
+        return None
+    clean_name = str(service_name).strip()
+    if not clean_name:
+        return None
+
+    # Parse ports if passed as json string
+    if isinstance(ports, str):
+        ports = parse_port_protocol(ports)
+
+    for p in ports:
+        if not isinstance(p, dict):
+            continue
+        proto = (p.get("protocol") or "").strip().lower()
+        req_type = (p.get("request_type") or "web").strip().lower()
+        if proto in ("http", "https") and req_type == "web":
+            port_val = p.get("port")
+            raw_path = (p.get("url_path") or "").strip()
+            if raw_path and not raw_path.startswith("/"):
+                raw_path = "/" + raw_path
+
+            # Format host and port
+            if (proto == "http" and port_val == 80) or (proto == "https" and port_val == 443) or port_val is None:
+                netloc = clean_name
+            else:
+                netloc = f"{clean_name}:{port_val}"
+
+            return f"{proto}://{netloc}{raw_path}"
+
+    return None
+
+
 def compute_overall_status(port_statuses: dict[int | str, str]) -> str:
     """Compute service-level overall status based on ports/probes status.
     Precedence (worst to best):
@@ -565,6 +600,19 @@ def store_port_check(service_id: int, port: int | None, status: str, response_ms
     )
     conn.commit()
     conn.close()
+
+
+def clear_latest_port_checks() -> int:
+    """Clear all records from latest_port_checks table on application start."""
+    try:
+        conn = get_db_connection()
+        cur = conn.execute("DELETE FROM latest_port_checks")
+        deleted_count = cur.rowcount
+        conn.commit()
+        conn.close()
+        return deleted_count
+    except Exception:
+        return 0
 
 
 def prune_historical_port_checks(retention_days: int | None = None) -> int:
@@ -949,25 +997,6 @@ def init_db():
         )
         """
     )
-
-    try:
-        latest_count = conn.execute("SELECT COUNT(*) FROM latest_port_checks").fetchone()[0]
-        if latest_count == 0:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
-                SELECT service_id, port, is_online, status, last_response_ms, checked_at
-                FROM (
-                    SELECT service_id, port, is_online, status, last_response_ms, checked_at,
-                           ROW_NUMBER() OVER (PARTITION BY service_id, port ORDER BY checked_at DESC) AS rn
-                    FROM port_checks
-                )
-                WHERE rn = 1
-                """
-            )
-            conn.commit()
-    except Exception:
-        pass
 
     try:
         service_rows = conn.execute("SELECT id, port_protocol FROM services").fetchall()

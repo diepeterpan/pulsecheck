@@ -202,7 +202,11 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         target_name = item.get("service") or item.get("name")
         old_st = (item.get("old_status") or "").upper()
         new_st = (item.get("new_status") or "").upper()
-        lines.append(f"• Service: {target_name} [{new_st}]")
+        web_url = item.get("web_url")
+        if web_url:
+            lines.append(f"• Service: {target_name} ({web_url}) [{new_st}]")
+        else:
+            lines.append(f"• Service: {target_name} [{new_st}]")
 
         meta_parts = []
         if item.get("discovered_ip"):
@@ -288,6 +292,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         target_name = item.get("service") or item.get("name")
         old_st = (item.get("old_status") or "").upper()
         new_st = (item.get("new_status") or "").upper()
+        web_url = item.get("web_url")
         badge_color = get_status_badge_color(new_st)
         old_color = get_status_badge_color(old_st)
 
@@ -297,6 +302,12 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         if svc_path and svc_path.is_file():
             svc_cid = get_inline_image_cid(svc_path, "svc_icon")
             svc_img_html = f'<img src="cid:{svc_cid}" alt="" width="22" height="22" style="width: 22px; height: 22px; max-width: 22px; max-height: 22px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 4px;" />'
+
+        # Service name header with optional web URL
+        if web_url:
+            svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #2563eb; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
+        else:
+            svc_title_html = f'<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>'
 
         # Hardware / network metadata
         ip_val = item.get("discovered_ip")
@@ -333,7 +344,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
         cards_html.append(
             f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
   <div style="margin-bottom: 6px;">
-    {svc_img_html}<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>
+    {svc_img_html}{svc_title_html}
     <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background-color: {badge_color}; color: #ffffff; vertical-align: middle;">{new_st}</span>
   </div>
   {network_meta_html}

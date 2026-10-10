@@ -21,7 +21,10 @@ class ServiceTests(unittest.TestCase):
 
     def tearDown(self):
         pulsecheck_app.DB_PATH = self.original_db
-        self.temp_dir.cleanup()
+        try:
+            self.temp_dir.cleanup()
+        except Exception:
+            pass
 
     def test_normalize_service(self):
         self.assertEqual(pulsecheck_app.normalize_service("HTTP://Service.Example.COM/"), "service.example.com")

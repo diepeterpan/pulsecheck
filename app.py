@@ -61,6 +61,7 @@ def inject_version():
         "version": APP_VERSION,
         "get_manufacturer_icon_url": get_manufacturer_icon_url,
         "get_service_icon_url": get_service_icon_url,
+        "get_service_web_url": get_service_web_url,
         "oidc_enabled": is_oidc_active(),
         "current_user": user,
     }
@@ -73,6 +74,7 @@ GLOBAL_SCHEDULER = None
 GLOBAL_SERVER = None
 IS_SCANNING = False
 IS_SCANNING_LOCK = threading.Lock()
+SCAN_RUN_COUNT = 0
 
 
 def run_web_server(host: str = DEFAULT_IP, port: int = DEFAULT_PORT):

@@ -253,6 +253,8 @@ class SettingsTests(unittest.TestCase):
 
         mock_scan.side_effect = simulate_scan
 
+        # State change notifications require at least 2 runs since start; simulate this being run 2
+        pulsecheck_app.SCAN_RUN_COUNT = 1
         changes = pulsecheck_app.check_all_services(max_retries=0)
 
         self.assertEqual(len(changes), 1)
@@ -2512,6 +2514,227 @@ direct.example,direct,,Direct site,0,0,8080
         ordered = web_p + non_web_p
         self.assertEqual(ordered[0]["port"], 80)
         self.assertEqual(ordered[1]["port"], 9000)
+
+    @patch("app.send_email")
+    @patch("app.scan_service")
+    def test_startup_scan_run_lifecycle_and_notifications(self, mock_scan, mock_send_email):
+        """Verify startup cleans latest_port_checks, run 1 sends no notifications, run 2 detects change."""
+        mock_send_email.return_value = (True, "Sent")
+        pulsecheck_app.save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "alerts@example.com",
+            "recipient_email": "admin@example.com",
+        })
+
+        # Insert a service
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, ?)",
+            ("lifecycle-svc.local", '[{"port": 80, "protocol": "http"}]', 0),
+        )
+        svc_id = conn.execute("SELECT id FROM services WHERE name = ?", ("lifecycle-svc.local",)).fetchone()["id"]
+        # Pre-seed latest_port_checks to verify clear_latest_port_checks purges it
+        conn.execute(
+            "INSERT INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, 80, 1, 'online', 10, '2026-10-10 10:00:00 UTC')",
+            (svc_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        # 1. Clear latest_port_checks (what run_background_tasks does)
+        deleted = pulsecheck_app.clear_latest_port_checks()
+        self.assertGreaterEqual(deleted, 1)
+        conn = pulsecheck_app.get_db_connection()
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM latest_port_checks").fetchone()[0], 0)
+        conn.close()
+
+        # 2. First scan run: service goes online.
+        def scan_online(d_id, name, ports, match=None, explicit_debug=None, url_path="", **kwargs):
+            conn_i = pulsecheck_app.get_db_connection()
+            conn_i.execute(
+                "INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 1, 'online', '2026-10-10 10:01:00 UTC')",
+                (d_id,),
+            )
+            conn_i.commit()
+            conn_i.close()
+            return {80: "online"}
+
+        mock_scan.side_effect = scan_online
+        pulsecheck_app.SCAN_RUN_COUNT = 0
+
+        run1_changes = pulsecheck_app.check_all_services(max_retries=0)
+        self.assertEqual(run1_changes, [])
+        mock_send_email.assert_not_called()
+        self.assertEqual(pulsecheck_app.SCAN_RUN_COUNT, 1)
+
+        # 3. Second scan run: service transitions to offline.
+        def scan_offline(d_id, name, ports, match=None, explicit_debug=None, url_path="", **kwargs):
+            conn_i = pulsecheck_app.get_db_connection()
+            conn_i.execute(
+                "INSERT INTO port_checks (service_id, port, is_online, status, checked_at) VALUES (?, 80, 0, 'offline', '2026-10-10 10:11:00 UTC')",
+                (d_id,),
+            )
+            conn_i.commit()
+            conn_i.close()
+            return {80: "offline"}
+
+        mock_scan.side_effect = scan_offline
+        run2_changes = pulsecheck_app.check_all_services(max_retries=0)
+        self.assertEqual(len(run2_changes), 1)
+        self.assertEqual(run2_changes[0]["service"], "lifecycle-svc.local")
+        self.assertEqual(run2_changes[0]["old_status"], "online")
+        self.assertEqual(run2_changes[0]["new_status"], "offline")
+        mock_send_email.assert_called_once()
+
+    def test_update_service_removes_latest_port_checks(self):
+        """Updating/editing a service must remove all latest_port_checks records for that service."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, ?)",
+            ("edit-test.local", '[{"port": 80, "protocol": "http"}]', 0),
+        )
+        svc_id = conn.execute("SELECT id FROM services WHERE name = ?", ("edit-test.local",)).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, 80, 1, 'online', 15, '2026-10-10 10:00:00 UTC')",
+            (svc_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("app.scan_service"):
+            pulsecheck_app.update_service(
+                service_id=svc_id,
+                name="edit-test.local",
+                ports_input="8080",
+                match="",
+                paused=True,
+            )
+
+        conn = pulsecheck_app.get_db_connection()
+        remaining = conn.execute("SELECT COUNT(*) FROM latest_port_checks WHERE service_id = ?", (svc_id,)).fetchone()[0]
+        conn.close()
+        self.assertEqual(remaining, 0)
+
+    def test_get_service_web_url_normalization(self):
+        """Test URL generation logic for HTTP/HTTPS ports and normalization."""
+        # Standard HTTP (port 80) -> http://domain.local
+        p80 = [{"port": 80, "protocol": "http", "request_type": "web", "url_path": ""}]
+        self.assertEqual(pulsecheck_app.get_service_web_url("my-app.local", p80), "http://my-app.local")
+
+        # Standard HTTPS (port 443) with path -> https://my-app.local/dashboard
+        p443 = [{"port": 443, "protocol": "https", "request_type": "web", "url_path": "/dashboard"}]
+        self.assertEqual(pulsecheck_app.get_service_web_url("my-app.local", p443), "https://my-app.local/dashboard")
+
+        # Non-standard port with path lacking leading slash -> normalized with slash
+        p8443 = [{"port": 8443, "protocol": "https", "request_type": "web", "url_path": "admin/console"}]
+        self.assertEqual(pulsecheck_app.get_service_web_url("my-app.local", p8443), "https://my-app.local:8443/admin/console")
+
+        # Non-HTTP / Non-HTTPS services -> None
+        p_other = [
+            {"port": 22, "protocol": "ssh", "request_type": "web"},
+            {"port": None, "protocol": "icmp-ping", "request_type": "web"},
+            {"port": 53, "protocol": "dns", "request_type": "web"},
+        ]
+        self.assertIsNone(pulsecheck_app.get_service_web_url("my-app.local", p_other))
+
+        # First port is custom TCP, second is HTTP -> picks first valid web HTTP/HTTPS port
+        p_mixed = [
+            {"port": 9000, "protocol": "tcp", "request_type": "custom"},
+            {"port": 8080, "protocol": "http", "request_type": "web", "url_path": "/api"},
+        ]
+        self.assertEqual(pulsecheck_app.get_service_web_url("my-app.local", p_mixed), "http://my-app.local:8080/api")
+
+    def test_status_screen_edit_button_and_web_url_rendering(self):
+        """Verify status screen renders target='_blank' link for web services, no link for non-web,
+        and controls [Edit] button visibility based on OIDC/login state."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute(
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, ?)",
+            ("web-svc.local", '[{"port": 8080, "protocol": "http", "url_path": "/app"}]', 0),
+        )
+        conn.execute(
+            "INSERT INTO services (name, port_protocol, paused) VALUES (?, ?, ?)",
+            ("nonweb-svc.local", '[{"port": 22, "protocol": "ssh"}]', 0),
+        )
+        conn.commit()
+        conn.close()
+
+        # 1. When OIDC is NOT active, [Edit] and [Rescan] buttons must be visible
+        with patch("routes.auth.is_oidc_active", return_value=False):
+            resp = self.client.get("/status")
+            html = resp.data.decode("utf-8")
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn('href="http://web-svc.local:8080/app"', html)
+            self.assertIn('target="_blank"', html)
+            self.assertIn('rel="noopener noreferrer"', html)
+            # Non-web service does not have an <a> tag link
+            self.assertNotIn('href="http://nonweb-svc.local', html)
+            self.assertIn('Edit service settings', html)
+            self.assertIn('Rescan this service now', html)
+            self.assertIn('status-card-actions', html)
+
+        # 2. When OIDC IS active and user is NOT logged in, [Edit], [Rescan], and status-card-actions must NOT be visible
+        with patch("routes.auth.is_oidc_active", return_value=True):
+            resp_anon = self.client.get("/status")
+            html_anon = resp_anon.data.decode("utf-8")
+            self.assertNotIn('title="Edit service settings"', html_anon)
+            self.assertNotIn('title="Rescan this service now"', html_anon)
+            self.assertNotIn('status-card-actions', html_anon)
+
+        # 3. When OIDC IS active and user IS logged in, [Edit] and [Rescan] must be visible
+        with patch("routes.auth.is_oidc_active", return_value=True):
+            with self.client.session_transaction() as sess:
+                sess["user"] = {"identifier": "admin@example.com", "name": "Admin User"}
+            resp_auth = self.client.get("/status")
+            html_auth = resp_auth.data.decode("utf-8")
+            self.assertIn('title="Edit service settings"', html_auth)
+            self.assertIn('title="Rescan this service now"', html_auth)
+            self.assertIn('status-card-actions', html_auth)
+
+    @patch("app.send_email")
+    def test_notification_includes_web_url(self, mock_send_email):
+        """Verify state change alert includes web_url in both text and HTML emails."""
+        mock_send_email.return_value = (True, "Sent")
+        pulsecheck_app.save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "alerts@example.com",
+            "recipient_email": "admin@example.com",
+        })
+
+        changes = [
+            {
+                "service": "my-web.local",
+                "old_status": "online",
+                "new_status": "offline",
+                "web_url": "https://my-web.local:8443/dash",
+                "port_changes": ["Port 8443: ONLINE -> OFFLINE"],
+            },
+            {
+                "service": "my-ssh.local",
+                "old_status": "online",
+                "new_status": "offline",
+                "web_url": None,
+                "port_changes": ["Port 22: ONLINE -> OFFLINE"],
+            },
+        ]
+
+        success, _ = pulsecheck_app.send_state_change_notification(changes)
+        self.assertTrue(success)
+        mock_send_email.assert_called_once()
+        call_args = mock_send_email.call_args
+        text_body = call_args[0][2]
+        html_body = call_args[1].get("html_body") or (call_args[0][4] if len(call_args[0]) > 4 else "")
+
+        # Plain text
+        self.assertIn("• Service: my-web.local (https://my-web.local:8443/dash) [OFFLINE]", text_body)
+        self.assertIn("• Service: my-ssh.local [OFFLINE]", text_body)
+
+        # HTML
+        self.assertIn('href="https://my-web.local:8443/dash"', html_body)
+        self.assertIn('target="_blank"', html_body)
+        self.assertIn('rel="noopener noreferrer"', html_body)
+        self.assertIn('>my-web.local</a>', html_body)
+        self.assertIn('>my-ssh.local</strong>', html_body)
 
 
 if __name__ == "__main__":
