@@ -42,7 +42,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.5.0")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.5.1")
 __version__ = APP_VERSION
 
 # OIDC Configuration
@@ -103,3 +103,10 @@ def get_base_url() -> str:
 
 def get_status_url() -> str:
     return f"{get_base_url()}/status"
+
+
+def get_oidc_callback_url() -> str:
+    custom_uri = (os.getenv("PULSECHECK_OIDC_REDIRECT_URI") or OIDC_REDIRECT_URI or "").strip()
+    if custom_uri:
+        return custom_uri
+    return f"{get_base_url()}/auth/callback"

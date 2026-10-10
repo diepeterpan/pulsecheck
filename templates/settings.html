@@ -807,7 +807,7 @@
                 </div>
                 <div style="margin-bottom: 8px;">
                   <strong style="color: #1e293b;">Callback URI:</strong> 
-                  <span style="font-family: monospace; color: #64748b;">{{ request.host_url }}auth/callback</span>
+                  <span style="font-family: monospace; color: #64748b;">{{ oidc_callback_url or (request.host_url ~ 'auth/callback') }}</span>
                 </div>
               </div>
 

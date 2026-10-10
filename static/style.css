@@ -22,13 +22,25 @@ header {
     padding: 16px 0;
     border-bottom: 1px solid #d6dbeb;
     margin-bottom: 24px;
-    flex-wrap: wrap;
     gap: 16px;
 }
 
 .brand {
     display: flex;
     align-items: center;
+    flex: 1 1 0%;
+}
+
+.header-nav-placeholder {
+    flex: 2 1 0%;
+}
+
+.header-auth {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    flex: 1 1 0%;
 }
 
 .brand-link {
@@ -164,13 +176,44 @@ nav a:focus-visible, .main-nav a:focus-visible {
     outline-offset: 1px;
 }
 
-@media (max-width: 640px) {
+.nav-auth-btn {
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.85rem;
+    padding: 7px 14px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    line-height: 1.2;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+}
+
+.nav-auth-btn:hover {
+    background: #e2e8f0;
+    text-decoration: none;
+    transform: translateY(-0.5px);
+}
+
+@media (max-width: 820px) {
     header {
+        flex-wrap: wrap;
         padding: 12px 0;
         gap: 12px;
     }
 
+    .brand {
+        flex: 1 1 auto;
+    }
+
+    .header-auth {
+        flex: 0 0 auto;
+    }
+
     nav, .main-nav {
+        order: 3;
         width: 100%;
         display: flex;
         justify-content: space-between;
@@ -310,9 +353,54 @@ button.danger {
     background: #eef7ee;
     border: 1px solid #b7e4c7;
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 10px 14px;
     list-style: none;
     margin: 0 0 20px;
+    transition: opacity 0.4s ease, max-height 0.4s ease, margin 0.4s ease, padding 0.4s ease;
+    overflow: hidden;
+}
+
+.flashes.flash-dismissed {
+    opacity: 0;
+    max-height: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+}
+
+.flash-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 0;
+    transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease, padding 0.3s ease;
+}
+
+.flash-item + .flash-item {
+    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    margin-top: 4px;
+    padding-top: 8px;
+}
+
+.flash-dismiss-btn {
+    background: transparent;
+    border: none;
+    color: currentColor;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 6px;
+    opacity: 0.6;
+    border-radius: 4px;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+    flex-shrink: 0;
+}
+
+.flash-dismiss-btn:hover {
+    opacity: 1;
+    background-color: rgba(0, 0, 0, 0.07);
 }
 
 /* Service Maintenance Add Mode Form */

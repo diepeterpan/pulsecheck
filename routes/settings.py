@@ -519,7 +519,7 @@ def settings_route():
         return redirect(redirect_url)
 
     authorized_users = get_authorized_users()
-    from core.config import OIDC_ISSUER
+    from core.config import OIDC_ISSUER, get_oidc_callback_url
     issuer_url = os.getenv("PULSECHECK_OIDC_ISSUER") or OIDC_ISSUER or ""
     return render_template(
         "settings.html",
@@ -527,6 +527,7 @@ def settings_route():
         authorized_users=authorized_users,
         oidc_active=is_oidc_active(),
         oidc_issuer=issuer_url,
+        oidc_callback_url=get_oidc_callback_url(),
         match_claim=get_active_match_claim(),
     )
 

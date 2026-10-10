@@ -25,6 +25,7 @@
             </svg>
           </a>
         </div>
+        {% if not oidc_enabled or current_user %}
         <nav class="main-nav" aria-label="Main Navigation">
           <a href="{{ url_for('status') }}" class="nav-item {% if request.endpoint in ('status', 'home_bp.status') %}active{% endif %}" {% if request.endpoint in ('status', 'home_bp.status') %}aria-current="page"{% endif %}>
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -42,8 +43,12 @@
             <svg class="nav-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             <span>Settings</span>
           </a>
+        </nav>
+        {% else %}
+        <div class="header-nav-placeholder" aria-hidden="true"></div>
+        {% endif %}
+        <div class="header-auth">
           {% if oidc_enabled %}
-            <div class="nav-divider" style="width: 1px; height: 18px; background: #cbd5e1; margin: 0 4px;" aria-hidden="true"></div>
             {% if current_user %}
               <div class="nav-user-badge" title="Logged in as {{ current_user.identifier }}" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 0.8rem; color: #334155; font-weight: 500;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #10b981;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -60,15 +65,58 @@
               </a>
             {% endif %}
           {% endif %}
-        </nav>
+        </div>
       </header>
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-          <ul class="flashes">
+          <ul class="flashes" id="flash-messages">
             {% for category, message in messages %}
-              <li class="flash-item{% if category and category != 'message' %} flash-{{ category }}{% endif %}">{{ message }}</li>
+              <li class="flash-item{% if category and category != 'message' %} flash-{{ category }}{% endif %}">
+                <span class="flash-text">{{ message }}</span>
+                <button type="button" class="flash-dismiss-btn" aria-label="Dismiss notification" onclick="dismissFlashMessage(this)">&times;</button>
+              </li>
             {% endfor %}
           </ul>
+          <script>
+            function dismissFlashContainer(container) {
+              if (!container || container.classList.contains('flash-dismissed')) return;
+              container.classList.add('flash-dismissed');
+              setTimeout(function() {
+                if (container && container.parentNode) {
+                  container.parentNode.removeChild(container);
+                }
+              }, 400);
+            }
+
+            function dismissFlashMessage(btn) {
+              var item = btn.closest('.flash-item');
+              var container = btn.closest('.flashes');
+              if (item) {
+                item.style.opacity = '0';
+                item.style.maxHeight = '0';
+                item.style.padding = '0';
+                item.style.margin = '0';
+                setTimeout(function() {
+                  if (item && item.parentNode) {
+                    item.parentNode.removeChild(item);
+                  }
+                  if (container && container.querySelectorAll('.flash-item').length === 0) {
+                    dismissFlashContainer(container);
+                  }
+                }, 300);
+              }
+            }
+
+            // Automatically dismiss flash messages after 30 seconds
+            document.addEventListener('DOMContentLoaded', function() {
+              var flashBox = document.getElementById('flash-messages');
+              if (flashBox) {
+                setTimeout(function() {
+                  dismissFlashContainer(flashBox);
+                }, 30000);
+              }
+            });
+          </script>
         {% endif %}
       {% endwith %}
       {% block content %}{% endblock %}

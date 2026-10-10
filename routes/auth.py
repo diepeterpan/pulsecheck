@@ -23,6 +23,7 @@ from core.config import (
     OIDC_SCOPES,
     OIDC_MATCH_CLAIM,
     OIDC_SSL_VERIFY,
+    get_oidc_callback_url,
 )
 from core.database import (
     get_settings,
@@ -172,9 +173,7 @@ def login():
         if next_param:
             session["next_url"] = next_param
 
-    redirect_uri = (os.getenv("PULSECHECK_OIDC_REDIRECT_URI") or OIDC_REDIRECT_URI or "").strip()
-    if not redirect_uri:
-        redirect_uri = url_for("auth_bp.callback", _external=True)
+    redirect_uri = get_oidc_callback_url()
 
     client = oauth.create_client("oidc")
     if not client:

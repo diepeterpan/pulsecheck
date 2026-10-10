@@ -281,8 +281,29 @@ class TestOidcAuthAndUserManagement(unittest.TestCase):
         self.assertTrue(getattr(ssl.SSLContext, "_pc_tolerant_patched", False))
 
         ctx = ssl.create_default_context()
-        # Verify mode is still CERT_REQUIRED
         self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_get_oidc_callback_url_respects_ssl_and_hostname(self):
+        """get_oidc_callback_url should respect PULSECHECK_SSL and PULSECHECK_HOSTNAME."""
+        from core.config import get_oidc_callback_url
+
+        with patch.dict(os.environ, {"PULSECHECK_HOSTNAME": "pulse.example.com", "PULSECHECK_SSL": "TRUE", "PULSECHECK_OIDC_REDIRECT_URI": ""}):
+            self.assertEqual(get_oidc_callback_url(), "https://pulse.example.com/auth/callback")
+
+        with patch.dict(os.environ, {"PULSECHECK_HOSTNAME": "pulse.example.com", "PULSECHECK_SSL": "FALSE", "PULSECHECK_OIDC_REDIRECT_URI": ""}):
+            self.assertEqual(get_oidc_callback_url(), "http://pulse.example.com/auth/callback")
+
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_REDIRECT_URI": "https://custom.auth.org/callback"}):
+            self.assertEqual(get_oidc_callback_url(), "https://custom.auth.org/callback")
+
+    def test_unauthenticated_page_hides_main_nav(self):
+        """When OIDC is enabled and user is unauthenticated, main-nav should be hidden."""
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_ENABLED": "true"}):
+            resp = self.client.get("/status")
+            self.assertEqual(resp.status_code, 200)
+            html = resp.get_data(as_text=True)
+            self.assertNotIn('<nav class="main-nav"', html)
+            self.assertIn("Sign in", html)
 
 
 if __name__ == "__main__":
