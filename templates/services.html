@@ -273,7 +273,7 @@
         function setOffsets() {
           const toolbarH = toolbar.getBoundingClientRect().height;
           const theadRowH = theadFirstRow ? theadFirstRow.getBoundingClientRect().height : 41;
-          const gap = 16;       // toolbar margin-bottom
+          const gap = 0;       // seamless joint directly below toolbar
           const theadTop = toolbarH + gap;
           const filterTop = theadTop + theadRowH;
           document.documentElement.style.setProperty('--services-toolbar-height', toolbarH + 'px');

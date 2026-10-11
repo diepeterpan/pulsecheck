@@ -451,9 +451,9 @@ button.danger {
 /* Service Toolbar (Filter & Bulk Operations) */
 /* --services-thead-top and --services-filter-top are set by JS after measuring toolbar height */
 :root {
-    --services-toolbar-height: 54px;
-    --services-thead-top: 54px;
-    --services-filter-top: 95px;
+    --services-toolbar-height: 50px;
+    --services-thead-top: 50px;
+    --services-filter-top: 90px;
 }
 
 .service-toolbar,
@@ -469,9 +469,13 @@ button.danger {
     padding: 10px 14px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    margin-bottom: 16px;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+    border-bottom: 1px solid #e2e8f0;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    margin-bottom: 0;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
     overflow-x: auto;
     overflow-y: visible;
     -webkit-overflow-scrolling: touch;
@@ -593,6 +597,12 @@ button.danger {
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     background: #ffffff;
+}
+
+.service-toolbar + .table-responsive {
+    border-top: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
 }
 
 .services-table,
