@@ -273,15 +273,14 @@
         function setOffsets() {
           const toolbarH = toolbar.getBoundingClientRect().height;
           const theadRowH = theadFirstRow ? theadFirstRow.getBoundingClientRect().height : 41;
-          const gap = 0;       // seamless joint directly below toolbar
-          const theadTop = toolbarH + gap;
+          const theadTop = toolbarH; // stick directly below the toolbar ("Showing x of y services")
           const filterTop = theadTop + theadRowH;
           document.documentElement.style.setProperty('--services-toolbar-height', toolbarH + 'px');
           document.documentElement.style.setProperty('--services-thead-top', theadTop + 'px');
           document.documentElement.style.setProperty('--services-filter-top', filterTop + 'px');
           // Update scroll-margin-top on service rows so scrollIntoView lands correctly
           const filterRowH = 37; // approx height of filter row
-          const scrollMargin = filterTop + filterRowH + 4;
+          const scrollMargin = toolbarH + theadRowH + filterRowH + 4;
           document.querySelectorAll('.service-row').forEach(function(r) {
             r.style.scrollMarginTop = scrollMargin + 'px';
           });
