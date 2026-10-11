@@ -79,6 +79,8 @@
             {% set mfg_icon = get_manufacturer_icon_url(service.discovered_manufacturer) %}
             {% set net_search_str = ((service.discovered_ip or '') ~ ' ' ~ (service.discovered_mac or '') ~ ' ' ~ (service.discovered_manufacturer or '')) | lower %}
             <tr class="service-row service-row"
+                id="service-row-{{ service.id }}"
+                data-service-id="{{ service.id }}"
                 data-service="{{ service.name | lower }}"
                 data-comment="{{ (service.comment or '') | lower }}"
                 data-network="{{ net_search_str }}"
@@ -93,7 +95,14 @@
                     <span class="service-entry-icon-placeholder" aria-hidden="true">{{ (service.name[0] or '?') | upper }}</span>
                   {% endif %}
                   <div class="service-name-meta">
-                    <strong class="service-name-text service-name-text">{{ service.name }}</strong>
+                    {% set web_url = get_service_web_url(service.name, service.ports) %}
+                    {% if web_url %}
+                      <a class="service-name-link service-name-text" href="{{ web_url }}" target="_blank" rel="noopener noreferrer" title="{{ web_url }}">
+                        <strong>{{ service.name }}</strong>
+                      </a>
+                    {% else %}
+                      <strong class="service-name-text">{{ service.name }}</strong>
+                    {% endif %}
 
                     <!-- 1. Robot Status Blob/Disc -->
                     {% if service.paused %}
@@ -144,7 +153,7 @@
                       <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #0284c7; font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; margin-left: 2px; font-weight: 600;" title="Accessed via Proxy Server">Proxy</span>
                     {% endif %}
                     {% if service.comment %}
-                      <span class="service-comment-badge" title="{{ service.comment }}" tabindex="0" aria-label="Comment: {{ service.comment }}">
+                      <span class="service-comment-badge" tabindex="0" aria-label="Comment: {{ service.comment }}">
                         <svg class="comment-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                         <span class="tooltip-bubble">{{ service.comment }}</span>
                       </span>
@@ -153,32 +162,57 @@
                 </div>
               </td>
               <td class="col-network">
-                <div class="network-hardware-container">
-                  <div class="network-ip-mac-row">
+                <div class="cell-truncate-wrapper cell-network-wrapper" tabindex="0">
+                  <div class="network-hardware-inline">
                     {% if service.discovered_ip %}
-                      <span class="net-ip-badge" title="Discovered IP Address">{{ service.discovered_ip }}</span>
-                    {% else %}
-                      <span class="net-empty-badge" title="No IP discovered">—</span>
+                      <span class="net-ip-badge">{{ service.discovered_ip }}</span>
                     {% endif %}
                     {% if service.discovered_mac %}
-                      <span class="net-mac-badge" title="Discovered MAC Address">{{ service.discovered_mac }}</span>
+                      <span class="net-mac-badge">{{ service.discovered_mac }}</span>
                     {% endif %}
-                  </div>
-                  {% if service.discovered_manufacturer and service.discovered_manufacturer != 'NONE' %}
-                    <div class="network-mfg-row" title="Manufacturer: {{ service.discovered_manufacturer }}">
+                    {% if service.discovered_manufacturer and service.discovered_manufacturer != 'NONE' %}
                       {% if mfg_icon %}
                         <img src="{{ mfg_icon }}" alt="" class="network-mfg-icon" loading="lazy" onerror="this.style.display='none';">
                       {% endif %}
                       <span class="network-mfg-name">{{ service.discovered_manufacturer }}</span>
+                    {% endif %}
+                    {% if not service.discovered_ip and not service.discovered_mac and (not service.discovered_manufacturer or service.discovered_manufacturer == 'NONE') %}
+                      <span class="net-empty-badge">—</span>
+                    {% endif %}
+                  </div>
+                  <span class="cell-hover-box cell-hover-box-network" role="tooltip">
+                    <span class="hover-box-label">Network &amp; Hardware</span>
+                    <div class="hover-box-network-list">
+                      <div class="hover-box-network-row">
+                        <span class="net-detail-label">IP Address</span>
+                        <span class="net-detail-val font-mono">{{ service.discovered_ip or 'Not discovered' }}</span>
+                      </div>
+                      {% if service.discovered_mac %}
+                        <div class="hover-box-network-row">
+                          <span class="net-detail-label">MAC Address</span>
+                          <span class="net-detail-val font-mono">{{ service.discovered_mac }}</span>
+                        </div>
+                      {% endif %}
+                      {% if service.discovered_manufacturer and service.discovered_manufacturer != 'NONE' %}
+                        <div class="hover-box-network-row">
+                          <span class="net-detail-label">Manufacturer</span>
+                          <span class="net-detail-val">
+                            {% if mfg_icon %}
+                              <img src="{{ mfg_icon }}" alt="" class="network-mfg-icon" style="vertical-align: middle; margin-right: 4px;" loading="lazy">
+                            {% endif %}
+                            <strong>{{ service.discovered_manufacturer }}</strong>
+                          </span>
+                        </div>
+                      {% endif %}
                     </div>
-                  {% endif %}
+                  </span>
                 </div>
               </td>
               <td class="col-paused">{% if service.paused %}<span class="badge paused">Paused</span>{% else %}<span class="badge active">Active</span>{% endif %}</td>
               <td class="col-ports col-ports">
                 {% if service.ports and (service.ports | format_ports_column) %}
                   <div class="cell-truncate-wrapper cell-ports-wrapper" tabindex="0">
-                    <div class="services-ports-inline truncate-text" title="{{ service.ports | format_ports_column }}">
+                    <div class="services-ports-inline truncate-text">
                       <span class="service-ports-text" style="color: #475569;">{% if service.ports|length > 1 %}{{ (service.ports[0:1] | format_ports_column) }} ...{% else %}{{ service.ports | format_ports_column }}{% endif %}</span>
                     </div>
                     <span class="cell-hover-box cell-hover-box-ports services-hover-box-ports" role="tooltip">
@@ -212,7 +246,7 @@
               </td>
               <td class="col-actions">
                 <div class="row-actions">
-                  <a class="btn-action edit" href="{{ url_for('edit_service', service_id=service.id) }}">Edit</a>
+                  <a class="btn-action edit" href="{{ url_for('edit_service', service_id=service.id, return_to=url_for('services') ~ '#service-row-' ~ service.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('delete_service_route', service_id=service.id) }}" class="inline-form">
                     <input type="hidden" name="return_to" class="delete-service-return-to delete-service-return-to" value="">
                     <button type="submit" class="btn-action danger" onclick="return confirm('Delete {{ service.name }}?');">Delete</button>
@@ -228,6 +262,39 @@
 
   {% if services and not add_mode %}
     <script>
+      // ── Dynamic sticky offsets ──────────────────────────────────────────────
+      // Measure the toolbar height after render and update CSS custom properties
+      // so the thead sticky rows sit exactly below the toolbar.
+      (function updateStickyOffsets() {
+        const toolbar = document.querySelector('.service-toolbar');
+        const theadFirstRow = document.querySelector('.services-table thead tr:first-child');
+        if (!toolbar) return;
+
+        function setOffsets() {
+          const toolbarH = toolbar.getBoundingClientRect().height;
+          const theadRowH = theadFirstRow ? theadFirstRow.getBoundingClientRect().height : 41;
+          const gap = 16;       // toolbar margin-bottom
+          const theadTop = toolbarH + gap;
+          const filterTop = theadTop + theadRowH;
+          document.documentElement.style.setProperty('--services-toolbar-height', toolbarH + 'px');
+          document.documentElement.style.setProperty('--services-thead-top', theadTop + 'px');
+          document.documentElement.style.setProperty('--services-filter-top', filterTop + 'px');
+          // Update scroll-margin-top on service rows so scrollIntoView lands correctly
+          const filterRowH = 37; // approx height of filter row
+          const scrollMargin = filterTop + filterRowH + 4;
+          document.querySelectorAll('.service-row').forEach(function(r) {
+            r.style.scrollMarginTop = scrollMargin + 'px';
+          });
+        }
+
+        setOffsets();
+        // Re-run on resize (e.g. viewport narrowing causes toolbar reflow)
+        if (window.ResizeObserver) {
+          new ResizeObserver(setOffsets).observe(toolbar);
+        }
+        window.addEventListener('resize', setOffsets, { passive: true });
+      })();
+
       const selectAllButton = document.getElementById('select-all-services') || document.getElementById('select-all-services');
       const serviceCheckboxes = Array.from(document.querySelectorAll('.service-checkbox, .service-checkbox'));
       const serviceRows = Array.from(document.querySelectorAll('.service-row, .service-row'));
@@ -319,8 +386,9 @@
         if (portsQuery) params.set('filter_ports', (filterPorts ? filterPorts.value : '').trim());
 
         const queryString = params.toString();
+        const currentHash = window.location.hash || '';
         const newRelativePathQuery = window.location.pathname + (queryString ? '?' + queryString : '');
-        window.history.replaceState(null, '', newRelativePathQuery);
+        window.history.replaceState(null, '', newRelativePathQuery + currentHash);
 
         if (hasFilter) {
           try {
@@ -338,12 +406,16 @@
           } catch (e) {}
         }
 
-        // Update Edit buttons hrefs with return_to
-        const returnToParam = encodeURIComponent(newRelativePathQuery);
-        document.querySelectorAll('.btn-action.edit').forEach((link) => {
-          const baseHref = link.getAttribute('data-base-href') || link.getAttribute('href').split('?')[0];
-          link.setAttribute('data-base-href', baseHref);
-          link.href = queryString ? `${baseHref}?return_to=${returnToParam}` : baseHref;
+        // Update Edit buttons hrefs with return_to including target row anchor
+        document.querySelectorAll('.services-table tbody tr.service-row').forEach((row) => {
+          const serviceId = row.dataset.serviceId;
+          const editLink = row.querySelector('.btn-action.edit');
+          if (editLink && serviceId) {
+            const baseHref = editLink.getAttribute('data-base-href') || editLink.getAttribute('href').split('?')[0];
+            editLink.setAttribute('data-base-href', baseHref);
+            const returnTarget = newRelativePathQuery + '#service-row-' + serviceId;
+            editLink.href = `${baseHref}?return_to=${encodeURIComponent(returnTarget)}`;
+          }
         });
 
         // Update Delete form return_to inputs
@@ -490,6 +562,63 @@
 
       initFilters();
       applyColumnFilters();
+
+      // Scroll to edited service row if targeted in URL hash, sessionStorage, or query param
+      function scrollToTargetRow() {
+        let targetRow = null;
+
+        // 1. Check URL hash
+        const hash = window.location.hash;
+        if (hash && hash.startsWith('#service-row-')) {
+          try {
+            targetRow = document.querySelector(hash);
+          } catch (e) {}
+        }
+
+        // 2. Check sessionStorage
+        if (!targetRow) {
+          try {
+            const storedId = sessionStorage.getItem('pulsecheck_last_edited_service');
+            if (storedId) {
+              targetRow = document.getElementById('service-row-' + storedId);
+              sessionStorage.removeItem('pulsecheck_last_edited_service');
+            }
+          } catch (e) {}
+        }
+
+        // 3. Check query param
+        if (!targetRow) {
+          const urlParams = new URLSearchParams(window.location.search);
+          const targetId = urlParams.get('highlight_service') || urlParams.get('service_id');
+          if (targetId) {
+            targetRow = document.getElementById('service-row-' + targetId);
+          }
+        }
+
+        if (targetRow) {
+          if (targetRow.hidden) {
+            targetRow.hidden = false;
+          }
+          const doScroll = () => {
+            targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            targetRow.classList.add('highlight-row-target');
+            setTimeout(() => {
+              targetRow.classList.remove('highlight-row-target');
+            }, 2400);
+          };
+
+          // Delay slightly so layout, fonts, and images are stable
+          setTimeout(doScroll, 80);
+          setTimeout(doScroll, 300);
+        }
+      }
+
+      // Execute on DOM ready / load
+      if (document.readyState === 'complete') {
+        scrollToTargetRow();
+      } else {
+        window.addEventListener('load', scrollToTargetRow);
+      }
     </script>
   {% endif %}
 {% endblock %}

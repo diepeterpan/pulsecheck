@@ -4,7 +4,7 @@
     <div class="panel-header">
       <div>
         <h2>System Settings</h2>
-        <p class="panel-subtitle">Configure email alert notifications and corporate HTTP proxy routing.</p>
+        <p class="panel-subtitle">Configure alert notifications, proxy routing, remote service sources, icon mapping, and user access control.</p>
       </div>
     </div>
 
@@ -495,9 +495,9 @@
             </div>
           </div>
 
-          <!-- Section 2: Mappings Editor -->
-          <div class="tab-2col-layout">
-            <!-- Known Manufacturer Domains Table -->
+          <!-- Section 2: Mappings Editor (50% / 50% Dual Tables) -->
+          <div class="tab-2col-equal">
+            <!-- Known Manufacturer Domains Table (50%) -->
             <div class="tab-main-card">
               <div class="tab-card-header">
                 <h3>Known Manufacturer Domains</h3>
@@ -527,55 +527,55 @@
               </div>
             </div>
 
-            <!-- Regional Prefixes Box -->
-            <div class="tab-side-card">
+            <!-- Manufacturer Name Aliases / Rebrands Table (50%) -->
+            <div class="tab-main-card">
               <div class="tab-card-header">
-                <h3>Regional Prefixes</h3>
-                <span class="hub-tag">Filters</span>
+                <h3>Manufacturer Name Aliases &amp; Rebrands</h3>
+                <span class="hub-tag">MAC Vendor Normalization</span>
               </div>
-              <p class="tab-card-subtitle">City and regional prefixes stripped from Chinese and international corporate vendor registrations during heuristic lookups.</p>
+              <p class="tab-card-subtitle">Map hardware vendor strings or subsidiary/parent entities from MAC lookups (e.g. <code>routerboard.com</code> or <code>beijing xiaomi</code>) to canonical manufacturer names (e.g. <code>MikroTik</code> or <code>Xiaomi</code>).</p>
               
-              <div class="tag-list-box" id="mfg-regional-tags"></div>
-
-              <div style="display: flex; gap: 6px; margin-bottom: 12px;">
-                <input type="text" id="mfg-new-prefix-input" placeholder="e.g. suzhou" class="mapping-input" style="flex: 1;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-add-prefix">Add</button>
+              <div class="mappings-table-container">
+                <table class="mappings-table" id="table-mfg-aliases">
+                  <thead>
+                    <tr>
+                      <th style="width: 45%;">Vendor Substring / Alias</th>
+                      <th style="width: 45%;">Canonical Manufacturer Name</th>
+                      <th style="width: 10%; text-align: center;">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
               </div>
 
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-prefixes">Reset</button>
-                <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-prefixes">Save Prefixes</button>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-alias-add-row">+ Add Alias</button>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-aliases">Reset to Defaults</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-aliases">Save Aliases</button>
+                </div>
               </div>
             </div>
           </div>
 
-          <!-- Section 3: Manufacturer Name Aliases / Rebrands Table -->
-          <div class="tab-main-card" style="margin-top: 24px;">
+          <!-- Section 3: Regional Prefixes Box (100% Full Width) -->
+          <div class="tab-main-card" style="margin-top: 24px; width: 100%; box-sizing: border-box;">
             <div class="tab-card-header">
-              <h3>Manufacturer Name Aliases &amp; Rebrands</h3>
-              <span class="hub-tag">MAC Vendor Normalization</span>
+              <h3>Regional Prefixes</h3>
+              <span class="hub-tag">Filters</span>
             </div>
-            <p class="tab-card-subtitle">Map hardware vendor strings or subsidiary/parent entities from MAC lookups (e.g. <code>routerboard.com</code> or <code>beijing xiaomi</code>) to canonical manufacturer names (e.g. <code>MikroTik</code> or <code>Xiaomi</code>).</p>
+            <p class="tab-card-subtitle">City and regional prefixes stripped from Chinese and international corporate vendor registrations during heuristic lookups.</p>
             
-            <div class="mappings-table-container">
-              <table class="mappings-table" id="table-mfg-aliases">
-                <thead>
-                  <tr>
-                    <th style="width: 45%;">Vendor Substring / Alias</th>
-                    <th style="width: 45%;">Canonical Manufacturer Name</th>
-                    <th style="width: 10%; text-align: center;">Action</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
+            <div class="tag-list-box" id="mfg-regional-tags"></div>
+
+            <div style="display: flex; gap: 8px; margin-bottom: 12px; max-width: 480px;">
+              <input type="text" id="mfg-new-prefix-input" placeholder="e.g. suzhou" class="mapping-input" style="flex: 1;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-add-prefix">Add</button>
             </div>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; flex-wrap: wrap; gap: 8px;">
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-alias-add-row">+ Add Alias</button>
-              <div style="display: flex; gap: 8px;">
-                <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-aliases">Reset to Defaults</button>
-                <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-aliases">Save Aliases</button>
-              </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-prefixes">Reset</button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-prefixes">Save Prefixes</button>
             </div>
           </div>
         </div>
@@ -627,8 +627,8 @@
           </div>
 
           <!-- Section 2: Mappings Editor -->
-          <div class="tab-2col-layout">
-            <!-- Known Service Domains Table -->
+          <div class="tab-2col-equal">
+            <!-- Known Service Domains Table (50%) -->
             <div class="tab-main-card">
               <div class="tab-card-header">
                 <h3>Known Service Domains</h3>
@@ -658,8 +658,8 @@
               </div>
             </div>
 
-            <!-- Protocol & Content Signatures Table -->
-            <div class="tab-side-card">
+            <!-- Protocol & Content Signatures Table (50%) -->
+            <div class="tab-main-card">
               <div class="tab-card-header">
                 <h3>Protocol &amp; Content Signatures</h3>
                 <span class="hub-tag">Deep Fallback</span>
@@ -693,8 +693,8 @@
 
       <!-- TAB E: Backup & Restore (Export / Import Settings) -->
       <div id="panel-backup" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-backup">
-        <div class="tab-2col-layout">
-          <!-- Left Column: Export Settings -->
+        <div class="tab-2col-equal">
+          <!-- Left Column: Export Settings (50%) -->
           <div class="tab-main-card">
             <div class="tab-card-header">
               <h3>
@@ -730,8 +730,8 @@
             </div>
           </div>
 
-          <!-- Right Column: Import Settings -->
-          <div class="tab-side-card">
+          <!-- Right Column: Import Settings (50%) -->
+          <div class="tab-main-card">
             <div class="tab-card-header">
               <h3>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #059669;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -770,125 +770,123 @@
         </div>
       </div>
 
-      <!-- TAB F: Users & Access Control (OIDC & Authorized Users) -->
+      <!-- TAB F: Users & Access Control (Authorized Users & OIDC - 100% Full Width Stack) -->
       <div id="panel-users" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-users">
-        <div class="tab-2col-layout">
-          <!-- Left Column: OIDC Status & Configuration -->
-          <div class="tab-side-card">
-            <div class="tab-card-header">
-              <h3>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                OIDC Provider Status
+        <!-- Top Section: Authorized Users Management Table (100% Full Width) -->
+        <div class="tab-main-card" style="width: 100%; box-sizing: border-box;">
+          <div class="tab-card-header">
+            <div>
+              <h3 style="display: flex; align-items: center; gap: 8px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Authorized Users
               </h3>
-              {% if oidc_active %}
-                <span class="hub-tag" style="background: #ecfdf5; color: #059669; font-weight: 600;">OIDC Active</span>
-              {% else %}
-                <span class="hub-tag" style="background: #f1f5f9; color: #64748b; font-weight: 600;">Disabled</span>
-              {% endif %}
+              <span class="tab-card-subtitle" style="display: block; margin-top: 4px;">
+                Only explicitly permitted users have access to Services, Import/Export, and Settings. There is no auto-provisioning.
+              </span>
             </div>
-            <p class="tab-card-subtitle">
-              PulseCheck delegates authentication to your OpenID Connect identity provider (e.g. Authelia, Authentik, Keycloak).
-            </p>
-
-            <div class="settings-section-block">
-              <h3 class="settings-section-title">Integration Details</h3>
-              <div style="font-size: 0.85rem; color: #475569; margin-bottom: 14px; line-height: 1.5;">
-                <div style="margin-bottom: 8px;">
-                  <strong style="color: #1e293b;">OIDC Mode:</strong> 
-                  {% if oidc_active %}
-                    <span style="color: #059669; font-weight: 600;">Enabled</span> via <code>PULSECHECK_OIDC_ENABLED=true</code>
-                  {% else %}
-                    <span style="color: #64748b;">Disabled</span> (Public mode active)
-                  {% endif %}
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <strong style="color: #1e293b;">Issuer URL:</strong> 
-                  <span style="font-family: monospace; color: #2563eb;">{{ oidc_issuer or 'Not configured' }}</span>
-                </div>
-                <div style="margin-bottom: 8px;">
-                  <strong style="color: #1e293b;">Callback URI:</strong> 
-                  <span style="font-family: monospace; color: #64748b;">{{ oidc_callback_url or (request.host_url ~ 'auth/callback') }}</span>
-                </div>
-              </div>
-
-              <!-- Matched Claim Setting -->
-              <div class="form-group" style="margin-top: 16px;">
-                <label for="oidc_match_claim" style="font-weight: 600; font-size: 0.85rem; color: #334155; display: block; margin-bottom: 4px;">
-                  OIDC Claim for User Matching
-                </label>
-                <input type="text" id="oidc_match_claim" name="oidc_match_claim" value="{{ settings.get('oidc_match_claim', 'email') }}" placeholder="email" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
-                <p style="font-size: 0.78rem; color: #64748b; margin: 4px 0 0 0;">
-                  Claim in provider token matched against Authorized Users below (e.g. <code>email</code>, <code>preferred_username</code>, or <code>sub</code>).
-                </p>
-              </div>
-
-              <div style="display: flex; justify-content: flex-start; margin-top: 14px;">
-                <button type="submit" class="button secondary" style="font-size: 0.82rem; padding: 6px 14px;">
-                  Save Claim Preference
-                </button>
-              </div>
-            </div>
+            <button type="button" class="button primary" id="btn-open-add-user-modal" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 7px 14px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add User
+            </button>
           </div>
 
-          <!-- Right Column: Authorized Users Management Table -->
-          <div class="tab-main-card">
-            <div class="tab-card-header">
-              <div>
-                <h3 style="display: flex; align-items: center; gap: 8px;">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                  Authorized Users
-                </h3>
-                <span class="tab-card-subtitle" style="display: block; margin-top: 4px;">
-                  Only explicitly permitted users have access to Services, Import/Export, and Settings. There is no auto-provisioning.
-                </span>
-              </div>
-              <button type="button" class="button primary" id="btn-open-add-user-modal" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 7px 14px;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add User
-              </button>
-            </div>
-
-            <div class="table-container" style="margin-top: 14px; overflow-x: auto;">
-              <table class="services-table" id="users-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
-                <thead>
-                  <tr style="border-bottom: 2px solid #e2e8f0; background: #f8fafc;">
-                    <th style="padding: 10px 12px; font-weight: 600; color: #475569;">User Identifier (Claim Value)</th>
-                    <th style="padding: 10px 12px; font-weight: 600; color: #475569;">Display Name / Description</th>
-                    <th style="padding: 10px 12px; font-weight: 600; color: #475569;">Added On</th>
-                    <th style="padding: 10px 12px; font-weight: 600; color: #475569; text-align: right;">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="users-table-body">
-                  {% if authorized_users %}
-                    {% for u in authorized_users %}
-                      <tr data-user-id="{{ u.id }}" data-identifier="{{ u.identifier }}" data-display-name="{{ u.display_name or '' }}" style="border-bottom: 1px solid #f1f5f9;">
-                        <td style="padding: 10px 12px; font-weight: 600; color: #1e293b;">
-                          <div style="display: flex; align-items: center; gap: 6px;">
-                            <span>{{ u.identifier }}</span>
-                            {% if current_user and current_user.identifier and current_user.identifier.lower() == u.identifier.lower() %}
-                              <span style="font-size: 0.7rem; font-weight: 700; background: #dbeafe; color: #1d4ed8; padding: 2px 6px; border-radius: 9999px;">You</span>
-                            {% endif %}
-                          </div>
-                        </td>
-                        <td style="padding: 10px 12px; color: #64748b;">{{ u.display_name or '—' }}</td>
-                        <td style="padding: 10px 12px; color: #94a3b8; font-size: 0.82rem;">{{ u.created_at }}</td>
-                        <td style="padding: 10px 12px; text-align: right;">
-                          <div style="display: inline-flex; gap: 6px;">
-                            <button type="button" class="button secondary btn-edit-user" data-user-id="{{ u.id }}" style="padding: 4px 8px; font-size: 0.78rem;">Edit</button>
-                            <button type="button" class="button secondary btn-delete-user" data-user-id="{{ u.id }}" data-identifier="{{ u.identifier }}" style="padding: 4px 8px; font-size: 0.78rem; color: #ef4444; border-color: #fecaca;">Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                    {% endfor %}
-                  {% else %}
-                    <tr id="no-users-row">
-                      <td colspan="4" style="text-align: center; padding: 24px; color: #94a3b8; font-size: 0.9rem;">
-                        No authorized users configured yet. Click "Add User" to grant access to an OIDC account.
+          <div class="table-container" style="margin-top: 14px; overflow-x: auto;">
+            <table class="services-table" id="users-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.88rem;">
+              <thead>
+                <tr style="border-bottom: 2px solid #e2e8f0; background: #f8fafc;">
+                  <th style="padding: 10px 12px; font-weight: 600; color: #475569;">User Identifier (Claim Value)</th>
+                  <th style="padding: 10px 12px; font-weight: 600; color: #475569;">Display Name / Description</th>
+                  <th style="padding: 10px 12px; font-weight: 600; color: #475569;">Added On</th>
+                  <th style="padding: 10px 12px; font-weight: 600; color: #475569; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="users-table-body">
+                {% if authorized_users %}
+                  {% for u in authorized_users %}
+                    <tr data-user-id="{{ u.id }}" data-identifier="{{ u.identifier }}" data-display-name="{{ u.display_name or '' }}" style="border-bottom: 1px solid #f1f5f9;">
+                      <td style="padding: 10px 12px; font-weight: 600; color: #1e293b;">
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                          <span>{{ u.identifier }}</span>
+                          {% if current_user and current_user.identifier and current_user.identifier.lower() == u.identifier.lower() %}
+                            <span style="font-size: 0.7rem; font-weight: 700; background: #dbeafe; color: #1d4ed8; padding: 2px 6px; border-radius: 9999px;">You</span>
+                          {% endif %}
+                        </div>
+                      </td>
+                      <td style="padding: 10px 12px; color: #64748b;">{{ u.display_name or '—' }}</td>
+                      <td style="padding: 10px 12px; color: #94a3b8; font-size: 0.82rem;">{{ u.created_at }}</td>
+                      <td style="padding: 10px 12px; text-align: right;">
+                        <div style="display: inline-flex; gap: 6px;">
+                          <button type="button" class="button secondary btn-edit-user" data-user-id="{{ u.id }}" style="padding: 4px 8px; font-size: 0.78rem;">Edit</button>
+                          <button type="button" class="button secondary btn-delete-user" data-user-id="{{ u.id }}" data-identifier="{{ u.identifier }}" style="padding: 4px 8px; font-size: 0.78rem; color: #ef4444; border-color: #fecaca;">Delete</button>
+                        </div>
                       </td>
                     </tr>
-                  {% endif %}
-                </tbody>
-              </table>
+                  {% endfor %}
+                {% else %}
+                  <tr id="no-users-row">
+                    <td colspan="4" style="text-align: center; padding: 24px; color: #94a3b8; font-size: 0.9rem;">
+                      No authorized users configured yet. Click "Add User" to grant access to an OIDC account.
+                    </td>
+                  </tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Bottom Section: OIDC Status & Configuration (100% Full Width) -->
+        <div class="tab-main-card" style="margin-top: 24px; width: 100%; box-sizing: border-box;">
+          <div class="tab-card-header">
+            <h3>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              OIDC Provider Status
+            </h3>
+            {% if oidc_active %}
+              <span class="hub-tag" style="background: #ecfdf5; color: #059669; font-weight: 600;">OIDC Active</span>
+            {% else %}
+              <span class="hub-tag" style="background: #f1f5f9; color: #64748b; font-weight: 600;">Disabled</span>
+            {% endif %}
+          </div>
+          <p class="tab-card-subtitle">
+            PulseCheck delegates authentication to your OpenID Connect identity provider (e.g. Authelia, Authentik, Keycloak).
+          </p>
+
+          <div class="settings-section-block">
+            <h3 class="settings-section-title">Integration Details</h3>
+            <div style="font-size: 0.85rem; color: #475569; margin-bottom: 14px; line-height: 1.5;">
+              <div style="margin-bottom: 8px;">
+                <strong style="color: #1e293b;">OIDC Mode:</strong> 
+                {% if oidc_active %}
+                  <span style="color: #059669; font-weight: 600;">Enabled</span> via <code>PULSECHECK_OIDC_ENABLED=true</code>
+                {% else %}
+                  <span style="color: #64748b;">Disabled</span> (Public mode active)
+                {% endif %}
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong style="color: #1e293b;">Issuer URL:</strong> 
+                <span style="font-family: monospace; color: #2563eb;">{{ oidc_issuer or 'Not configured' }}</span>
+              </div>
+              <div style="margin-bottom: 8px;">
+                <strong style="color: #1e293b;">Callback URI:</strong> 
+                <span style="font-family: monospace; color: #64748b;">{{ oidc_callback_url or (request.host_url ~ 'auth/callback') }}</span>
+              </div>
+            </div>
+
+            <!-- Matched Claim Setting -->
+            <div class="form-group" style="margin-top: 16px; max-width: 520px;">
+              <label for="oidc_match_claim" style="font-weight: 600; font-size: 0.85rem; color: #334155; display: block; margin-bottom: 4px;">
+                OIDC Claim for User Matching
+              </label>
+              <input type="text" id="oidc_match_claim" name="oidc_match_claim" value="{{ settings.get('oidc_match_claim', 'email') }}" placeholder="email" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
+              <p style="font-size: 0.78rem; color: #64748b; margin: 4px 0 0 0;">
+                Claim in provider token matched against Authorized Users above (e.g. <code>email</code>, <code>preferred_username</code>, or <code>sub</code>).
+              </p>
+            </div>
+
+            <div style="display: flex; justify-content: flex-start; margin-top: 14px;">
+              <button type="submit" class="button secondary" style="font-size: 0.82rem; padding: 6px 14px;">
+                Save Claim Preference
+              </button>
             </div>
           </div>
         </div>

@@ -12,7 +12,8 @@
         <span class="hub-tag" style="background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; font-size: 0.82rem; padding: 3px 10px; border-radius: 9999px;">{{ item.name }}</span>
       {% endif %}
     </div>
-    <a class="button secondary" href="{{ return_to or url_for('services') }}">Back to list</a>
+    {% set default_back_url = (url_for('services') ~ ('#service-row-' ~ item.id if (not is_add and item and item.id) else '')) %}
+    <a class="button secondary btn-back-to-list" data-service-id="{{ item.id if (not is_add and item and item.id) else '' }}" href="{{ return_to or default_back_url }}">Back to list</a>
   </div>
 
   <!-- Segmented Tab Bar for Service Add/Edit -->
@@ -48,9 +49,8 @@
       </p>
 
       <form method="post" action="{{ form_action }}" id="service-form">
-        {% if return_to %}
-          <input type="hidden" name="return_to" value="{{ return_to }}">
-        {% endif %}
+        {% set effective_return_to = return_to or (url_for('services') ~ ('#service-row-' ~ item.id if (not is_add and item and item.id) else '')) %}
+        <input type="hidden" name="return_to" value="{{ effective_return_to }}">
 
         <!-- Hidden field that carries the serialised per-port protocol JSON to the server -->
         <input type="hidden" name="ports_json" id="ports-json-hidden">
@@ -226,12 +226,13 @@
         </div>
 
         <div style="display: flex; gap: 10px; margin-top: 26px; align-items: center; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid #f1f5f9;">
-          <button type="submit" class="button primary" id="btn-save-service">{{ submit_btn_text }}</button>
+          <button type="submit" class="button primary" id="btn-save-service" data-service-id="{{ item.id if (not is_add and item and item.id) else '' }}">{{ submit_btn_text }}</button>
           <button type="button" id="btn-live-test" class="button secondary btn-test-action" title="Switch to diagnostics tab and test probes">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon-test-pulse"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span id="btn-live-test-text">Test Probes</span>
           </button>
-          <a href="{{ return_to or url_for('services') }}" class="button secondary" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; padding: 10px 18px; border-radius: 8px;">Cancel</a>
+          {% set default_cancel_url = (url_for('services') ~ ('#service-row-' ~ item.id if (not is_add and item and item.id) else '')) %}
+          <a href="{{ return_to or default_cancel_url }}" class="button secondary btn-cancel-edit" data-service-id="{{ item.id if (not is_add and item and item.id) else '' }}" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; padding: 10px 18px; border-radius: 8px;">Cancel</a>
         </div>
       </form>
     </div>
@@ -1131,6 +1132,22 @@
       }
 
       nameInput.addEventListener("input", updateNameIconPreview);
+    }
+
+    // Remember service id in sessionStorage for scrolling to it in services list
+    const formEl = document.getElementById("service-form");
+    const editServiceId = "{{ item.id if (not is_add and item and item.id) else '' }}";
+    if (editServiceId) {
+      if (formEl) {
+        formEl.addEventListener("submit", function() {
+          try { sessionStorage.setItem("pulsecheck_last_edited_service", editServiceId); } catch (e) {}
+        });
+      }
+      document.querySelectorAll(".btn-back-to-list, .btn-cancel-edit").forEach(function(el) {
+        el.addEventListener("click", function() {
+          try { sessionStorage.setItem("pulsecheck_last_edited_service", editServiceId); } catch (e) {}
+        });
+      });
     }
   })();
 </script>

@@ -286,12 +286,12 @@
           pill.addEventListener('click', () => setStatusFilter(pill.dataset.filter));
         });
 
-        // 3. Card Expand / Collapse with Session Persistence
+        // 3. Card Expand / Collapse
         const EXPANDED_STORAGE_KEY = 'pulsecheck_status_expanded_services';
         let expandedSet = new Set();
+        // Clear any stored expansion state on application load to ensure all tiles start collapsed
         try {
-          const saved = sessionStorage.getItem(EXPANDED_STORAGE_KEY);
-          if (saved) expandedSet = new Set(JSON.parse(saved));
+          sessionStorage.removeItem(EXPANDED_STORAGE_KEY);
         } catch (e) {}
 
         function saveExpandedState() {
@@ -306,13 +306,11 @@
           const body = card.querySelector('.status-card-body');
           if (!header || !body) return;
 
-          // Restore previously opened cards
-          if (serviceId && expandedSet.has(serviceId)) {
-            card.dataset.expanded = 'true';
-            card.classList.add('is-expanded');
-            header.setAttribute('aria-expanded', 'true');
-            body.hidden = false;
-          }
+          // Ensure default collapsed state
+          card.dataset.expanded = 'false';
+          card.classList.remove('is-expanded');
+          header.setAttribute('aria-expanded', 'false');
+          body.hidden = true;
 
           function toggleCard(e) {
             // Prevent toggling when clicking directly on child links or forms
