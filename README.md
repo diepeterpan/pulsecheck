@@ -30,13 +30,20 @@ Real-time monitoring overview displaying service availability, countdown timer t
 - **Rich Status Hover Tooltips**: Hovering or focusing any port chip displays latency in milliseconds, probe result code, server-local check timestamp, URL path, and configured match string.
 
 ### 2. Service Inventory & Management
-Centralized directory for viewing and maintaining all monitored services with instant column-based search and bulk controls.
+Centralized directory for viewing and maintaining all monitored services with instant column-based search, visual status indicators, and bulk controls.
 
 <p align="center">
   <img src="docs/screenshots/services.png" alt="Service Inventory and Management" width="100%">
 </p>
 
-- **Interactive Column Filters**: Real-time filtering by service name, paused state, and port numbers.
+- **Visual Operational Status Discs**: Color-coded indicator discs beside each service name (**Green** = Online, **Orange** = Degraded, **Red** = Offline, **Pause Icon** = Paused) reflecting real-time check states at a glance.
+- **Service Configuration Indicator Icons**: Compact metadata icons beside service names:
+  - 🔒 **Padlock**: HTTP Basic Authentication credentials configured.
+  - ⯈ **Prompt / Angle**: Custom health check URL path configured.
+  - 💬 **Speech Bubble**: Service comment or notes attached.
+- **Direct Application Web Links**: Services running web ports (HTTP/HTTPS) automatically render service names as clickable links navigating straight to the application web interface.
+- **Redesigned Seamless Toolbar & Sticky Headers**: Compact toolbar unified directly above the table structure with sticky header alignment, keeping column filters and bulk actions accessible across long lists.
+- **Interactive Column Filters**: Real-time filtering by service name, hardware/network attributes (IP, MAC, vendor), paused state, and port numbers.
 - **Per-Port Details on Hover**: Hovering over any entry in the **PORTS** column displays the individual port configuration including protocol, per-port Match string, and URL path.
 - **Bulk Port Operations**: Batch add or remove ports across multiple selected services simultaneously.
 - **Pause & Resume**: Temporarily bypass monitoring for specific services without deleting records or historical data.
@@ -66,11 +73,13 @@ Centralized settings for automated notification dispatch, test emails, HTTP prox
   <img src="docs/screenshots/settings.png" alt="System Settings and Alerts" width="100%">
 </p>
 
+- **Responsive Dual-Column Grid Layout**: Structured card layout pairing configuration panels with integrated contextual helper guides (Alerting & Delivery Guide, OIDC Provider Status, Backup & Encryption Guide) for optimal screen real estate.
+- **One-Click Mail Provider Presets**: Instant configuration presets for popular email services (**Gmail**, **Outlook 365**, **Mailgun**, **SendGrid**) prefilling recommended ports and encryption protocols.
 - **Outgoing SMTP Server**: Support for STARTTLS (port 587), SSL/TLS (port 465), or plain authentication with password protection.
 - **Automatic State Change Alerts**: Dispatches notifications when services transition between states (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
 - **Send Test Email**: Built-in verification tool to validate SMTP credentials and delivery path immediately.
 - **HTTP Proxy Server**: Centralized proxy configuration with per-service routing toggles.
-- **Encrypted Backup & Restore**: AES-256-GCM encrypted backup of all system settings and authorized user registries with automatic server reboot.
+- **Password-Protected Encrypted Backup & Restore**: AES-256-GCM encrypted backup of all system settings and authorized user registries with passphrase protection and automatic server restart.
 
 ### 5. Access Control & OpenID Connect (OIDC) Authentication
 Protect administrative views with your corporate or self-hosted identity provider (Authelia, Authentik, Keycloak).
@@ -84,6 +93,7 @@ Protect administrative views with your corporate or self-hosted identity provide
 - **Strict Authorization Registry (No Auto-Provisioning)**: Only explicitly approved accounts listed in PulseCheck's **Authorized Users** table are granted access.
 - **Configurable Claim Matching**: Match incoming tokens against user records using configurable claims (default `email`, or `preferred_username`, `sub`).
 - **User Administration**: Add, update, and revoke authorized users directly from the Settings interface.
+- **Configurable Callback URL & SSL Verification**: Supports custom callback URIs (`PULSECHECK_OIDC_REDIRECT_URI`) and internal private PKI/CA certificates with configurable `PULSECHECK_OIDC_SSL_VERIFY` (`true`, path to custom internal CA PEM file, or `false`).
 - **Initial Admin Bootstrapping**: Optional `PULSECHECK_OIDC_INITIAL_ADMIN` seeds the first administrator to prevent lockout when booting on clean installations.
 
 ### 6. Automated Email Alerts
@@ -93,6 +103,9 @@ Modern responsive HTML alert notifications dispatched to your inbox whenever a m
   <img src="docs/screenshots/email_alert.png" alt="Automated Email Alert Notification" width="100%">
 </p>
 
+- **Inline Service Icons & Manufacturer Brand Logos**: Notifications embed resolved service application icons and hardware manufacturer logos directly into the email body, providing immediate visual recognition.
+- **Layer 2/3 Hardware Metadata Chips**: Compact inline chips displaying resolved **IP address**, Layer 2 **MAC address**, and **Manufacturer** for immediate physical and network context.
+- **Direct Service Web Links**: Service titles in alert cards link straight to their respective HTTP/HTTPS web endpoints.
 - **Instant State Transitions**: Shows previous and updated health statuses with distinct color badges (**ONLINE**, **DEGRADED**, **OFFLINE**).
 - **Per-Port Change Breakdown**: Displays individual port and protocol failure reasons (e.g. Socket timeout, HTTP status code change).
 - **One-Click Portal Access**: Direct "View Live Status" CTA button jumping straight to your PulseCheck dashboard.
@@ -135,12 +148,19 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
 - **Email Alerts & Notifications**:
   - Configurable outgoing SMTP settings (STARTTLS, SSL/TLS, or plain) with password encryption/storage.
   - State change notifications: automatically sends email alerts when any monitored service changes state (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
+  - **Inline Service Icons & Manufacturer Brand Logos**: Automatic embedding of high-resolution application icons and hardware vendor logos inside each state change card.
+  - **Layer 2/3 Hardware Metadata Chips**: Compact inline chips displaying resolved **IP address**, Layer 2 **MAC address**, and NIC **Manufacturer** for immediate physical and network context.
+  - **Direct Application Web Links**: Clickable service names in alert cards navigating straight to the target web interface.
   - Color-coded status badges next to service names: **OFFLINE** (red `#dc2626`), **DEGRADED** (orange `#ea580c`), and **ONLINE** (green `#16a34a`).
   - Resized and optimized branded email header with embedded EKG logo and application version badge.
   - "Send Test Email" feature directly from the Settings interface.
 
 - **Service Management & Live Diagnostics**:
   - Maintain services with Add, Edit, Delete, and manual Rescan actions.
+  - **Inline Operational Status Discs**: Visual health status discs (**Green** = Online, **Orange** = Degraded, **Red** = Offline, **Pause Icon** = Paused) reflecting real-time check states at a glance.
+  - **Service Configuration Badges**: Visual indicator icons for HTTP Basic Authentication (lock), custom URL probe paths (prompt), and comments (speech bubble).
+  - **Redesigned Seamless Toolbar & Sticky Headers**: Compact toolbar unified directly above the table structure with sticky header alignment for smooth responsive browsing.
+  - **Direct Application Web Links**: Services running web ports (HTTP/HTTPS) automatically render service names as clickable links navigating straight to the application web interface.
   - **Full-Screen Service Workflows & Live Port Diagnostics ("Test Probes")**:
     - Dedicated 2-column full-screen layouts for both **Add New Service** and **Edit Service** with responsive proportions.
     - **Per-Port Probing Settings**: Match strings and probe URL paths are stored individually per port, permitting distinct health check paths (e.g. port 80 at `/` and port 8080 at `/health`) and distinct verification tokens on the same host.
@@ -150,7 +170,7 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
     - Scrollable response snippet viewer (headers + body) with automatic **highlighting of matching tokens**.
     - "All Ports" summary comparison table.
   - Bulk port management: add or remove ports across multiple selected services simultaneously, or perform bulk deletion.
-  - Interactive column filters (Service, Paused/Active status, and Ports) with URL query parameter preservation.
+  - Interactive column filters (Service, Hardware/Network, Paused/Active status, and Ports) with URL query parameter preservation.
   - Per-port configuration tooltips on hover in both the Services table and Status table.
   - Pause individual services to temporarily bypass monitoring without deleting records.
 
@@ -166,7 +186,7 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
   - **Visual Protocol Port Badges**: Clean port pills with inline protocol symbols and status border/background styling.
   - **Discovered Host Details**: Compact display of IP address, MAC address, and manufacturer logo/name directly below service names.
   - Interactive tooltips showing the last successful check timestamp, round-trip response latency (in ms), configured URL path, and Match token.
-  - Application version display (`v1.1.5`) in the web UI header and alert notification emails, configurable via environment variable.
+  - Application version display (`v1.5.3`) in the web UI header and alert notification emails, configurable via environment variable.
 
 - **Data Import & Export**:
   - **CSV File Export**: Download all saved services and configurations in a single standard CSV file with per-port Match tokens, URL paths, and protocols.
@@ -288,8 +308,9 @@ PulseCheck includes built-in line-by-line performance profiling to pinpoint exac
 | `PULSECHECK_DB_PATH` | `./pulsecheck.db` | Path to the SQLite database file |
 | `PULSECHECK_TIMEZONE` / `TZ` | System local time | Timezone for dashboard and alert timestamps (e.g. `Africa/Johannesburg`, `Europe/London`, `UTC`) |
 | `PULSECHECK_SCAN_WORKERS` | `5` | Concurrency limit for parallel service health checks |
-| `PULSECHECK_SCAN_RETRIES` | `3` | Maximum retry attempts when a service check fails |
-| `PULSECHECK_SCAN_RETRY_INTERVAL` | `10` | Seconds to wait between check retries |
+| `PULSECHECK_SCAN_RETRIES` | `6` | Maximum retry attempts when a service check fails |
+| `PULSECHECK_SCAN_RETRY_INTERVAL` | `5` | Seconds to wait between check retries |
+| `PULSECHECK_HISTORY_RETENTION_DAYS` | `1` | Retention period in days for historical port check logs |
 | `PULSECHECK_SCANNER_BYPASS_KEY` | `b94d27b9...` | Custom header `X-Scanner-Bypass-Key` value injected during `web` health checks, diagnostic probes, and direct service icon/favicon retrieval (can also use `SCANNER_BYPASS_KEY`) |
 | `PULSECHECK_OIDC_ENABLED` | `false` | Master toggle: when `true`, protects Services, Import/Export, and Settings with OIDC authentication |
 | `PULSECHECK_OIDC_ISSUER` | `""` | OpenID Connect discovery/issuer URL (e.g. `https://auth.example.com`) |
@@ -345,7 +366,7 @@ PulseCheck uses [`aiohttp`](https://docs.aiohttp.org/) for high-throughput, non-
 
 ## Testing
 
-PulseCheck includes a comprehensive automated test suite (148 tests) covering OIDC authentication and authorization, user administration, encrypted backup/restore, settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
+PulseCheck includes a comprehensive automated test suite (157 tests) covering OIDC authentication and authorization, user administration, encrypted backup/restore, settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 

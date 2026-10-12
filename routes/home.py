@@ -304,6 +304,10 @@ def preview_email():
             "name": "bitwarden.dummy.net",
             "old_status": "online",
             "new_status": "offline",
+            "discovered_ip": "192.168.1.50",
+            "discovered_mac": "B8:27:EB:12:34:56",
+            "discovered_manufacturer": "Realtek Semiconductor",
+            "web_url": "https://bitwarden.dummy.net",
             "port_changes": [
                 "Port 443: ONLINE -> OFFLINE",
                 "Port 80: ONLINE -> OFFLINE",
@@ -313,6 +317,10 @@ def preview_email():
             "name": "beszel-lenovo.dummy.net",
             "old_status": "online",
             "new_status": "degraded",
+            "discovered_ip": "192.168.1.102",
+            "discovered_mac": "A4:83:E7:33:44:55",
+            "discovered_manufacturer": "Apple",
+            "web_url": "http://beszel-lenovo.dummy.net:8080",
             "port_changes": [
                 "Port 8080: ONLINE -> DEGRADED (Socket timeout)",
             ],
@@ -321,6 +329,10 @@ def preview_email():
             "name": "nextcloud.dummy.net",
             "old_status": "offline",
             "new_status": "online",
+            "discovered_ip": "192.168.1.80",
+            "discovered_mac": "64:D1:54:88:99:AA",
+            "discovered_manufacturer": "MikroTik",
+            "web_url": "https://nextcloud.dummy.net",
             "port_changes": [
                 "Port 443: OFFLINE -> ONLINE (HTTP 200 OK)",
             ],
@@ -329,6 +341,8 @@ def preview_email():
 
     count = len(sample_changes)
     now_str = get_current_local_time_str()
+
+    from services.icons import get_service_icon_url, get_manufacturer_icon_url
 
     def get_status_badge_color(status_str: str) -> str:
         st = (status_str or "").strip().upper()
@@ -361,18 +375,57 @@ def preview_email():
         target_name = item.get("name")
         old_st = (item.get("old_status") or "").upper()
         new_st = (item.get("new_status") or "").upper()
+        web_url = item.get("web_url")
         badge_color = get_status_badge_color(new_st)
         old_color = get_status_badge_color(old_st)
+
+        svc_icon_url = get_service_icon_url(target_name)
+        svc_img_html = ""
+        if svc_icon_url:
+            svc_img_html = f'<img src="{svc_icon_url}" alt="" width="22" height="22" style="width: 22px; height: 22px; max-width: 22px; max-height: 22px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 4px;" />'
+
+        if web_url:
+            svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #2563eb; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
+        else:
+            svc_title_html = f'<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>'
+
+        ip_val = item.get("discovered_ip")
+        mac_val = item.get("discovered_mac")
+        mfg_val = item.get("discovered_manufacturer")
+        if mfg_val and str(mfg_val).strip().upper() in ("", "NONE"):
+            mfg_val = None
+
+        mfg_img_html = ""
+        if mfg_val:
+            mfg_icon_url = get_manufacturer_icon_url(mfg_val)
+            if mfg_icon_url:
+                mfg_img_html = f'<img src="{mfg_icon_url}" alt="" height="14" style="height: 14px; max-height: 14px; max-width: 24px; object-fit: contain; vertical-align: middle; margin-right: 4px;" />'
+
+        meta_chips = []
+        if ip_val:
+            meta_chips.append(f'<span style="display: inline-block; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; font-family: monospace; font-size: 11.5px; color: #0f172a; margin-right: 6px; margin-bottom: 4px;"><strong>IP:</strong> {ip_val}</span>')
+        if mac_val:
+            meta_chips.append(f'<span style="display: inline-block; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; font-family: monospace; font-size: 11.5px; color: #334155; margin-right: 6px; margin-bottom: 4px;"><strong>MAC:</strong> {mac_val}</span>')
+        if mfg_val:
+            meta_chips.append(f'<span style="display: inline-block; background: #f1f5f9; padding: 2px 7px; border-radius: 4px; font-size: 11.5px; color: #334155; margin-right: 6px; margin-bottom: 4px; vertical-align: middle;">{mfg_img_html}<strong>Mfg:</strong> {mfg_val}</span>')
+
+        network_meta_html = ""
+        if meta_chips:
+            joined_chips = "".join(meta_chips)
+            network_meta_html = f'<div style="margin: 6px 0 8px 0; line-height: 1.5;">{joined_chips}</div>'
+
         ports_html = ""
         if item.get("port_changes"):
             p_items = "".join(f"<li style='margin: 4px 0;'>{format_port_change_html(str(p))}</li>" for p in item["port_changes"])
             ports_html = f"<div style='margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; color: #475569;'><strong style='color: #334155;'>Port Details:</strong><ul style='margin: 4px 0 0 18px; padding: 0;'>{p_items}</ul></div>"
+
         cards_html.append(
             f"""<div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: #ffffff;">
   <div style="margin-bottom: 6px;">
-    <strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>
+    {svc_img_html}{svc_title_html}
     <span style="display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background-color: {badge_color}; color: #ffffff; vertical-align: middle;">{new_st}</span>
   </div>
+  {network_meta_html}
   <div style="font-size: 13px; color: #475569;">Status changed from <strong style="color: {old_color};">{old_st}</strong> to <strong style="color: {badge_color};">{new_st}</strong></div>
   {ports_html}
 </div>"""

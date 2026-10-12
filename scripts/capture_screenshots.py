@@ -45,7 +45,7 @@ for sid, name, comment, port_protocol in rows:
         continue
     seen_names.add(clean_name)
     
-    clean_comment = (comment or "").replace("galleon", "internal").strip()
+    clean_comment = re.sub(r"galleon", "internal", comment or "", flags=re.IGNORECASE).strip()
     if "OpenWrt" in clean_comment:
         clean_comment = "Edge Gateway Appliance"
     elif "Machine is not always on" in clean_comment:
@@ -81,6 +81,17 @@ cursor.execute("UPDATE settings SET value = 'ops-team@dummy.net' WHERE key = 're
 cursor.execute("UPDATE settings SET value = 'proxy.dummy.net' WHERE key = 'proxy_host'")
 cursor.execute("UPDATE settings SET value = '8080' WHERE key = 'proxy_port'")
 cursor.execute("UPDATE settings SET value = 'email' WHERE key = 'oidc_match_claim'")
+cursor.execute("UPDATE settings SET value = 'gateway.dummy.net' WHERE key = 'remote_source_host'")
+cursor.execute("UPDATE settings SET value = 'cat /tmp/dhcp.leases | cut -d\" \" -f4' WHERE key = 'remote_source_command'")
+
+cursor.execute("SELECT value FROM settings WHERE key = 'known_service_domains'")
+row = cursor.fetchone()
+if row and row[0]:
+    clean_domains = re.sub(r'galleon[a-zA-Z0-9\.\-_]*', 'dummy.net', row[0], flags=re.IGNORECASE)
+    cursor.execute("UPDATE settings SET value = ? WHERE key = 'known_service_domains'", (clean_domains,))
+
+cursor.execute("UPDATE services SET comment = replace(replace(comment, 'galleon', 'internal'), 'Galleon', 'Internal') WHERE comment LIKE '%galleon%'")
+cursor.execute("UPDATE settings SET value = replace(replace(value, 'galleon.co.za', 'dummy.net'), 'galleon', 'dummy') WHERE value LIKE '%galleon%'")
 
 # Seed demo authorized users for settings tab
 cursor.execute("CREATE TABLE IF NOT EXISTS authorized_users (id INTEGER PRIMARY KEY AUTOINCREMENT, identifier TEXT NOT NULL UNIQUE COLLATE NOCASE, display_name TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)")
@@ -111,6 +122,11 @@ if row:
 cursor.execute("UPDATE services SET discovered_ip = '192.168.1.50', discovered_mac = 'B8:27:EB:12:34:56', discovered_manufacturer = 'Realtek Semiconductor' WHERE name = 'bitwarden.dummy.net'")
 cursor.execute("UPDATE services SET discovered_ip = '192.168.1.1', discovered_mac = '64:D1:54:88:99:AA', discovered_manufacturer = 'MikroTik' WHERE name = 'edge-gateway.dummy.net' OR comment LIKE '%Edge Gateway%'")
 cursor.execute("UPDATE services SET discovered_ip = '192.168.1.102', discovered_mac = 'A4:83:E7:33:44:55', discovered_manufacturer = 'Apple' WHERE name = 'cockpit.dummy.net'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.15', discovered_mac = '00:1A:4B:99:88:77', discovered_manufacturer = 'Giada' WHERE name = 'beszel-lenovo.dummy.net'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.20', discovered_mac = '64:D1:54:88:99:BB', discovered_manufacturer = 'MikroTik' WHERE name = 'acme.dummy.net'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.25', discovered_mac = 'B8:27:EB:AA:BB:CC', discovered_manufacturer = 'Raspberry Pi Foundation' WHERE name = 'authelia.dummy.net'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.30', discovered_mac = '70:85:C2:11:22:33', discovered_manufacturer = 'BroadLink' WHERE name = 'bookstack.dummy.net'")
+cursor.execute("UPDATE services SET discovered_ip = '192.168.1.45', discovered_mac = '28:6C:07:44:55:66', discovered_manufacturer = 'Xiaomi' WHERE name = 'camera.dummy.net'")
 
 conn.commit()
 
@@ -148,7 +164,7 @@ flask_proc = subprocess.Popen([sys.executable, "app.py"], cwd=BASE_DIR, env=env,
 time.sleep(2.5)
 
 # Wait for Flask
-for _ in range(15):
+for _ in range(20):
     try:
         with urllib.request.urlopen("http://127.0.0.1:8189/status") as r:
             if r.status == 200:
@@ -176,7 +192,17 @@ chrome_proc = subprocess.Popen(chrome_cmd, stdout=subprocess.DEVNULL, stderr=sub
 time.sleep(2.0)
 
 try:
-    tabs = json.loads(urllib.request.urlopen("http://127.0.0.1:9222/json").read())
+    tabs = None
+    for _ in range(20):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:9222/json") as r:
+                tabs = json.loads(r.read())
+                if tabs:
+                    break
+        except Exception:
+            time.sleep(0.5)
+    if not tabs:
+        raise RuntimeError("Failed to connect to Chrome headless debugger on port 9222")
     page_tabs = [t for t in tabs if t.get("type") == "page"]
     ws_url = page_tabs[0]["webSocketDebuggerUrl"]
     ws = websocket.create_connection(ws_url)
@@ -215,6 +241,34 @@ try:
         "mobile": False,
     })
     send_cmd("Page.enable")
+
+    # Seed latest_port_checks and last_scan_completed_at so dashboard & services display realistic live statuses
+    conn = sqlite3.connect(DEMO_DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM latest_port_checks")
+    c.execute("SELECT id, port_protocol FROM services WHERE paused = 0")
+    for sid, pp in c.fetchall():
+        ports = json.loads(pp) if pp else []
+        for p_info in ports:
+            p_num = p_info.get("port")
+            c.execute(
+                "INSERT INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at) "
+                "VALUES (?, ?, 1, 'online', 24, datetime('now'))",
+                (sid, p_num)
+            )
+    # Set beszel-lenovo to degraded
+    c.execute("SELECT id FROM services WHERE name = 'beszel-lenovo.dummy.net'")
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE latest_port_checks SET status = 'degraded', last_response_ms = 412 WHERE service_id = ?", (row[0],))
+    # Set camera to offline
+    c.execute("SELECT id FROM services WHERE name = 'camera.dummy.net'")
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE latest_port_checks SET status = 'offline', is_online = 0, last_response_ms = NULL WHERE service_id = ?", (row[0],))
+    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_scan_completed_at', datetime('now'))")
+    conn.commit()
+    conn.close()
 
     # 1. Live Status Dashboard
     # Expand first card to showcase the discovery metadata and port chips with protocol micro-icons
@@ -312,7 +366,7 @@ try:
     capture("import_export", "/import", js_action=js_import, wait=1.2, height=880)
 
     # 7. State Change Email Alert Notification Preview
-    capture("email_alert", "/preview/email", wait=1.0, height=820)
+    capture("email_alert", "/preview/email", wait=1.2, height=920)
 
 finally:
     chrome_proc.terminate()
