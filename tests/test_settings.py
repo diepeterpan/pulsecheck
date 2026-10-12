@@ -2915,6 +2915,70 @@ direct.example,direct,,Direct site,0,0,8080
         dest_png = pulsecheck_app.SERVICE_ICONS_DIR / "camera-html.png"
         dest_png.unlink(missing_ok=True)
 
+    def test_resolve_and_cache_service_icon_rejects_data_uri_and_falls_back_to_html_link(self):
+        """Verify that a corrupt 78-byte data URI on /favicon.ico is rejected and falls back to HTML <link> icon."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services WHERE name = 'wireguard-mock.galleon.co.za'")
+        ports_json = json.dumps([
+            {"port": 443, "protocol": "https", "request_type": "web", "match": "wireguard", "url_path": "/login"},
+        ])
+        conn.execute(
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("wireguard-mock.galleon.co.za", ports_json),
+        )
+        conn.commit()
+        conn.close()
+
+        bogus_favicon = b"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        valid_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
+        landing_html = '<html><head><link rel="icon" type="image/png" href="/favicon.png"></head><body>WireGuard</body></html>'
+        opened_urls = []
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            opened_urls.append(url)
+            mock_r = MagicMock()
+            if "favicon.ico" in url:
+                mock_r.read.return_value = bogus_favicon
+                mock_r.headers = {"Content-Type": "image/x-icon"}
+            elif "/favicon.png" in url:
+                mock_r.read.return_value = valid_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            elif "/login" in url:
+                mock_r.read.return_value = landing_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("wireguard-mock.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        self.assertEqual(res, "/static/service-icons/wireguard-mock.png")
+        saved_file = pulsecheck_app.SERVICE_ICONS_DIR / "wireguard-mock.png"
+        self.assertTrue(saved_file.is_file())
+        self.assertEqual(saved_file.read_bytes(), valid_png)
+        saved_file.unlink(missing_ok=True)
+
+    def test_corrupt_cache_file_auto_healed_on_lookup(self):
+        """Verify that corrupted non-image cache files are auto-purged from disk on lookup."""
+        corrupt_file = pulsecheck_app.SERVICE_ICONS_DIR / "corrupt-mock.png"
+        corrupt_file.write_bytes(b"data:image/gif;base64,dummycorruptdata")
+        self.assertTrue(corrupt_file.is_file())
+
+        path = pulsecheck_app.get_service_icon_path("corrupt-mock.local")
+        self.assertIsNone(path)
+        self.assertFalse(corrupt_file.exists(), "Corrupt cache file must be automatically unlinked")
+
+    def test_fetch_service_content_responses_returns_list(self):
+        """Verify that fetch_service_content_responses returns a list, not None."""
+        res = pulsecheck_app.fetch_service_content_responses("test-service.local")
+        self.assertIsInstance(res, list)
+
 
 if __name__ == "__main__":
     unittest.main()

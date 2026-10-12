@@ -284,6 +284,24 @@ def is_godaddy_or_parked_icon(data: bytes | None) -> bool:
     return h in _GODADDY_PARKED_ICON_HASHES
 
 
+def is_valid_image_payload(data: bytes | None) -> bool:
+    """Validate that binary payload matches known image formats and is not corrupt/dummy/parked."""
+    if not data or len(data) < 20:
+        return False
+    if is_godaddy_or_parked_icon(data):
+        return False
+    trimmed = data.lstrip()
+    if trimmed.startswith((b"data:image/", b"data:application/", b"data:text/")):
+        return False
+    is_png = data.startswith(b"\x89PNG\r\n\x1a\n")
+    is_ico = data.startswith((b"\x00\x00\x01\x00", b"\x00\x00\x02\x00"))
+    is_jpg = data.startswith((b"\xff\xd8\xff", b"\xff\xd8"))
+    is_gif = data.startswith((b"GIF87a", b"GIF89a"))
+    is_webp = data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP"
+    is_svg = trimmed.startswith((b"<svg", b"<?xml", b"<!DOCTYPE svg", b"<!doctype svg"))
+    return bool(is_png or is_ico or is_jpg or is_gif or is_webp or is_svg)
+
+
 def get_manufacturer_name_aliases() -> dict[str, str]:
     """Retrieve manufacturer aliases from DB settings or initialize with defaults."""
     try:
@@ -324,7 +342,7 @@ def get_manufacturer_icon_path(manufacturer: str | None) -> Path | None:
         if icon_path.is_file() and icon_path.stat().st_size > 0:
             try:
                 data = icon_path.read_bytes()
-                if is_godaddy_or_parked_icon(data):
+                if not is_valid_image_payload(data):
                     icon_path.unlink(missing_ok=True)
                     continue
             except Exception:
@@ -416,7 +434,7 @@ def get_service_icon_path(service_name: str | None) -> Path | None:
             if icon_path.is_file() and icon_path.stat().st_size > 0:
                 try:
                     data = icon_path.read_bytes()
-                    if is_godaddy_or_parked_icon(data):
+                    if not is_valid_image_payload(data):
                         icon_path.unlink(missing_ok=True)
                         continue
                 except Exception:
@@ -520,7 +538,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool =
         try:
             fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
             data, status, _ = http_manager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=4.0)
-            if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+            if status == 200 and is_valid_image_payload(data):
                 icon_bytes = data
                 break
         except Exception:
@@ -540,7 +558,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool =
                 try:
                     data, status, headers = http_manager.get_url(candidate_url, headers={"User-Agent": ua}, timeout=4.0)
                     ctype = headers.get("Content-Type", "") or headers.get("content-type", "")
-                    if status == 200 and len(data) > 100 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))) and not is_godaddy_or_parked_icon(data):
+                    if status == 200 and ("image" in ctype or candidate_url.endswith((".png", ".ico", ".jpg", ".svg"))) and is_valid_image_payload(data):
                         icon_bytes = data
                         break
                 except Exception:
@@ -559,7 +577,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool =
                         target = urljoin(home_url, relative_or_abs)
                         try:
                             t_data, t_status, _ = http_manager.get_url(target, headers={"User-Agent": ua}, timeout=4.0)
-                            if t_status == 200 and len(t_data) > 100 and not is_godaddy_or_parked_icon(t_data):
+                            if t_status == 200 and is_valid_image_payload(t_data):
                                 icon_bytes = t_data
                                 break
                         except Exception:
@@ -587,12 +605,12 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool =
                         break
                 if thumb_url:
                     img_data, img_status, _ = http_manager.get_url(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"}, timeout=4.0)
-                    if img_status == 200 and len(img_data) > 100 and not is_godaddy_or_parked_icon(img_data):
+                    if img_status == 200 and is_valid_image_payload(img_data):
                         icon_bytes = img_data
         except Exception:
             pass
 
-    if icon_bytes and not is_godaddy_or_parked_icon(icon_bytes):
+    if icon_bytes and is_valid_image_payload(icon_bytes):
         ext = detect_image_extension(icon_bytes)
         actual_path = mfg_dir / f"{slug}{ext}"
         try:
@@ -662,7 +680,7 @@ def decode_data_uri_image(uri: str) -> tuple[bytes | None, str | None]:
             except Exception:
                 return None, None
 
-    if not raw_bytes or len(raw_bytes) < 10 or is_godaddy_or_parked_icon(raw_bytes):
+    if not raw_bytes or not is_valid_image_payload(raw_bytes):
         return None, None
 
     ext = detect_image_extension(raw_bytes, content_type=header)
@@ -905,6 +923,8 @@ def fetch_service_content_responses(service_name: str, port_protocol_data: str |
         if root_html:
             responses.append(root_html)
 
+    return responses
+
 def get_service_candidate_endpoints(
     service_name: str,
     port_protocol_data: str | list | None = None,
@@ -1034,7 +1054,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 if cached_file.is_file() and cached_file.stat().st_size > 0:
                     try:
                         data = cached_file.read_bytes()
-                        if is_godaddy_or_parked_icon(data):
+                        if not is_valid_image_payload(data):
                             cached_file.unlink(missing_ok=True)
                             continue
                     except Exception:
@@ -1063,7 +1083,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
         if override_target.lower().startswith(("http://", "https://")):
             try:
                 data, status, _ = http_manager.get_url(override_target, headers={"User-Agent": ua}, timeout=4.0)
-                if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                if status == 200 and is_valid_image_payload(data):
                     icon_bytes = data
                     is_device_origin = True
             except Exception:
@@ -1074,7 +1094,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 try:
                     fav_url = f"https://www.google.com/s2/favicons?domain={target_dom}&sz=64"
                     data, status, _ = http_manager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=2.5)
-                    if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                    if status == 200 and is_valid_image_payload(data):
                         icon_bytes = data
                         is_device_origin = True
                 except Exception:
@@ -1085,7 +1105,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         try:
                             data, status, headers = http_manager.get_url(probe_url, headers={"User-Agent": ua}, timeout=2.5)
                             ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
-                            if status == 200 and len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
+                            if status == 200 and ("html" not in ctype) and is_valid_image_payload(data):
                                 icon_bytes = data
                                 is_device_origin = True
                                 break
@@ -1098,7 +1118,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
         if target_val.lower().startswith(("http://", "https://")):
             try:
                 data, status, _ = http_manager.get_url(target_val, headers={"User-Agent": ua}, timeout=4.0)
-                if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                if status == 200 and is_valid_image_payload(data):
                     icon_bytes = data
                     is_device_origin = False
             except Exception:
@@ -1125,7 +1145,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         if re.search(pattern, resp_text, re.I):
                             try:
                                 data, status, _ = http_manager.get_url(target, headers={"User-Agent": ua}, timeout=3.5)
-                                if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                                if status == 200 and is_valid_image_payload(data):
                                     icon_bytes = data
                                     is_device_origin = False
                                     break
@@ -1138,7 +1158,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 inline_uris = extract_script_icon_data_uris(html_page)
                 for u in inline_uris:
                     decoded_bytes, _ = decode_data_uri_image(u)
-                    if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                    if decoded_bytes and is_valid_image_payload(decoded_bytes):
                         icon_bytes = decoded_bytes
                         is_device_origin = True
                         break
@@ -1170,7 +1190,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                     fav_url = f"{base_url}{p_path}"
                     data, status, headers = http_manager.get_url(fav_url, headers=direct_headers, timeout=1.5)
                     ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
-                    if status == 200 and len(data) > 50 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
+                    if status == 200 and ("html" not in ctype) and is_valid_image_payload(data):
                         icon_bytes = data
                         is_device_origin = True
                         break
@@ -1191,7 +1211,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                     for link_href in found_links:
                         if link_href.lower().startswith("data:"):
                             decoded_bytes, _ = decode_data_uri_image(link_href)
-                            if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                            if decoded_bytes and is_valid_image_payload(decoded_bytes):
                                 icon_bytes = decoded_bytes
                                 is_device_origin = True
                                 break
@@ -1201,7 +1221,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                             try:
                                 t_data, t_status, t_headers = http_manager.get_url(target, headers=target_headers, timeout=1.5)
                                 t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
-                                if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
+                                if t_status == 200 and ("html" not in t_ctype) and is_valid_image_payload(t_data):
                                     icon_bytes = t_data
                                     is_device_origin = True
                                     break
@@ -1214,7 +1234,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                     inline_uris = extract_script_icon_data_uris(html)
                     for u in inline_uris:
                         decoded_bytes, _ = decode_data_uri_image(u)
-                        if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                        if decoded_bytes and is_valid_image_payload(decoded_bytes):
                             icon_bytes = decoded_bytes
                             is_device_origin = True
                             break
@@ -1239,7 +1259,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                     s_text = s_data.decode("utf-8", errors="ignore")
                                     for u in extract_script_icon_data_uris(s_text):
                                         decoded_bytes, _ = decode_data_uri_image(u)
-                                        if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                                        if decoded_bytes and is_valid_image_payload(decoded_bytes):
                                             icon_bytes = decoded_bytes
                                             is_device_origin = True
                                             break
@@ -1273,7 +1293,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
             try:
                 fav_url = f"https://www.google.com/s2/favicons?domain={test_dom}&sz=64"
                 data, status, _ = http_manager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=2.0)
-                if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                if status == 200 and is_valid_image_payload(data):
                     icon_bytes = data
                     is_device_origin = False
                     break
@@ -1294,7 +1314,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                             break
                     if thumb_url:
                         img_data, img_status, _ = http_manager.get_url(thumb_url, headers={"User-Agent": "PulseCheck/1.0 (network-monitor)"}, timeout=2.0)
-                        if img_status == 200 and len(img_data) > 100 and not is_godaddy_or_parked_icon(img_data):
+                        if img_status == 200 and is_valid_image_payload(img_data):
                             icon_bytes = img_data
                             is_device_origin = False
             except Exception:
@@ -1323,7 +1343,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         try:
                             fav_url = f"https://www.google.com/s2/favicons?domain={matched_domain}&sz=64"
                             data, status, _ = http_manager.get_url(fav_url, headers={"User-Agent": "Mozilla/5.0 (compatible; PulseCheck)"}, timeout=2.0)
-                            if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                            if status == 200 and is_valid_image_payload(data):
                                 icon_bytes = data
                                 is_device_origin = False
                                 break
@@ -1334,7 +1354,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                             for probe_url in (f"https://www.{matched_domain}/favicon.ico", f"https://{matched_domain}/favicon.ico"):
                                 try:
                                     data, status, _ = http_manager.get_url(probe_url, headers={"User-Agent": ua}, timeout=2.5)
-                                    if status == 200 and len(data) > 100 and not is_godaddy_or_parked_icon(data):
+                                    if status == 200 and is_valid_image_payload(data):
                                         icon_bytes = data
                                         is_device_origin = False
                                         break
@@ -1344,7 +1364,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                     if icon_bytes:
                         break
 
-    if icon_bytes and not is_godaddy_or_parked_icon(icon_bytes):
+    if icon_bytes and is_valid_image_payload(icon_bytes):
         save_slug = device_slug if is_device_origin else product_slug
         ext = detect_image_extension(icon_bytes)
         actual_path = svc_dir / f"{save_slug}{ext}"

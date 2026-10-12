@@ -181,6 +181,7 @@ from services.icons import (
     get_manufacturer_icons_dir,
     get_service_icons_dir,
     is_godaddy_or_parked_icon,
+    is_valid_image_payload,
     get_manufacturer_name_aliases,
     slugify_manufacturer,
     get_manufacturer_icon_path,

@@ -26,7 +26,7 @@ from core.database import (
     get_last_scheduled_check,
     get_current_local_time_str,
 )
-from services.icons import is_godaddy_or_parked_icon
+from services.icons import is_godaddy_or_parked_icon, is_valid_image_payload
 from services.scheduler import (
     get_scan_schedule_info,
     get_line_profiler_stats_text,
@@ -275,7 +275,7 @@ def serve_manufacturer_icon(filename):
     icon_path = MANUFACTURER_ICONS_DIR / filename
     if icon_path.is_file():
         try:
-            if is_godaddy_or_parked_icon(icon_path.read_bytes()):
+            if not is_valid_image_payload(icon_path.read_bytes()):
                 icon_path.unlink(missing_ok=True)
                 abort(404)
         except Exception:
@@ -289,7 +289,7 @@ def serve_service_icon(filename):
     icon_path = SERVICE_ICONS_DIR / filename
     if icon_path.is_file():
         try:
-            if is_godaddy_or_parked_icon(icon_path.read_bytes()):
+            if not is_valid_image_payload(icon_path.read_bytes()):
                 icon_path.unlink(missing_ok=True)
                 abort(404)
         except Exception:
