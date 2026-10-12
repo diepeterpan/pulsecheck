@@ -54,6 +54,7 @@ compress = Compress(app)
 @app.context_processor
 def inject_version():
     from routes.auth import is_oidc_active
+    from services.scheduler import is_initial_scan_active
     from flask import session
     user = session.get("user") if is_oidc_active() else None
     return {
@@ -64,6 +65,7 @@ def inject_version():
         "get_service_web_url": get_service_web_url,
         "oidc_enabled": is_oidc_active(),
         "current_user": user,
+        "is_initial_scan": is_initial_scan_active(),
     }
 
 
@@ -75,6 +77,8 @@ GLOBAL_SERVER = None
 IS_SCANNING = False
 IS_SCANNING_LOCK = threading.Lock()
 SCAN_RUN_COUNT = 0
+INITIAL_SCAN_COMPLETED = False
+STARTUP_SCAN_PENDING = False
 
 
 def run_web_server(host: str = DEFAULT_IP, port: int = DEFAULT_PORT):

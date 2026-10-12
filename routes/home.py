@@ -140,6 +140,7 @@ def status_check_state():
         "next_check_seconds": schedule_info["seconds_remaining"],
         "next_check_timestamp": schedule_info["next_check_timestamp"],
         "is_scanning": schedule_info["is_scanning"],
+        "is_initial_scan": schedule_info.get("is_initial_scan", False),
         "overall_status": overall["status"],
         "overall_label": overall["label"],
     })

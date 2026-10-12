@@ -121,5 +121,85 @@
       {% endwith %}
       {% block content %}{% endblock %}
     </div>
+    {% if is_initial_scan %}
+      <div id="startup-veil" class="startup-veil" role="dialog" aria-modal="true" aria-labelledby="startup-veil-title">
+        <div class="startup-card">
+          <div class="startup-pulse-wrapper">
+            <div class="startup-pulse-ring"></div>
+            <div class="startup-pulse-ring"></div>
+            <div class="startup-pulse-icon">
+              <svg class="startup-ecg-svg" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path class="ecg-path" d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+            </div>
+          </div>
+          <h2 class="startup-title" id="startup-veil-title">
+            Starting up<span class="startup-dots"><span>.</span><span>.</span><span>.</span><span>.</span><span>.</span></span>
+          </h2>
+          <p class="startup-subtitle" id="startup-veil-subtitle">
+            Performing initial network service probe...
+          </p>
+          <div class="startup-progress-track">
+            <div class="startup-progress-beam" id="startup-progress-beam"></div>
+          </div>
+          <div class="startup-badge">
+            <span class="startup-live-ping"></span>
+            <span id="startup-veil-status">Probing configured network ports</span>
+          </div>
+        </div>
+      </div>
+      <script>
+        (function initStartupVeil() {
+          var veil = document.getElementById('startup-veil');
+          if (!veil) return;
+
+          var title = document.getElementById('startup-veil-title');
+          var subtitle = document.getElementById('startup-veil-subtitle');
+          var statusText = document.getElementById('startup-veil-status');
+          var beam = document.getElementById('startup-progress-beam');
+          var dismissed = false;
+
+          function dismissVeil() {
+            if (dismissed) return;
+            dismissed = true;
+            if (title) title.innerHTML = 'Starting up... Ready!';
+            if (subtitle) subtitle.textContent = 'Initial probe complete. Loading fresh results...';
+            if (statusText) statusText.textContent = 'System ready';
+            if (beam) {
+              beam.style.animation = 'none';
+              beam.style.left = '0';
+              beam.style.width = '100%';
+              beam.style.background = '#10b981';
+            }
+            setTimeout(function() {
+              veil.classList.add('fade-out');
+              setTimeout(function() {
+                veil.remove();
+                window.location.reload();
+              }, 450);
+            }, 450);
+          }
+
+          function pollStartupCheck() {
+            if (dismissed) return;
+            fetch('/status/check-state')
+              .then(function(res) {
+                if (!res.ok) throw new Error('Check state failed');
+                return res.json();
+              })
+              .then(function(data) {
+                if (!data.is_initial_scan) {
+                  dismissVeil();
+                }
+              })
+              .catch(function(err) {
+                console.warn('Startup check error:', err);
+              });
+          }
+
+          var pollId = setInterval(pollStartupCheck, 1200);
+        })();
+      </script>
+    {% endif %}
   </body>
 </html>

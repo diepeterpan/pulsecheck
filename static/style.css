@@ -4325,3 +4325,218 @@ button:disabled {
 .users-table tbody tr:last-child td {
     border-bottom: none;
 }
+
+/* ==========================================================================
+   Startup Veil & Initial Scan Screen Overlay (Light Palette matching app theme)
+   ========================================================================== */
+.startup-veil {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(245, 247, 251, 0.88);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.45s;
+    pointer-events: auto;
+}
+
+.startup-veil.fade-out {
+    opacity: 0;
+    transform: scale(1.02);
+    pointer-events: none;
+    visibility: hidden;
+}
+
+.startup-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    box-shadow: 0 20px 45px -10px rgba(15, 23, 42, 0.16), 0 4px 16px rgba(0, 0, 0, 0.04);
+    padding: 40px 36px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    max-width: 440px;
+    width: 90%;
+    box-sizing: border-box;
+    position: relative;
+    overflow: hidden;
+}
+
+.startup-pulse-wrapper {
+    position: relative;
+    width: 76px;
+    height: 76px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.startup-pulse-ring {
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 2px solid rgba(16, 185, 129, 0.28);
+    animation: startupSonarWave 2.2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+.startup-pulse-ring:nth-child(2) {
+    animation-delay: 0.9s;
+}
+
+@keyframes startupSonarWave {
+    0% {
+        transform: scale(0.85);
+        opacity: 0.9;
+    }
+    100% {
+        transform: scale(1.6);
+        opacity: 0;
+    }
+}
+
+.startup-pulse-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    border: 1.5px solid #a7f3d0;
+    box-shadow: 0 0 18px rgba(16, 185, 129, 0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+}
+
+.startup-ecg-svg {
+    color: #059669;
+}
+
+.startup-ecg-svg .ecg-path {
+    stroke-dasharray: 60;
+    animation: startupEcgDraw 1.8s ease-in-out infinite;
+}
+
+@keyframes startupEcgDraw {
+    0% {
+        stroke-dashoffset: 60;
+    }
+    50% {
+        stroke-dashoffset: 0;
+    }
+    100% {
+        stroke-dashoffset: -60;
+    }
+}
+
+.startup-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+.startup-dots span {
+    display: inline-block;
+    color: #2563eb;
+    font-size: 1.5rem;
+    line-height: 1;
+    animation: startupDotBounce 1.4s infinite ease-in-out both;
+}
+
+.startup-dots span:nth-child(1) { animation-delay: 0.0s; }
+.startup-dots span:nth-child(2) { animation-delay: 0.15s; }
+.startup-dots span:nth-child(3) { animation-delay: 0.3s; }
+.startup-dots span:nth-child(4) { animation-delay: 0.45s; }
+.startup-dots span:nth-child(5) { animation-delay: 0.6s; }
+
+@keyframes startupDotBounce {
+    0%, 80%, 100% {
+        opacity: 0.25;
+        transform: translateY(0);
+    }
+    40% {
+        opacity: 1;
+        transform: translateY(-5px);
+    }
+}
+
+.startup-subtitle {
+    font-size: 0.88rem;
+    color: #64748b;
+    margin: 8px 0 0;
+    line-height: 1.45;
+}
+
+.startup-progress-track {
+    width: 100%;
+    height: 6px;
+    background: #e2e8f0;
+    border-radius: 9999px;
+    margin-top: 22px;
+    overflow: hidden;
+    position: relative;
+}
+
+.startup-progress-beam {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 45%;
+    background: linear-gradient(90deg, transparent, #2563eb, #10b981, transparent);
+    border-radius: 9999px;
+    animation: startupScanBeam 1.8s ease-in-out infinite;
+    transition: all 0.35s ease;
+}
+
+@keyframes startupScanBeam {
+    0% { left: -45%; }
+    100% { left: 100%; }
+}
+
+.startup-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 18px;
+    padding: 6px 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #475569;
+}
+
+.startup-live-ping {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 6px #10b981;
+    animation: startupPingDot 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes startupPingDot {
+    0% { opacity: 0.4; transform: scale(0.85); }
+    100% { opacity: 1; transform: scale(1.15); }
+}
+

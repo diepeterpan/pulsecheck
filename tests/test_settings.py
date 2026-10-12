@@ -2746,6 +2746,60 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn('id="users-table-body"', html)
         self.assertIn("activateTab('users')", html)
 
+    def test_startup_veil_lifecycle_and_rendering(self):
+        from services.scheduler import is_initial_scan_active
+        import services.scheduler as sched_mod
+
+        orig_completed = getattr(pulsecheck_app, "INITIAL_SCAN_COMPLETED", sched_mod.INITIAL_SCAN_COMPLETED)
+        orig_pending = getattr(pulsecheck_app, "STARTUP_SCAN_PENDING", sched_mod.STARTUP_SCAN_PENDING)
+        orig_count = getattr(pulsecheck_app, "SCAN_RUN_COUNT", sched_mod.SCAN_RUN_COUNT)
+        orig_scanning = getattr(pulsecheck_app, "IS_SCANNING", sched_mod.IS_SCANNING)
+        try:
+            # 1. When startup scan is active
+            pulsecheck_app.INITIAL_SCAN_COMPLETED = sched_mod.INITIAL_SCAN_COMPLETED = False
+            pulsecheck_app.STARTUP_SCAN_PENDING = sched_mod.STARTUP_SCAN_PENDING = True
+            pulsecheck_app.SCAN_RUN_COUNT = sched_mod.SCAN_RUN_COUNT = 0
+            pulsecheck_app.IS_SCANNING = sched_mod.IS_SCANNING = True
+            self.assertTrue(is_initial_scan_active())
+
+            # Check /status/check-state returns is_initial_scan: True
+            res_state = self.client.get("/status/check-state")
+            self.assertEqual(res_state.status_code, 200)
+            data = res_state.get_json()
+            self.assertTrue(data.get("is_initial_scan"))
+
+            # Check /status renders startup veil overlay with animated elements
+            res_page = self.client.get("/status")
+            self.assertEqual(res_page.status_code, 200)
+            html = res_page.data.decode("utf-8")
+            self.assertIn('id="startup-veil"', html)
+            self.assertIn('startup-veil-title', html)
+            self.assertIn('Starting up', html)
+            self.assertIn('startup-progress-beam', html)
+            self.assertIn('startup-live-ping', html)
+
+            # 2. When first scan completes
+            pulsecheck_app.INITIAL_SCAN_COMPLETED = sched_mod.INITIAL_SCAN_COMPLETED = True
+            pulsecheck_app.STARTUP_SCAN_PENDING = sched_mod.STARTUP_SCAN_PENDING = False
+            pulsecheck_app.SCAN_RUN_COUNT = sched_mod.SCAN_RUN_COUNT = 1
+            pulsecheck_app.IS_SCANNING = sched_mod.IS_SCANNING = False
+            self.assertFalse(is_initial_scan_active())
+
+            # Check /status/check-state returns is_initial_scan: False
+            res_state2 = self.client.get("/status/check-state")
+            data2 = res_state2.get_json()
+            self.assertFalse(data2.get("is_initial_scan"))
+
+            # Check /status does NOT render startup-veil once first scan is complete
+            res_page2 = self.client.get("/status")
+            html2 = res_page2.data.decode("utf-8")
+            self.assertNotIn('id="startup-veil"', html2)
+        finally:
+            pulsecheck_app.INITIAL_SCAN_COMPLETED = sched_mod.INITIAL_SCAN_COMPLETED = orig_completed
+            pulsecheck_app.STARTUP_SCAN_PENDING = sched_mod.STARTUP_SCAN_PENDING = orig_pending
+            pulsecheck_app.SCAN_RUN_COUNT = sched_mod.SCAN_RUN_COUNT = orig_count
+            pulsecheck_app.IS_SCANNING = sched_mod.IS_SCANNING = orig_scanning
+
 
 if __name__ == "__main__":
     unittest.main()

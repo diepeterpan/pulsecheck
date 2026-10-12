@@ -46,7 +46,8 @@ GLOBAL_SCHEDULER: BackgroundScheduler | None = None
 IS_SCANNING: bool = False
 IS_SCANNING_LOCK = threading.Lock()
 SCAN_RUN_COUNT: int = 0
-
+INITIAL_SCAN_COMPLETED: bool = False
+STARTUP_SCAN_PENDING: bool = False
 MACLOOKUP_API_KEY = os.getenv("PULSECHECK_MACLOOKUP_API_KEY", "")
 _MAC_LOOKUP_LOCK = threading.Lock()   # serialise API calls; one at a time
 
@@ -57,6 +58,20 @@ def _get_app_attr(name: str, default=None):
     if app_mod and hasattr(app_mod, name):
         return getattr(app_mod, name)
     return default
+
+
+def is_initial_scan_active() -> bool:
+    """Return True if system is starting up and performing its very first scan."""
+    global INITIAL_SCAN_COMPLETED, STARTUP_SCAN_PENDING, SCAN_RUN_COUNT, IS_SCANNING
+    init_done = _get_app_attr("INITIAL_SCAN_COMPLETED", INITIAL_SCAN_COMPLETED)
+    if init_done:
+        return False
+    scan_count = _get_app_attr("SCAN_RUN_COUNT", SCAN_RUN_COUNT)
+    if scan_count > 0:
+        return False
+    startup_pending = _get_app_attr("STARTUP_SCAN_PENDING", STARTUP_SCAN_PENDING)
+    is_scanning = _get_app_attr("IS_SCANNING", IS_SCANNING)
+    return bool(startup_pending or is_scanning)
 
 
 # ── Network discovery ─────────────────────────────────────────────────────────
@@ -465,8 +480,10 @@ def check_all_services(
     scanning_lock = _get_app_attr("IS_SCANNING_LOCK", IS_SCANNING_LOCK)
     with scanning_lock:
         IS_SCANNING = True
+        STARTUP_SCAN_PENDING = False
         if app_mod:
             app_mod.IS_SCANNING = True
+            app_mod.STARTUP_SCAN_PENDING = False
 
     try:
         num_workers = DEFAULT_SCAN_WORKERS if workers is None else max(1, workers)
@@ -559,6 +576,10 @@ def check_all_services(
             IS_SCANNING = False
             if app_mod:
                 app_mod.IS_SCANNING = False
+        global INITIAL_SCAN_COMPLETED
+        INITIAL_SCAN_COMPLETED = True
+        if app_mod:
+            app_mod.INITIAL_SCAN_COMPLETED = True
         record_scan_completed()
         if getattr(config_mod, "LINE_PROFILER_ENABLED", False) and getattr(config_mod, "GLOBAL_LINE_PROFILER", None) is not None:
             dump_line_profiler_stats()
@@ -605,18 +626,23 @@ def get_scan_schedule_info() -> dict:
         "seconds_remaining": seconds_remaining,
         "interval_seconds": interval_seconds,
         "is_scanning": is_scanning,
+        "is_initial_scan": is_initial_scan_active(),
     }
 
 
 
 def run_background_tasks():
-    global GLOBAL_SCHEDULER, SCAN_RUN_COUNT
+    global GLOBAL_SCHEDULER, SCAN_RUN_COUNT, INITIAL_SCAN_COMPLETED, STARTUP_SCAN_PENDING
     clear_fn = _get_app_attr("clear_latest_port_checks", clear_latest_port_checks)
     clear_fn()
     SCAN_RUN_COUNT = 0
+    INITIAL_SCAN_COMPLETED = False
+    STARTUP_SCAN_PENDING = True
     app_mod = sys.modules.get("app")
     if app_mod:
         app_mod.SCAN_RUN_COUNT = 0
+        app_mod.INITIAL_SCAN_COMPLETED = False
+        app_mod.STARTUP_SCAN_PENDING = True
 
     scheduler = BackgroundScheduler(daemon=True)
     scheduler.add_job(
