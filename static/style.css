@@ -2478,6 +2478,17 @@ button:disabled {
     color: #2563eb;
 }
 
+/* System Settings Tab Bar - Further Reduced Whitespace (~7% additional reduction) */
+.settings-tab-bar {
+    gap: 2.5px;
+    padding: 2.5px;
+}
+
+.settings-tab-bar .import-tab-btn {
+    padding: 6.5px 13px;
+    gap: 6.5px;
+}
+
 /* Tab Panels */
 .import-tab-panel {
     display: block;
@@ -3973,9 +3984,9 @@ button:disabled {
 /* ── Icons Management Hub Styles ───────────────────────────────────────── */
 .icon-subtabs-nav {
     display: inline-flex;
-    gap: 6px;
+    gap: 4.5px;
     background: #e2e8f0;
-    padding: 4px;
+    padding: 2.5px;
     border-radius: 8px;
     margin-bottom: 20px;
 }
@@ -3983,8 +3994,8 @@ button:disabled {
 .icon-subtab-btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
+    gap: 4.5px;
+    padding: 4.5px 11px;
     font-size: 0.85rem;
     font-weight: 600;
     color: #475569;
