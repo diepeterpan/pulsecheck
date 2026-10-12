@@ -2736,6 +2736,16 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertIn('>my-web.local</a>', html_body)
         self.assertIn('>my-ssh.local</strong>', html_body)
 
+    def test_authorized_users_table_structure_and_decoupling(self):
+        resp = self.client.get("/settings")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode("utf-8")
+        # Ensure users-table uses dedicated users-table class and not services-table (which causes sticky header displacement)
+        self.assertIn('<table class="users-table" id="users-table"', html)
+        self.assertNotIn('<table class="services-table" id="users-table"', html)
+        self.assertIn('id="users-table-body"', html)
+        self.assertIn("activateTab('users')", html)
+
 
 if __name__ == "__main__":
     unittest.main()
