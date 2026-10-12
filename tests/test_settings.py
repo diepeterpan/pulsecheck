@@ -2800,6 +2800,121 @@ direct.example,direct,,Direct site,0,0,8080
             pulsecheck_app.SCAN_RUN_COUNT = sched_mod.SCAN_RUN_COUNT = orig_count
             pulsecheck_app.IS_SCANNING = sched_mod.IS_SCANNING = orig_scanning
 
+    def test_get_service_candidate_endpoints_prioritizes_configured_web_ports(self):
+        """Verify candidate endpoints prioritize configured web ports over default 80/443."""
+        ports_json = json.dumps([
+            {"port": 8080, "protocol": "http", "request_type": "web", "match": "Streamer", "url_path": ""},
+            {"port": 8085, "protocol": "http", "request_type": "web", "match": "Streamer", "url_path": "/feed"},
+        ])
+        endpoints = pulsecheck_app.get_service_candidate_endpoints("camera.galleon.co.za", port_protocol_data=ports_json)
+        base_urls = [ep["base_url"] for ep in endpoints]
+        # Configured ports should precede default host ports
+        self.assertIn("http://camera.galleon.co.za:8080", base_urls)
+        self.assertIn("http://camera.galleon.co.za:8085", base_urls)
+        idx_8080 = base_urls.index("http://camera.galleon.co.za:8080")
+        idx_default_http = base_urls.index("http://camera.galleon.co.za")
+        self.assertLess(idx_8080, idx_default_http)
+
+        # Check url_path mapping
+        ep_8085 = next(ep for ep in endpoints if ep["base_url"] == "http://camera.galleon.co.za:8085")
+        self.assertEqual(ep_8085["url_path"], "/feed")
+
+    def test_resolve_and_cache_service_icon_custom_port_direct_favicon(self):
+        """Verify custom port (8080) directly resolves /favicon.ico and cleans up stale .jpg."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services WHERE name = 'camera-test.galleon.co.za'")
+        ports_json = json.dumps([
+            {"port": 8080, "protocol": "http", "request_type": "web", "match": "Streamer", "url_path": ""},
+        ])
+        conn.execute(
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("camera-test.galleon.co.za", ports_json),
+        )
+        conn.commit()
+        conn.close()
+
+        # Plant a stale .jpg fallback file
+        stale_jpg = pulsecheck_app.SERVICE_ICONS_DIR / "camera-test.jpg"
+        stale_jpg.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 50)
+        self.assertTrue(stale_jpg.exists())
+
+        dummy_ico = b"\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x20\x00" + b"\x00" * 150
+        probed_urls = []
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            probed_urls.append(url)
+            mock_r = MagicMock()
+            if "camera-test.galleon.co.za:8080/favicon.ico" in url:
+                mock_r.read.return_value = dummy_ico
+                mock_r.headers = {"Content-Type": "image/x-icon"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("camera-test.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        self.assertEqual(res, "/static/service-icons/camera-test.ico")
+        self.assertTrue(any("camera-test.galleon.co.za:8080/favicon.ico" in u for u in probed_urls))
+
+        dest_ico = pulsecheck_app.SERVICE_ICONS_DIR / "camera-test.ico"
+        self.assertTrue(dest_ico.is_file())
+        # Stale .jpg must have been removed upon saving .ico
+        self.assertFalse(stale_jpg.exists())
+
+        dest_ico.unlink(missing_ok=True)
+
+    def test_resolve_and_cache_service_icon_custom_port_relative_html_link(self):
+        """Verify relative icon links in HTML on custom port 8080 preserve port 8080."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services WHERE name = 'camera-html.galleon.co.za'")
+        ports_json = json.dumps([
+            {"port": 8080, "protocol": "http", "request_type": "web", "match": "Streamer", "url_path": "/webcam"},
+        ])
+        conn.execute(
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("camera-html.galleon.co.za", ports_json),
+        )
+        conn.commit()
+        conn.close()
+
+        landing_html = '<html><head><link rel="icon" href="icons/stream.png"></head><body>Webcam Stream</body></html>'
+        dummy_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
+        requested_urls = []
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            requested_urls.append(url)
+            mock_r = MagicMock()
+            if "icons/stream.png" in url:
+                mock_r.read.return_value = dummy_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            elif "/webcam" in url and "favicon.ico" not in url:
+                mock_r.read.return_value = landing_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("camera-html.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        self.assertEqual(res, "/static/service-icons/camera-html.png")
+        # Target icon URL must contain :8080/icons/stream.png (not port 80)
+        self.assertTrue(any("camera-html.galleon.co.za:8080/icons/stream.png" in u for u in requested_urls))
+
+        dest_png = pulsecheck_app.SERVICE_ICONS_DIR / "camera-html.png"
+        dest_png.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

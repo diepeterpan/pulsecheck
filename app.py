@@ -201,6 +201,7 @@ from services.icons import (
     extract_icon_links_from_html,
     fetch_service_html_body,
     fetch_service_content_responses,
+    get_service_candidate_endpoints,
     resolve_and_cache_service_icon,
     trigger_service_icon_resolution_async,
     resolve_missing_service_icons,

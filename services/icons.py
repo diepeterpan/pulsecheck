@@ -905,7 +905,86 @@ def fetch_service_content_responses(service_name: str, port_protocol_data: str |
         if root_html:
             responses.append(root_html)
 
-    return responses
+def get_service_candidate_endpoints(
+    service_name: str,
+    port_protocol_data: str | list | None = None,
+) -> list[dict[str, str | int]]:
+    """
+    Generate ordered list of candidate web endpoints for a service.
+    Configured web ports take precedence, followed by default ports (80/443).
+    Each entry is a dict with:
+      - 'base_url': e.g. 'http://camera.galleon.co.za:8080'
+      - 'url_path': e.g. '/' or '/stream/'
+      - 'port': port number or None
+      - 'scheme': 'http' or 'https'
+    """
+    clean_host = re.sub(r"^https?://", "", (service_name or "").strip(), flags=re.I).split("/")[0].strip()
+    if not clean_host:
+        return []
+
+    host_part = clean_host.split(":")[0].strip()
+    host_port = int(clean_host.split(":")[1]) if ":" in clean_host and clean_host.split(":")[1].isdigit() else None
+
+    endpoints: list[dict[str, str | int]] = []
+    seen_base_urls: set[str] = set()
+
+    parsed_ports = parse_port_protocol(port_protocol_data) if port_protocol_data else []
+    if host_port and not parsed_ports:
+        parsed_ports = [{"port": host_port, "protocol": "http", "request_type": "web", "url_path": "/"}]
+
+    valid_ports = []
+    for p in parsed_ports:
+        port_num = p.get("port")
+        proto = (p.get("protocol") or "").strip().lower()
+        if not port_num or not isinstance(port_num, int):
+            continue
+        if proto in ("auto", "auto-detect", "icmp", "icmp-ping"):
+            continue
+        valid_ports.append(p)
+
+    web_ports = [p for p in valid_ports if (p.get("request_type") or "web").strip().lower() == "web"]
+    non_web_ports = [p for p in valid_ports if (p.get("request_type") or "web").strip().lower() != "web"]
+    ordered_ports = web_ports + non_web_ports
+
+    for p in ordered_ports:
+        port_num = p.get("port")
+        proto = (p.get("protocol") or "").strip().lower()
+        raw_path = (p.get("url_path") or "").strip()
+        if raw_path and not raw_path.startswith("/"):
+            raw_path = "/" + raw_path
+
+        if "ssl" in proto or proto == "https" or port_num in (443, 8443, 9443):
+            schemes = ["https", "http"]
+        else:
+            schemes = ["http", "https"]
+
+        for scheme in schemes:
+            if (scheme == "http" and port_num == 80) or (scheme == "https" and port_num == 443):
+                netloc = host_part
+            else:
+                netloc = f"{host_part}:{port_num}"
+            b_url = f"{scheme}://{netloc}"
+            if b_url not in seen_base_urls:
+                seen_base_urls.add(b_url)
+                endpoints.append({
+                    "base_url": b_url,
+                    "url_path": raw_path or "/",
+                    "port": port_num,
+                    "scheme": scheme,
+                })
+
+    for scheme in ("https", "http"):
+        b_url = f"{scheme}://{host_part}"
+        if b_url not in seen_base_urls:
+            seen_base_urls.add(b_url)
+            endpoints.append({
+                "base_url": b_url,
+                "url_path": "/",
+                "port": 443 if scheme == "https" else 80,
+                "scheme": scheme,
+            })
+
+    return endpoints
 
 
 def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = False, http_username: str = "", http_password: str = "") -> str | None:
@@ -1055,36 +1134,6 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 if icon_bytes:
                     break
 
-            if not icon_bytes:
-                clean_host_guess = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
-                html_icon_links = extract_icon_links_from_html(html_page)
-                for link_href in html_icon_links:
-                    if link_href.lower().startswith("data:"):
-                        decoded_bytes, _ = decode_data_uri_image(link_href)
-                        if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
-                            icon_bytes = decoded_bytes
-                            is_device_origin = True
-                            break
-                    elif clean_host_guess:
-                        for proto in ("https", "http"):
-                            target_url = urljoin(f"{proto}://{clean_host_guess}/", link_href)
-                            direct_hdrs = {"User-Agent": ua}
-                            if DEFAULT_SCANNER_BYPASS_KEY:
-                                direct_hdrs["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
-                            if basic_auth_hdrs:
-                                direct_hdrs.update(basic_auth_hdrs)
-                            try:
-                                t_data, t_status, t_hdrs = http_manager.get_url(target_url, headers=direct_hdrs, timeout=2.0)
-                                t_ctype = (t_hdrs.get("Content-Type") or t_hdrs.get("content-type") or "").lower()
-                                if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
-                                    icon_bytes = t_data
-                                    is_device_origin = True
-                                    break
-                            except Exception:
-                                pass
-                        if icon_bytes:
-                            break
-
             if not icon_bytes and html_page:
                 inline_uris = extract_script_icon_data_uris(html_page)
                 for u in inline_uris:
@@ -1094,92 +1143,118 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                         is_device_origin = True
                         break
 
-                if not icon_bytes and ("<script" in html_page.lower()):
-                    script_srcs = re.findall(r"""<script[^>]+src=["']([^"']+)["']""", html_page, re.I)
-                    clean_host_guess = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
-                    for s_src in script_srcs:
-                        s_src = s_src.strip()
-                        if not s_src:
-                            continue
-                        if s_src.startswith(("http://", "https://")):
-                            s_url = s_src
-                        elif clean_host_guess:
-                            s_url = urljoin(f"http://{clean_host_guess}/", s_src)
-                        else:
-                            continue
-
-                        s_hdrs = {"User-Agent": ua}
-                        if basic_auth_hdrs and (clean_host_guess in s_url):
-                            s_hdrs.update(basic_auth_hdrs)
-                        try:
-                            s_data, s_status, _ = http_manager.get_url(s_url, headers=s_hdrs, timeout=2.5)
-                            if s_status == 200 and len(s_data) > 50:
-                                s_text = s_data.decode("utf-8", errors="ignore")
-                                for u in extract_script_icon_data_uris(s_text):
-                                    decoded_bytes, _ = decode_data_uri_image(u)
-                                    if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
-                                        icon_bytes = decoded_bytes
-                                        is_device_origin = True
-                                        break
-                        except Exception:
-                            pass
-                        if icon_bytes:
-                            break
-
-    # Priority 3: Direct Site Probe (https:// then http://)
+    # Priority 3: Direct Endpoint & Site Probes (configured web ports first, then default 80/443)
     if not icon_bytes:
+        candidate_endpoints = get_service_candidate_endpoints(service_name, port_protocol_data=service_port_protocol)
         clean_host = re.sub(r"^https?://", "", service_name.strip(), flags=re.I).split("/")[0].strip()
-        if clean_host:
-            direct_headers = {"User-Agent": ua}
-            if DEFAULT_SCANNER_BYPASS_KEY:
-                direct_headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
-            if basic_auth_hdrs:
-                direct_headers.update(basic_auth_hdrs)
+        direct_headers = {"User-Agent": ua}
+        if DEFAULT_SCANNER_BYPASS_KEY:
+            direct_headers["X-Scanner-Bypass-Key"] = DEFAULT_SCANNER_BYPASS_KEY
+        if basic_auth_hdrs:
+            direct_headers.update(basic_auth_hdrs)
 
-            for proto in ("https", "http"):
-                base_url = f"{proto}://{clean_host}"
+        for ep in candidate_endpoints:
+            base_url = ep["base_url"]
+            url_path = ep.get("url_path") or "/"
+            ep_host = base_url.split("://")[-1].split("/")[0].strip()
 
+            # 3a. Direct /favicon.ico probe on base_url (and optional url_path)
+            probe_paths = ["/favicon.ico"]
+            if url_path != "/" and url_path.strip("/"):
+                sub_path = "/" + url_path.strip("/") + "/favicon.ico"
+                if sub_path not in probe_paths:
+                    probe_paths.insert(0, sub_path)
+
+            for p_path in probe_paths:
                 try:
-                    fav_url = f"{base_url}/favicon.ico"
+                    fav_url = f"{base_url}{p_path}"
                     data, status, headers = http_manager.get_url(fav_url, headers=direct_headers, timeout=1.5)
                     ctype = (headers.get("Content-Type") or headers.get("content-type") or "").lower()
-                    if status == 200 and len(data) > 100 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
+                    if status == 200 and len(data) > 50 and ("html" not in ctype) and not is_godaddy_or_parked_icon(data):
                         icon_bytes = data
                         is_device_origin = True
                         break
                 except Exception:
                     pass
 
-                if not icon_bytes:
-                    try:
-                        home_data, home_status, _ = http_manager.get_url(f"{base_url}/", headers=direct_headers, timeout=1.5)
-                        if home_status == 200:
-                            html = home_data.decode("utf-8", errors="ignore")
-                            found_links = extract_icon_links_from_html(html)
-                            for link_href in found_links:
-                                if link_href.lower().startswith("data:"):
-                                    decoded_bytes, _ = decode_data_uri_image(link_href)
-                                    if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
-                                        icon_bytes = decoded_bytes
-                                        is_device_origin = True
-                                        break
-                                else:
-                                    target = urljoin(f"{base_url}/", link_href)
-                                    target_headers = direct_headers if clean_host in target else {"User-Agent": ua}
-                                    try:
-                                        t_data, t_status, t_headers = http_manager.get_url(target, headers=target_headers, timeout=1.5)
-                                        t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
-                                        if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
-                                            icon_bytes = t_data
+            if icon_bytes:
+                break
+
+            # 3b. Probe landing page HTML and extract icon links / data URIs
+            try:
+                landing_path = url_path if url_path.startswith("/") else "/" + url_path
+                landing_url = f"{base_url}{landing_path}"
+                home_data, home_status, _ = http_manager.get_url(landing_url, headers=direct_headers, timeout=1.5)
+                if home_status == 200:
+                    html = home_data.decode("utf-8", errors="ignore")
+                    found_links = extract_icon_links_from_html(html)
+                    for link_href in found_links:
+                        if link_href.lower().startswith("data:"):
+                            decoded_bytes, _ = decode_data_uri_image(link_href)
+                            if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                                icon_bytes = decoded_bytes
+                                is_device_origin = True
+                                break
+                        else:
+                            target = urljoin(landing_url, link_href)
+                            target_headers = direct_headers if (clean_host in target or ep_host in target) else {"User-Agent": ua}
+                            try:
+                                t_data, t_status, t_headers = http_manager.get_url(target, headers=target_headers, timeout=1.5)
+                                t_ctype = (t_headers.get("Content-Type") or t_headers.get("content-type") or "").lower()
+                                if t_status == 200 and len(t_data) > 50 and ("html" not in t_ctype) and not is_godaddy_or_parked_icon(t_data):
+                                    icon_bytes = t_data
+                                    is_device_origin = True
+                                    break
+                            except Exception:
+                                continue
+
+                    if icon_bytes:
+                        break
+
+                    inline_uris = extract_script_icon_data_uris(html)
+                    for u in inline_uris:
+                        decoded_bytes, _ = decode_data_uri_image(u)
+                        if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                            icon_bytes = decoded_bytes
+                            is_device_origin = True
+                            break
+
+                    if not icon_bytes and ("<script" in html.lower()):
+                        script_srcs = re.findall(r"""<script[^>]+src=["']([^"']+)["']""", html, re.I)
+                        for s_src in script_srcs:
+                            s_src = s_src.strip()
+                            if not s_src:
+                                continue
+                            if s_src.startswith(("http://", "https://")):
+                                s_url = s_src
+                            else:
+                                s_url = urljoin(landing_url, s_src)
+
+                            s_hdrs = {"User-Agent": ua}
+                            if basic_auth_hdrs and (clean_host in s_url or ep_host in s_url):
+                                s_hdrs.update(basic_auth_hdrs)
+                            try:
+                                s_data, s_status, _ = http_manager.get_url(s_url, headers=s_hdrs, timeout=2.5)
+                                if s_status == 200 and len(s_data) > 50:
+                                    s_text = s_data.decode("utf-8", errors="ignore")
+                                    for u in extract_script_icon_data_uris(s_text):
+                                        decoded_bytes, _ = decode_data_uri_image(u)
+                                        if decoded_bytes and len(decoded_bytes) > 20 and not is_godaddy_or_parked_icon(decoded_bytes):
+                                            icon_bytes = decoded_bytes
                                             is_device_origin = True
                                             break
-                                    except Exception:
-                                        continue
-                    except Exception:
-                        pass
+                            except Exception:
+                                pass
+                            if icon_bytes:
+                                break
 
-                if icon_bytes:
-                    break
+                    if icon_bytes:
+                        break
+            except Exception:
+                pass
+
+            if icon_bytes:
+                break
 
     # Priority 4: Domain Lookups & Platform Fallbacks
     if not icon_bytes:
@@ -1276,6 +1351,10 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
         try:
             with open(actual_path, "wb") as f:
                 f.write(icon_bytes)
+            # Remove any conflicting/stale cached icon files for this slug with different extensions
+            for old_ext in (".png", ".ico", ".jpg", ".svg", ".webp", ".gif"):
+                if old_ext != ext:
+                    (svc_dir / f"{save_slug}{old_ext}").unlink(missing_ok=True)
             return f"/static/service-icons/{save_slug}{ext}"
         except Exception as exc:
             print(f"[ServiceIconCache] Failed to write {actual_path}: {exc}")
