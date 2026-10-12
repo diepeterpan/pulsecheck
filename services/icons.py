@@ -7,6 +7,7 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 from html.parser import HTMLParser
+import io
 import json
 import os
 from pathlib import Path
@@ -300,6 +301,177 @@ def is_valid_image_payload(data: bytes | None) -> bool:
     is_webp = data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP"
     is_svg = trimmed.startswith((b"<svg", b"<?xml", b"<!DOCTYPE svg", b"<!doctype svg"))
     return bool(is_png or is_ico or is_jpg or is_gif or is_webp or is_svg)
+
+
+_NAMED_WHITE_COLORS: dict[str, tuple[int, int, int]] = {
+    "white": (255, 255, 255),
+    "snow": (255, 250, 250),
+    "honeydew": (240, 255, 240),
+    "mintcream": (245, 255, 250),
+    "azure": (240, 255, 255),
+    "aliceblue": (240, 248, 255),
+    "ghostwhite": (248, 248, 255),
+    "whitesmoke": (245, 245, 245),
+    "seashell": (255, 245, 238),
+    "beige": (245, 245, 220),
+    "oldlace": (253, 245, 230),
+    "floralwhite": (255, 250, 240),
+    "ivory": (255, 255, 240),
+    "linen": (250, 240, 230),
+}
+
+_COLOR_ATTR_REGEX = re.compile(
+    r"(?P<attr>\b(?:fill|stroke|stop-color|color)\s*[:=]\s*[\"\'\s]?)(?P<val>#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|[a-zA-Z]+)(?P<end>[\"\'\s;>])"
+)
+
+
+def parse_color_to_rgb(c: str | None) -> tuple[int, int, int] | None:
+    """Parse color string (hex, rgb/rgba, or named) into an (R, G, B) integer tuple, or None if transparent/none."""
+    if not c:
+        return None
+    c = c.strip().lower().rstrip(";")
+    if c in ("none", "transparent", "currentcolor", "inherit"):
+        return None
+    if c in _NAMED_WHITE_COLORS:
+        return _NAMED_WHITE_COLORS[c]
+    if c.startswith("#"):
+        hex_val = c[1:]
+        if len(hex_val) == 3:
+            return (int(hex_val[0] * 2, 16), int(hex_val[1] * 2, 16), int(hex_val[2] * 2, 16))
+        elif len(hex_val) == 4:
+            if int(hex_val[3] * 2, 16) < 30:
+                return None
+            return (int(hex_val[0] * 2, 16), int(hex_val[1] * 2, 16), int(hex_val[2] * 2, 16))
+        elif len(hex_val) == 6:
+            return (int(hex_val[0:2], 16), int(hex_val[2:4], 16), int(hex_val[4:6], 16))
+        elif len(hex_val) == 8:
+            if int(hex_val[6:8], 16) < 30:
+                return None
+            return (int(hex_val[0:2], 16), int(hex_val[2:4], 16), int(hex_val[4:6], 16))
+    rgb_m = re.match(r"rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", c)
+    if rgb_m:
+        return (int(rgb_m.group(1)), int(rgb_m.group(2)), int(rgb_m.group(3)))
+    return None
+
+
+def is_near_white_color(r: int, g: int, b: int, tolerance: float = 0.10) -> bool:
+    """Return True if (r, g, b) is very light / almost white within given tolerance (e.g. 10% from pure white)."""
+    lum = 0.299 * r + 0.587 * g + 0.114 * b
+    mx = max(r, g, b)
+    mn = min(r, g, b)
+    lightness = (mx + mn) / (2.0 * 255.0)
+    if mx == mn:
+        sat = 0.0
+    else:
+        d = (mx - mn) / 255.0
+        sat = d / (1.0 - abs(2.0 * lightness - 1.0)) if (1.0 - abs(2.0 * lightness - 1.0)) > 0 else 0.0
+    return lightness >= (1.0 - tolerance) and lum >= (255.0 * (1.0 - tolerance)) and sat <= 0.15
+
+
+def evaluate_and_adjust_svg_contrast(svg_bytes: bytes, tolerance: float = 0.10) -> bytes:
+    """If an SVG icon is predominantly near-white on transparent canvas, negate its light colors to pure black."""
+    try:
+        svg_text = svg_bytes.decode("utf-8")
+    except Exception:
+        return svg_bytes
+
+    near_white_found = 0
+    contrasting_found = 0
+
+    for m in _COLOR_ATTR_REGEX.finditer(svg_text):
+        val = m.group("val")
+        rgb = parse_color_to_rgb(val)
+        if rgb is None:
+            continue
+        if is_near_white_color(rgb[0], rgb[1], rgb[2], tolerance=tolerance):
+            near_white_found += 1
+        else:
+            contrasting_found += 1
+
+    if near_white_found > 0 and contrasting_found == 0:
+        def repl(m: re.Match) -> str:
+            val = m.group("val")
+            rgb = parse_color_to_rgb(val)
+            if rgb and is_near_white_color(rgb[0], rgb[1], rgb[2], tolerance=tolerance):
+                neg_r, neg_g, neg_b = 255 - rgb[0], 255 - rgb[1], 255 - rgb[2]
+                neg_hex = f"#{neg_r:02x}{neg_g:02x}{neg_b:02x}"
+                return f"{m.group('attr')}{neg_hex}{m.group('end')}"
+            return m.group(0)
+
+        modified_text = _COLOR_ATTR_REGEX.sub(repl, svg_text)
+        return modified_text.encode("utf-8")
+
+    return svg_bytes
+
+
+def evaluate_and_adjust_raster_contrast(image_bytes: bytes, ext: str, tolerance: float = 0.10) -> bytes:
+    """If a raster icon is predominantly near-white with transparent background, invert its RGB to black preserving alpha."""
+    try:
+        from PIL import Image, ImageOps
+
+        img = Image.open(io.BytesIO(image_bytes))
+        orig_format = img.format or (
+            "PNG" if ext == ".png"
+            else "ICO" if ext == ".ico"
+            else "JPEG" if ext in (".jpg", ".jpeg")
+            else "WEBP" if ext == ".webp"
+            else "GIF" if ext == ".gif"
+            else None
+        )
+        if not orig_format:
+            return image_bytes
+
+        work = img.convert("RGBA")
+        raw = work.tobytes()
+
+        # Check for transparency: if all pixels are fully opaque (alpha >= 240), do not invert
+        has_transparency = any(raw[i + 3] < 240 for i in range(0, len(raw), 4))
+        if not has_transparency:
+            return image_bytes
+
+        visible_count = 0
+        near_white_count = 0
+        for i in range(0, len(raw), 4):
+            a = raw[i + 3]
+            if a > 30:
+                visible_count += 1
+                r, g, b = raw[i], raw[i + 1], raw[i + 2]
+                if is_near_white_color(r, g, b, tolerance=tolerance):
+                    near_white_count += 1
+
+        if visible_count >= 10 and (near_white_count / visible_count) >= 0.85:
+            r, g, b, a = work.split()
+            inverted_rgb = ImageOps.invert(Image.merge("RGB", (r, g, b)))
+            res_img = Image.merge("RGBA", (*inverted_rgb.split(), a))
+            out_buf = io.BytesIO()
+            if orig_format.upper() == "ICO":
+                res_img.save(out_buf, format="ICO")
+            elif orig_format.upper() in ("JPEG", "JPG"):
+                res_img.convert("RGB").save(out_buf, format="JPEG")
+            elif orig_format.upper() == "WEBP":
+                res_img.save(out_buf, format="WEBP")
+            elif orig_format.upper() == "GIF":
+                res_img.save(out_buf, format="GIF")
+            else:
+                res_img.save(out_buf, format="PNG")
+            return out_buf.getvalue()
+    except Exception:
+        pass
+    return image_bytes
+
+
+def evaluate_and_adjust_icon_contrast(icon_bytes: bytes, ext: str, tolerance: float = 0.10) -> bytes:
+    """Evaluate if an icon is very light / almost white, and negate its color to opposite before saving."""
+    if not icon_bytes or len(icon_bytes) < 10:
+        return icon_bytes
+    ext_lower = (ext or "").lower()
+    trimmed = icon_bytes.lstrip()
+    is_svg = ext_lower == ".svg" or trimmed.startswith((b"<svg", b"<?xml", b"<!DOCTYPE svg", b"<!doctype svg"))
+    if is_svg:
+        return evaluate_and_adjust_svg_contrast(icon_bytes, tolerance=tolerance)
+    if ext_lower in (".png", ".ico", ".jpg", ".jpeg", ".webp", ".gif"):
+        return evaluate_and_adjust_raster_contrast(icon_bytes, ext_lower, tolerance=tolerance)
+    return icon_bytes
 
 
 def get_manufacturer_name_aliases() -> dict[str, str]:
@@ -614,6 +786,7 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool =
 
     if icon_bytes and is_valid_image_payload(icon_bytes):
         ext = detect_image_extension(icon_bytes)
+        icon_bytes = evaluate_and_adjust_icon_contrast(icon_bytes, ext)
         actual_path = mfg_dir / f"{slug}{ext}"
         try:
             with open(actual_path, "wb") as f:
@@ -1400,6 +1573,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
     if icon_bytes and is_valid_image_payload(icon_bytes):
         save_slug = device_slug if is_device_origin else product_slug
         ext = detect_image_extension(icon_bytes)
+        icon_bytes = evaluate_and_adjust_icon_contrast(icon_bytes, ext)
         actual_path = svc_dir / f"{save_slug}{ext}"
         try:
             with open(actual_path, "wb") as f:
