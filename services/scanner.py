@@ -32,6 +32,8 @@ from core.config import (
     HTTP_PROBE_EXCEPTIONS,
     HTTPS_PORTS,
     COMMON_PORTS,
+    get_common_ports,
+    get_https_ports,
 )
 from core.database import (
     compute_overall_status,
@@ -1163,6 +1165,7 @@ def scan_service(
             if debug_enabled:
                 print(f"[DEBUG scan] HTTP auto-detect probe port={port} took {int((time.monotonic() - cascade_http_t0) * 1000)}ms (status_code={status_code})")
 
+            active_https = _get_app_attr("get_https_ports", get_https_ports)()
             if response and match_bytes and match_bytes in response.lower():
                 status = "online"
                 protocol_used = "http"
@@ -1171,7 +1174,7 @@ def scan_service(
                 protocol_used = "http"
             elif status == "online":
                 protocol_used = "http"
-            elif port in HTTPS_PORTS:
+            elif port in active_https:
                 cascade_https_t0 = time.monotonic()
                 try:
                     https_response, status_code, final_url = _get_app_attr("fetch_response", fetch_response)(
@@ -1194,7 +1197,7 @@ def scan_service(
                         status = "online"
                         protocol_used = "https"
                         response_ms = int((time.monotonic() - start) * 1000)
-                if status == "offline" and port in HTTPS_PORTS:
+                if status == "offline" and port in active_https:
                     status = "degraded"
                 if debug_enabled:
                     print(f"[DEBUG scan] HTTPS cascade probe port={port} took {int((time.monotonic() - cascade_https_t0) * 1000)}ms -> status={status}")
@@ -1537,6 +1540,7 @@ def probe_single_port_diagnostics(
             else:
                 error_message = str(exc) or exc.__class__.__name__
 
+        diag_https = _get_app_attr("get_https_ports", get_https_ports)()
         # Match evaluation on HTTP response
         if response_bytes and match_bytes and match_bytes in response_bytes.lower():
             status = "online"
@@ -1544,7 +1548,7 @@ def probe_single_port_diagnostics(
             status = "online"
         elif status == "online":
             pass
-        elif port in HTTPS_PORTS:
+        elif port in diag_https:
             fallback_level += 1
             try:
                 https_response, https_code, https_url = _get_app_attr("fetch_response", fetch_response)(
@@ -1575,7 +1579,7 @@ def probe_single_port_diagnostics(
                     protocol_used = "https"
                 elif not error_message:
                     error_message = str(exc) or exc.__class__.__name__
-            if status == "offline" and port in HTTPS_PORTS:
+            if status == "offline" and port in diag_https:
                 status = "degraded"
         elif response_bytes:
             status = "degraded"
@@ -2007,10 +2011,11 @@ def scan_service_with_retries(
 
 
 def discover_ports(service_name: str, progress_callback=None, cancelled_check=None) -> list[dict]:
-    """Probe COMMON_PORTS and return a list of {port, protocol} dicts for open ports."""
+    """Probe common ports and return a list of {port, protocol} dicts for open ports."""
     from services.importer import ImportCancelled
     found = []
-    for port in COMMON_PORTS:
+    ports_to_probe = _get_app_attr("get_common_ports", get_common_ports)()
+    for port in ports_to_probe:
         if cancelled_check is not None and cancelled_check():
             raise ImportCancelled("Import cancelled")
         if progress_callback is not None:

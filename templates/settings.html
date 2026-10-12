@@ -23,6 +23,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           Service source
         </button>
+        <button type="button" class="import-tab-btn" role="tab" id="tab-scanner" aria-selected="false" aria-controls="panel-scanner" data-tab="scanner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Scanner &amp; Probing
+        </button>
         <button type="button" class="import-tab-btn" role="tab" id="tab-icons" aria-selected="false" aria-controls="panel-icons" data-tab="icons">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           Icons
@@ -439,6 +443,147 @@
               <strong>3. Quick Text Import</strong>
               Once saved, go to <strong>Import &gt; Quick Text Import</strong> and click <strong>[Load from remote]</strong> to retrieve and populate the services textarea with one click.
             </div>
+            <!-- Command Safety Patterns -->
+            <div class="tab-sidebar-card" style="margin-top: 20px; background: white; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px;">
+              <div class="sidebar-card-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #dc2626;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <h3 style="margin: 0; font-size: 0.95rem;">Command Safety Guard</h3>
+              </div>
+              <p class="sidebar-card-desc" style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 10px;">Dangerous regex patterns prohibited from executing via SSH / Telnet.</p>
+              
+              <div class="tag-list-box" id="source-safety-tags" style="min-height: 48px; max-height: 180px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px; padding: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 10px;"></div>
+
+              <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+                <input type="text" id="source-new-safety-input" placeholder="Custom regex (e.g. \bwget\b)" class="mapping-input" style="flex: 1; font-size: 0.8rem;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-safety-pattern">+ Add</button>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-safety-patterns" style="font-size: 0.78rem;">Reset</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-safety-patterns" style="font-size: 0.78rem;">Save Patterns</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: Scanner & Probing Settings -->
+      <div id="panel-scanner" class="import-tab-panel hidden" role="tabpanel" aria-labelledby="tab-scanner">
+        <div class="tab-2col-layout">
+          <!-- Col 1: Discovery & Auto-HTTPS Ports -->
+          <div class="tab-col-main">
+            <!-- Card 1: Common Ports for Discovery -->
+            <div class="tab-main-card" style="margin-bottom: 24px;">
+              <div class="tab-card-header">
+                <h3>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                  Common Ports for Discovery
+                </h3>
+                <span class="hub-tag">Auto-Scan Ports</span>
+              </div>
+              <p class="tab-card-subtitle">These TCP ports are probed by Quick Text Import and manual port discovery to detect active listening services on each host.</p>
+              
+              <div class="tag-list-box" id="scanner-common-ports-tags" style="min-height: 52px; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px;"></div>
+
+              <div style="display: flex; gap: 8px; margin-bottom: 12px; max-width: 480px;">
+                <input type="number" id="scanner-new-common-port-input" min="1" max="65535" placeholder="Port number (e.g. 8006)" class="mapping-input" style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-common-port">+ Add Port</button>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-common-ports">Reset to Defaults</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-common-ports">Save Common Ports</button>
+              </div>
+            </div>
+
+            <!-- Card 2: Default HTTPS Ports -->
+            <div class="tab-main-card">
+              <div class="tab-card-header">
+                <h3>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #059669;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  Default HTTPS Ports
+                </h3>
+                <span class="hub-tag">Auto-TLS Triggers</span>
+              </div>
+              <p class="tab-card-subtitle">Ports that automatically trigger TLS/HTTPS probes and fallbacks instead of plaintext HTTP when the protocol is unspecified or when an HTTP probe fails.</p>
+              
+              <div class="tag-list-box" id="scanner-https-ports-tags" style="min-height: 52px; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px;"></div>
+
+              <div style="display: flex; gap: 8px; margin-bottom: 12px; max-width: 480px;">
+                <input type="number" id="scanner-new-https-port-input" min="1" max="65535" placeholder="Port number (e.g. 9443)" class="mapping-input" style="flex: 1;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-add-https-port">+ Add Port</button>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; flex-wrap: wrap; gap: 8px;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-https-ports">Reset to Defaults</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-https-ports">Save HTTPS Ports</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Col 2: Engine Parameters, Timing & Hardware Discovery -->
+          <div class="tab-side-card" style="display: flex; flex-direction: column; gap: 20px;">
+            <!-- Card 3: Engine Concurrency & Scheduling -->
+            <div class="tab-sidebar-card">
+              <div class="sidebar-card-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #6366f1;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <h3 style="margin: 0; font-size: 0.95rem;">Scanning Engine &amp; Retention</h3>
+              </div>
+              <p class="sidebar-card-desc" style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 12px;">Configure the background polling cadence, data retention, and worker concurrency.</p>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_scan_interval" style="font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 4px;">Recurring Scan Interval</label>
+                <select id="scanner_scan_interval" name="scan_interval_minutes" style="width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; font-size: 0.88rem;">
+                  <option value="1" {% if scan_interval_minutes == 1 %}selected{% endif %}>1 minute (High frequency)</option>
+                  <option value="2" {% if scan_interval_minutes == 2 %}selected{% endif %}>2 minutes</option>
+                  <option value="5" {% if scan_interval_minutes == 5 %}selected{% endif %}>5 minutes</option>
+                  <option value="10" {% if scan_interval_minutes == 10 %}selected{% endif %}>10 minutes (Default)</option>
+                  <option value="15" {% if scan_interval_minutes == 15 %}selected{% endif %}>15 minutes</option>
+                  <option value="30" {% if scan_interval_minutes == 30 %}selected{% endif %}>30 minutes</option>
+                  <option value="60" {% if scan_interval_minutes == 60 %}selected{% endif %}>60 minutes (1 hour)</option>
+                </select>
+                <span class="field-hint">How often PulseCheck automatically probes all monitored services.</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_history_retention" style="font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 4px;">Port History Retention (Days)</label>
+                <input type="number" id="scanner_history_retention" name="history_retention_days" min="1" max="365" value="{{ history_retention_days }}" style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
+                <span class="field-hint">Historical probe logs older than this window are automatically pruned.</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_workers" style="font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 4px;">Parallel Scan Workers</label>
+                <input type="number" id="scanner_workers" name="scan_workers" min="1" max="50" value="{{ scan_workers }}" style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
+                <span class="field-hint">Simultaneous probe threads executed during scheduled runs.</span>
+              </div>
+
+              <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-scanner-engine">Reset Defaults</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-scanner-engine">Save Engine</button>
+              </div>
+            </div>
+
+            <!-- Card 4: Hardware OUI Vendor Lookup -->
+            <div class="tab-sidebar-card">
+              <div class="sidebar-card-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                <h3 style="margin: 0; font-size: 0.95rem;">Hardware OUI Resolution</h3>
+              </div>
+              <p class="sidebar-card-desc" style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 12px;">Resolve discovered MAC addresses to physical device manufacturers via MACLookup.app API.</p>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_maclookup_key" style="font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 4px;">MACLookup API Key (Optional)</label>
+                <div class="password-input-wrapper">
+                  <input type="password" id="scanner_maclookup_key" name="maclookup_api_key" placeholder="{% if maclookup_api_key %}•••••••• (saved, leave blank to keep){% else %}Enter API Key{% endif %}" value="{{ maclookup_api_key }}" autocomplete="off">
+                  <button type="button" id="toggle-maclookup-key-btn" class="btn-pwd-toggle" aria-label="Toggle API key visibility">Show</button>
+                </div>
+                <span class="field-hint">Increases hourly OUI lookup rate limit. Leave blank to use free public tier.</span>
+              </div>
+
+              <div style="margin-top: 14px; text-align: right;">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-maclookup-key">Save API Key</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -578,6 +723,27 @@
               <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-prefixes">Save Prefixes</button>
             </div>
           </div>
+
+          <!-- Section 4: Corporate Legal Suffixes Box (100% Full Width) -->
+          <div class="tab-main-card" style="margin-top: 24px; width: 100%; box-sizing: border-box;">
+            <div class="tab-card-header">
+              <h3>Corporate Legal Suffixes</h3>
+              <span class="hub-tag">Slug Normalization</span>
+            </div>
+            <p class="tab-card-subtitle">Corporate legal entity suffixes (e.g. <code>inc</code>, <code>ltd</code>, <code>gmbh</code>, <code>srl</code>) stripped from MAC lookup vendor strings to produce canonical manufacturer slugs.</p>
+            
+            <div class="tag-list-box" id="mfg-corporate-tags" style="min-height: 48px; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px;"></div>
+
+            <div style="display: flex; gap: 8px; margin-bottom: 12px; max-width: 480px;">
+              <input type="text" id="mfg-new-suffix-input" placeholder="e.g. srl or pty" class="mapping-input" style="flex: 1;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-add-suffix">+ Add Suffix</button>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-mfg-reset-suffixes">Reset Defaults</button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-mfg-save-suffixes">Save Suffixes</button>
+            </div>
+          </div>
         </div>
 
         <!-- ════════ SUB-PANEL: SERVICE ICONS ════════ -->
@@ -686,6 +852,27 @@
                   <button type="button" class="btn btn-primary btn-sm" id="btn-html-save">Save Patterns</button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Ignored Placeholder Favicon Hashes (Blacklist) -->
+          <div class="tab-main-card" style="margin-top: 24px; width: 100%; box-sizing: border-box;">
+            <div class="tab-card-header">
+              <h3>Ignored Favicon Hashes (Blacklist)</h3>
+              <span class="hub-tag">Placeholder Filter</span>
+            </div>
+            <p class="tab-card-subtitle">MD5 hashes of generic registrar or placeholder icons (e.g. GoDaddy parked domain, Cloudflare default) that PulseCheck will discard and ignore during logo resolution.</p>
+            
+            <div class="tag-list-box" id="svc-ignored-hashes-tags" style="min-height: 52px; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px;"></div>
+
+            <div style="display: flex; gap: 8px; margin-bottom: 12px; max-width: 560px;">
+              <input type="text" id="svc-new-hash-input" placeholder="32-character MD5 hash" class="mapping-input" style="flex: 1; font-family: monospace;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-svc-add-hash">+ Add Hash</button>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-svc-reset-hashes">Reset Defaults</button>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-svc-save-hashes">Save Hashes</button>
             </div>
           </div>
         </div>
@@ -1056,6 +1243,7 @@
       'smtp': document.getElementById('panel-smtp'),
       'proxy': document.getElementById('panel-proxy'),
       'source': document.getElementById('panel-source'),
+      'scanner': document.getElementById('panel-scanner'),
       'icons': document.getElementById('panel-icons'),
       'backup': document.getElementById('panel-backup'),
       'users': document.getElementById('panel-users'),
@@ -1085,6 +1273,12 @@
         window.history.replaceState(null, '', `#${tabKey}`);
       }
 
+      if (tabKey === 'source') {
+        loadSafetyPatterns();
+      }
+      if (tabKey === 'scanner') {
+        initScannerTab();
+      }
       if (tabKey === 'icons') {
         initIconsTab();
       }
@@ -1103,6 +1297,8 @@
         activateTab('proxy');
       } else if (hash === 'source' || hash === 'service-source' || hash === 'servicesource') {
         activateTab('source');
+      } else if (hash === 'scanner' || hash === 'scan' || hash === 'probing') {
+        activateTab('scanner');
       } else if (hash === 'icons' || hash === 'icon') {
         activateTab('icons');
       } else if (hash === 'backup' || hash === 'restore' || hash === 'export' || hash === 'import') {
@@ -1153,6 +1349,20 @@
         } else {
           sourcePwdInput.type = 'password';
           toggleSourceBtn.textContent = 'Show';
+        }
+      });
+    }
+
+    const maclookupKeyInput = document.getElementById('scanner_maclookup_key');
+    const toggleMaclookupKeyBtn = document.getElementById('toggle-maclookup-key-btn');
+    if (toggleMaclookupKeyBtn && maclookupKeyInput) {
+      toggleMaclookupKeyBtn.addEventListener('click', () => {
+        if (maclookupKeyInput.type === 'password') {
+          maclookupKeyInput.type = 'text';
+          toggleMaclookupKeyBtn.textContent = 'Hide';
+        } else {
+          maclookupKeyInput.type = 'password';
+          toggleMaclookupKeyBtn.textContent = 'Show';
         }
       });
     }
@@ -1280,6 +1490,128 @@
       });
     }
 
+    // Remote Source Safety Patterns
+    let currentSafetyPatterns = [];
+    let defaultSafetyPatterns = [];
+
+    async function loadSafetyPatterns() {
+      const box = document.getElementById('source-safety-tags');
+      if (!box) return;
+      try {
+        const resp = await fetch('/api/settings/remote-source/safety');
+        const data = await resp.json();
+        if (data.success) {
+          defaultSafetyPatterns = data.default_patterns || [];
+          currentSafetyPatterns = data.effective_patterns || [];
+          renderSafetyPatternTags(currentSafetyPatterns, defaultSafetyPatterns);
+        }
+      } catch (err) {
+        console.error('Failed to load safety patterns:', err);
+      }
+    }
+
+    function renderSafetyPatternTags(patterns, defaults) {
+      const box = document.getElementById('source-safety-tags');
+      if (!box) return;
+      box.innerHTML = '';
+      patterns.forEach(p => {
+        const isDefault = defaults.includes(p);
+        const tag = document.createElement('span');
+        tag.className = 'tag-badge';
+        tag.style.fontFamily = 'monospace';
+        tag.style.fontSize = '0.78rem';
+        if (isDefault) {
+          tag.style.background = '#f1f5f9';
+          tag.style.color = '#475569';
+          tag.title = 'Factory baseline pattern (cannot be removed)';
+          tag.appendChild(document.createTextNode(p + ' '));
+          const defSpan = document.createElement('span');
+          defSpan.style.fontSize = '0.68rem';
+          defSpan.style.color = '#94a3b8';
+          defSpan.textContent = '(default)';
+          tag.appendChild(defSpan);
+        } else {
+          tag.style.background = '#fee2e2';
+          tag.style.color = '#991b1b';
+          tag.style.border = '1px solid #fecaca';
+          tag.title = 'Custom safety pattern';
+          tag.appendChild(document.createTextNode(p + ' '));
+          const remBtn = document.createElement('button');
+          remBtn.type = 'button';
+          remBtn.className = 'tag-remove-btn';
+          remBtn.textContent = '×';
+          remBtn.onclick = () => removeSafetyPattern(p);
+          tag.appendChild(remBtn);
+        }
+        box.appendChild(tag);
+      });
+    }
+
+    window.removeSafetyPattern = function(pattern) {
+      currentSafetyPatterns = currentSafetyPatterns.filter(p => p !== pattern);
+      renderSafetyPatternTags(currentSafetyPatterns, defaultSafetyPatterns);
+    };
+
+    const btnAddSafetyPattern = document.getElementById('btn-add-safety-pattern');
+    const inputNewSafetyPattern = document.getElementById('source-new-safety-input');
+    if (btnAddSafetyPattern && inputNewSafetyPattern) {
+      btnAddSafetyPattern.addEventListener('click', () => {
+        const val = inputNewSafetyPattern.value.trim();
+        if (!val) return;
+        try {
+          new RegExp(val);
+        } catch (e) {
+          alert(`Invalid regular expression pattern: ${e.message}`);
+          return;
+        }
+        if (!currentSafetyPatterns.includes(val)) {
+          currentSafetyPatterns.push(val);
+          renderSafetyPatternTags(currentSafetyPatterns, defaultSafetyPatterns);
+          inputNewSafetyPattern.value = '';
+        }
+      });
+      inputNewSafetyPattern.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnAddSafetyPattern.click();
+        }
+      });
+    }
+
+    document.getElementById('btn-save-safety-patterns')?.addEventListener('click', async () => {
+      const customOnly = currentSafetyPatterns.filter(p => !defaultSafetyPatterns.includes(p));
+      try {
+        const resp = await fetch('/api/settings/remote-source/safety/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ patterns: customOnly }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Safety patterns saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving safety patterns: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-reset-safety-patterns')?.addEventListener('click', async () => {
+      if (!confirm('Reset safety patterns to factory defaults? Any custom prohibited regex patterns will be removed.')) return;
+      try {
+        const resp = await fetch('/api/settings/remote-source/safety/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          loadSafetyPatterns();
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    });
+
     // Auto-fill sensible default port when security method changes (SMTP)
     const securitySelect = document.getElementById('smtp_security');
     const portInput = document.getElementById('smtp_port');
@@ -1307,6 +1639,279 @@
         if (securitySelect) securitySelect.value = btn.dataset.sec || 'tls';
         if (hostInput) hostInput.focus();
       });
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Scanner & Probing Tab JavaScript
+    // ═══════════════════════════════════════════════════════════════════════
+    let scannerInitialized = false;
+    let currentCommonPorts = [];
+    let currentHttpsPorts = [];
+
+    function initScannerTab() {
+      if (scannerInitialized) return;
+      scannerInitialized = true;
+      loadScannerSettings();
+    }
+
+    async function loadScannerSettings() {
+      try {
+        const resp = await fetch('/api/settings/scanner');
+        const data = await resp.json();
+        if (!data.success) return;
+
+        currentCommonPorts = (data.common_ports || []).map(Number).filter(p => !isNaN(p));
+        renderCommonPortTags(currentCommonPorts);
+
+        currentHttpsPorts = (data.https_ports || []).map(Number).filter(p => !isNaN(p));
+        renderHttpsPortTags(currentHttpsPorts);
+
+        const intervalSel = document.getElementById('scanner_scan_interval');
+        if (intervalSel && data.scan_interval_minutes != null) {
+          intervalSel.value = String(data.scan_interval_minutes);
+        }
+
+        const retentionInput = document.getElementById('scanner_history_retention');
+        if (retentionInput && data.history_retention_days != null) {
+          retentionInput.value = data.history_retention_days;
+        }
+
+        const workersInput = document.getElementById('scanner_workers');
+        if (workersInput && data.scan_workers != null) {
+          workersInput.value = data.scan_workers;
+        }
+
+        const macKeyInput = document.getElementById('scanner_maclookup_key');
+        if (macKeyInput && data.maclookup_api_key != null) {
+          macKeyInput.value = data.maclookup_api_key;
+        }
+      } catch (err) {
+        console.error('Failed to load scanner settings:', err);
+      }
+    }
+
+    function renderCommonPortTags(ports) {
+      const box = document.getElementById('scanner-common-ports-tags');
+      if (!box) return;
+      box.innerHTML = '';
+      const sorted = [...ports].sort((a, b) => a - b);
+      sorted.forEach(p => {
+        const tag = document.createElement('span');
+        tag.className = 'tag-badge';
+        tag.appendChild(document.createTextNode(p + ' '));
+        const remBtn = document.createElement('button');
+        remBtn.type = 'button';
+        remBtn.className = 'tag-remove-btn';
+        remBtn.textContent = '×';
+        remBtn.onclick = () => removeCommonPort(p);
+        tag.appendChild(remBtn);
+        box.appendChild(tag);
+      });
+    }
+
+    window.removeCommonPort = function(port) {
+      currentCommonPorts = currentCommonPorts.filter(p => p !== port);
+      renderCommonPortTags(currentCommonPorts);
+    };
+
+    const btnAddCommonPort = document.getElementById('btn-add-common-port');
+    const inputNewCommonPort = document.getElementById('scanner-new-common-port-input');
+    if (btnAddCommonPort && inputNewCommonPort) {
+      btnAddCommonPort.addEventListener('click', () => {
+        const p = parseInt(inputNewCommonPort.value.trim(), 10);
+        if (isNaN(p) || p < 1 || p > 65535) {
+          alert('Please enter a valid TCP port number between 1 and 65535.');
+          return;
+        }
+        if (!currentCommonPorts.includes(p)) {
+          currentCommonPorts.push(p);
+          renderCommonPortTags(currentCommonPorts);
+          inputNewCommonPort.value = '';
+        }
+      });
+      inputNewCommonPort.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnAddCommonPort.click();
+        }
+      });
+    }
+
+    document.getElementById('btn-save-common-ports')?.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/settings/scanner/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ common_ports: currentCommonPorts }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Common ports saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving common ports: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-reset-common-ports')?.addEventListener('click', async () => {
+      if (!confirm('Reset common discovery ports to default list?')) return;
+      try {
+        const resp = await fetch('/api/settings/scanner/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'common_ports' }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          currentCommonPorts = (res.common_ports || []).map(Number);
+          renderCommonPortTags(currentCommonPorts);
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    });
+
+    function renderHttpsPortTags(ports) {
+      const box = document.getElementById('scanner-https-ports-tags');
+      if (!box) return;
+      box.innerHTML = '';
+      const sorted = [...ports].sort((a, b) => a - b);
+      sorted.forEach(p => {
+        const tag = document.createElement('span');
+        tag.className = 'tag-badge';
+        tag.appendChild(document.createTextNode(p + ' '));
+        const remBtn = document.createElement('button');
+        remBtn.type = 'button';
+        remBtn.className = 'tag-remove-btn';
+        remBtn.textContent = '×';
+        remBtn.onclick = () => removeHttpsPort(p);
+        tag.appendChild(remBtn);
+        box.appendChild(tag);
+      });
+    }
+
+    window.removeHttpsPort = function(port) {
+      currentHttpsPorts = currentHttpsPorts.filter(p => p !== port);
+      renderHttpsPortTags(currentHttpsPorts);
+    };
+
+    const btnAddHttpsPort = document.getElementById('btn-add-https-port');
+    const inputNewHttpsPort = document.getElementById('scanner-new-https-port-input');
+    if (btnAddHttpsPort && inputNewHttpsPort) {
+      btnAddHttpsPort.addEventListener('click', () => {
+        const p = parseInt(inputNewHttpsPort.value.trim(), 10);
+        if (isNaN(p) || p < 1 || p > 65535) {
+          alert('Please enter a valid TCP port number between 1 and 65535.');
+          return;
+        }
+        if (!currentHttpsPorts.includes(p)) {
+          currentHttpsPorts.push(p);
+          renderHttpsPortTags(currentHttpsPorts);
+          inputNewHttpsPort.value = '';
+        }
+      });
+      inputNewHttpsPort.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnAddHttpsPort.click();
+        }
+      });
+    }
+
+    document.getElementById('btn-save-https-ports')?.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/settings/scanner/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ https_ports: currentHttpsPorts }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'HTTPS ports saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving HTTPS ports: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-reset-https-ports')?.addEventListener('click', async () => {
+      if (!confirm('Reset default HTTPS ports to factory default list?')) return;
+      try {
+        const resp = await fetch('/api/settings/scanner/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'https_ports' }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          currentHttpsPorts = (res.https_ports || []).map(Number);
+          renderHttpsPortTags(currentHttpsPorts);
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    });
+
+    // Scanner Engine & Retention Saving
+    document.getElementById('btn-save-scanner-engine')?.addEventListener('click', async () => {
+      const interval = parseInt(document.getElementById('scanner_scan_interval')?.value, 10);
+      const retention = parseInt(document.getElementById('scanner_history_retention')?.value, 10);
+      const workers = parseInt(document.getElementById('scanner_workers')?.value, 10);
+      try {
+        const resp = await fetch('/api/settings/scanner/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scan_interval_minutes: interval,
+            history_retention_days: retention,
+            scan_workers: workers,
+          }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Engine settings saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving engine settings: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-reset-scanner-engine')?.addEventListener('click', async () => {
+      if (!confirm('Reset scan interval, history retention, and worker concurrency to factory defaults?')) return;
+      try {
+        const resp = await fetch('/api/settings/scanner/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'timing' }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          if (res.scan_interval_minutes != null) document.getElementById('scanner_scan_interval').value = String(res.scan_interval_minutes);
+          if (res.history_retention_days != null) document.getElementById('scanner_history_retention').value = res.history_retention_days;
+          if (res.scan_workers != null) document.getElementById('scanner_workers').value = res.scan_workers;
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    });
+
+    // MACLookup API Key Saving
+    document.getElementById('btn-save-maclookup-key')?.addEventListener('click', async () => {
+      const keyVal = document.getElementById('scanner_maclookup_key')?.value.trim();
+      try {
+        const resp = await fetch('/api/settings/scanner/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ maclookup_api_key: keyVal }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'MACLookup API key saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving MACLookup API key: ${err.message}`);
+      }
     });
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1657,6 +2262,8 @@
 
     // 6. Dynamic Mappings Loading & Saving
     let currentRegionalPrefixes = [];
+    let currentCorporateSuffixes = [];
+    let currentIgnoredHashes = [];
 
     async function loadMappings() {
       try {
@@ -1674,11 +2281,19 @@
         currentRegionalPrefixes = data.regional_prefixes || [];
         renderRegionalTags(currentRegionalPrefixes);
 
+        // Render Corporate Suffixes
+        currentCorporateSuffixes = data.corporate_suffixes || [];
+        renderCorporateTags(currentCorporateSuffixes);
+
         // Render Svc Domains Table
         renderTableRows('table-svc-domains', data.known_service_domains);
 
         // Render HTML Content Mappings Table
         renderHtmlMappingRows(data.html_content_icon_mappings);
+
+        // Render Ignored Icon Hashes
+        currentIgnoredHashes = data.ignored_icon_hashes || [];
+        renderIgnoredHashTags(currentIgnoredHashes);
       } catch (err) {
         console.error('Failed to load icon mappings:', err);
       }
@@ -1748,6 +2363,97 @@
           currentRegionalPrefixes.push(val);
           renderRegionalTags(currentRegionalPrefixes);
           inputNewPrefix.value = '';
+        }
+      });
+    }
+
+    function renderCorporateTags(suffixes) {
+      const box = document.getElementById('mfg-corporate-tags');
+      if (!box) return;
+      box.innerHTML = '';
+      suffixes.forEach(s => {
+        const tag = document.createElement('span');
+        tag.className = 'tag-badge';
+        tag.appendChild(document.createTextNode(s + ' '));
+        const remBtn = document.createElement('button');
+        remBtn.type = 'button';
+        remBtn.className = 'tag-remove-btn';
+        remBtn.textContent = '×';
+        remBtn.onclick = () => removeCorporateSuffix(s);
+        tag.appendChild(remBtn);
+        box.appendChild(tag);
+      });
+    }
+
+    window.removeCorporateSuffix = function(suffix) {
+      currentCorporateSuffixes = currentCorporateSuffixes.filter(x => x !== suffix);
+      renderCorporateTags(currentCorporateSuffixes);
+    };
+
+    const btnAddSuffix = document.getElementById('btn-mfg-add-suffix');
+    const inputNewSuffix = document.getElementById('mfg-new-suffix-input');
+    if (btnAddSuffix && inputNewSuffix) {
+      btnAddSuffix.addEventListener('click', () => {
+        const val = inputNewSuffix.value.trim().toLowerCase();
+        if (val && !currentCorporateSuffixes.includes(val)) {
+          currentCorporateSuffixes.push(val);
+          renderCorporateTags(currentCorporateSuffixes);
+          inputNewSuffix.value = '';
+        }
+      });
+      inputNewSuffix.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnAddSuffix.click();
+        }
+      });
+    }
+
+    function renderIgnoredHashTags(hashes) {
+      const box = document.getElementById('svc-ignored-hashes-tags');
+      if (!box) return;
+      box.innerHTML = '';
+      hashes.forEach(h => {
+        const tag = document.createElement('span');
+        tag.className = 'tag-badge';
+        tag.style.fontFamily = 'monospace';
+        tag.style.fontSize = '0.78rem';
+        tag.appendChild(document.createTextNode(h + ' '));
+        const remBtn = document.createElement('button');
+        remBtn.type = 'button';
+        remBtn.className = 'tag-remove-btn';
+        remBtn.textContent = '×';
+        remBtn.onclick = () => removeIgnoredHash(h);
+        tag.appendChild(remBtn);
+        box.appendChild(tag);
+      });
+    }
+
+    window.removeIgnoredHash = function(hash) {
+      currentIgnoredHashes = currentIgnoredHashes.filter(x => x !== hash);
+      renderIgnoredHashTags(currentIgnoredHashes);
+    };
+
+    const btnAddHash = document.getElementById('btn-svc-add-hash');
+    const inputNewHash = document.getElementById('svc-new-hash-input');
+    if (btnAddHash && inputNewHash) {
+      btnAddHash.addEventListener('click', () => {
+        const val = inputNewHash.value.trim().toLowerCase();
+        if (!val) return;
+        if (!/^[0-9a-f]{32}$/i.test(val)) {
+          alert('Please enter a valid 32-character hexadecimal MD5 hash.');
+          return;
+        }
+        if (!currentIgnoredHashes.includes(val)) {
+          currentIgnoredHashes.push(val);
+          renderIgnoredHashTags(currentIgnoredHashes);
+          inputNewHash.value = '';
+        }
+      });
+      inputNewHash.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          btnAddHash.click();
         }
       });
     }
@@ -1858,6 +2564,34 @@
       }
     });
 
+    document.getElementById('btn-mfg-save-suffixes')?.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/settings/icons/mappings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'corporate_suffixes', data: currentCorporateSuffixes }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Corporate suffixes saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving suffixes: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-svc-save-hashes')?.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/settings/icons/mappings/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'ignored_icon_hashes', data: currentIgnoredHashes }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Ignored icon hashes saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving ignored hashes: ${err.message}`);
+      }
+    });
+
     document.getElementById('btn-html-save')?.addEventListener('click', async () => {
       const rows = document.querySelectorAll('#table-html-mappings tbody tr');
       const listData = [];
@@ -1904,7 +2638,9 @@
     document.getElementById('btn-mfg-reset-defaults')?.addEventListener('click', () => resetMapping('known_manufacturer_domains'));
     document.getElementById('btn-mfg-reset-aliases')?.addEventListener('click', () => resetMapping('manufacturer_name_aliases'));
     document.getElementById('btn-mfg-reset-prefixes')?.addEventListener('click', () => resetMapping('regional_prefixes'));
+    document.getElementById('btn-mfg-reset-suffixes')?.addEventListener('click', () => resetMapping('corporate_suffixes'));
     document.getElementById('btn-svc-reset-domains')?.addEventListener('click', () => resetMapping('known_service_domains'));
+    document.getElementById('btn-svc-reset-hashes')?.addEventListener('click', () => resetMapping('ignored_icon_hashes'));
     document.getElementById('btn-html-reset')?.addEventListener('click', () => resetMapping('html_content_icon_mappings'));
 
     // ==========================================

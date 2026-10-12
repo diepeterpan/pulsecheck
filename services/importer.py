@@ -22,7 +22,7 @@ from core.database import (
     port_protocol_to_json,
     format_hex_bytes,
 )
-from core.config import HTTPS_PORTS
+from core.config import HTTPS_PORTS, get_https_ports
 from services.scanner import (
     discover_ports as _scanner_discover_ports,
     parse_diagnostic_ports as _scanner_parse_diagnostic_ports,
@@ -497,7 +497,8 @@ def import_service_names(service_names, progress_callback=None, cancelled_check=
     trigger_discovery_async = _get_app_attr("trigger_discovery_async", _scheduler_trigger_discovery_async)
     trigger_service_icon_resolution_async = _get_app_attr("trigger_service_icon_resolution_async", _icons_trigger_service_icon_resolution_async)
     scan_service = _get_app_attr("scan_service", _scanner_scan_service)
-    https_ports_val = _get_app_attr("HTTPS_PORTS", HTTPS_PORTS)
+    get_https_ports_fn = _get_app_attr("get_https_ports", get_https_ports)
+    https_ports_val = get_https_ports_fn() if callable(get_https_ports_fn) else _get_app_attr("HTTPS_PORTS", HTTPS_PORTS)
 
     summary = {
         "total": 0,

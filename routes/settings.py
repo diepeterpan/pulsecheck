@@ -24,6 +24,18 @@ from core.config import (
     APP_VERSION,
     MANUFACTURER_ICONS_DIR,
     SERVICE_ICONS_DIR,
+    DEFAULT_COMMON_PORTS,
+    DEFAULT_HTTPS_PORTS,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
+    DEFAULT_SCAN_WORKERS,
+    DEFAULT_HISTORY_RETENTION_DAYS,
+    DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS,
+    get_common_ports,
+    get_https_ports,
+    get_scan_interval_minutes,
+    get_history_retention_days,
+    get_scan_workers,
+    get_maclookup_api_key,
 )
 from core.database import (
     get_db_connection,
@@ -52,6 +64,8 @@ from services.icons import (
     DEFAULT_HTML_CONTENT_ICON_MAPPINGS,
     DEFAULT_REGIONAL_PREFIXES,
     DEFAULT_MANUFACTURER_NAME_ALIASES,
+    DEFAULT_CORPORATE_SUFFIXES,
+    DEFAULT_IGNORED_ICON_HASHES,
     get_manufacturer_name_aliases,
     get_manufacturer_icon_url,
     get_service_icon_url,
@@ -61,7 +75,10 @@ from services.icons import (
     get_known_service_domains,
     get_html_content_icon_mappings,
     resolve_and_cache_service_icon,
+    get_corporate_suffixes,
+    get_ignored_icon_hashes,
 )
+from services.scheduler import reschedule_scan_job
 
 settings_bp = Blueprint("settings_bp", __name__)
 
@@ -74,19 +91,29 @@ def _get_app_attr(name: str, default=None):
 
 
 # ── Remote Service Source Execution (SSH / Telnet) ───────────────────────────
-_DANGEROUS_REMOTE_COMMAND_PATTERNS = [
-    r"\brm\s+-[rf]+",
-    r"\brmdir\b",
-    r"\bmkfs(?:\.[a-z0-9]+)?\b",
-    r"\bdd\s+if=",
-    r"\b(?:reboot|poweroff|shutdown|halt|init\s+[06])\b",
-    r"\bchmod\s+-[rR]\b",
-    r"\bchown\s+-[rR]\b",
-    r">\s*/dev/(?:sd[a-z]|nvme|hd[a-z]|null|zero)",
-    r"\btruncate\b",
-    r"\bwipefs\b",
-    r":\(\)\s*\{\s*:\|:&\s*\};:",
-]
+_DANGEROUS_REMOTE_COMMAND_PATTERNS = DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS
+
+
+def get_dangerous_remote_patterns() -> list[str]:
+    """Retrieve list of dangerous remote command patterns (defaults + custom)."""
+    custom = []
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'dangerous_remote_patterns'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, list):
+                custom = [str(x).strip() for x in parsed if str(x).strip()]
+    except Exception:
+        pass
+    seen = set()
+    combined = []
+    for p in DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS + custom:
+        if p not in seen:
+            seen.add(p)
+            combined.append(p)
+    return combined
 
 
 def is_safe_remote_command(command: str) -> tuple[bool, str]:
@@ -94,9 +121,13 @@ def is_safe_remote_command(command: str) -> tuple[bool, str]:
     if not command or not command.strip():
         return False, "Command cannot be empty."
     cmd = command.strip()
-    for pattern in _DANGEROUS_REMOTE_COMMAND_PATTERNS:
-        if re.search(pattern, cmd, re.I):
-            return False, f"Command contains restricted pattern for safety: {pattern}"
+    patterns = get_dangerous_remote_patterns()
+    for pattern in patterns:
+        try:
+            if re.search(pattern, cmd, re.I):
+                return False, f"Command contains restricted pattern for safety: {pattern}"
+        except re.error:
+            pass
     return True, ""
 
 
@@ -483,7 +514,28 @@ def settings_route():
         if not updated["remote_source_key"] and current_settings.get("remote_source_key"):
             updated["remote_source_key"] = current_settings["remote_source_key"]
 
+        if "scan_interval_minutes" in request.form:
+            updated["scan_interval_minutes"] = request.form.get("scan_interval_minutes", "").strip() or current_settings.get("scan_interval_minutes", "10")
+        if "history_retention_days" in request.form:
+            updated["history_retention_days"] = request.form.get("history_retention_days", "").strip() or current_settings.get("history_retention_days", "1")
+        if "scan_workers" in request.form:
+            updated["scan_workers"] = request.form.get("scan_workers", "").strip() or current_settings.get("scan_workers", "5")
+        if "maclookup_api_key" in request.form:
+            m_key = request.form.get("maclookup_api_key", "").strip()
+            if m_key or not current_settings.get("maclookup_api_key"):
+                updated["maclookup_api_key"] = m_key
+            else:
+                updated["maclookup_api_key"] = current_settings.get("maclookup_api_key", "")
+
         save_settings(updated)
+
+        # If scan interval changed, reschedule background scan job
+        old_interval = str(current_settings.get("scan_interval_minutes", "10")).strip()
+        new_interval = str(updated.get("scan_interval_minutes", "10")).strip()
+        if old_interval != new_interval and new_interval.isdigit():
+            fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
+            if callable(fn_resched):
+                fn_resched(int(new_interval))
 
         if action == "test":
             dest = updated["recipient_email"]
@@ -514,7 +566,7 @@ def settings_route():
         # Redirect back to tab if specified
         active_tab = request.form.get("active_tab", "")
         redirect_url = url_for("settings_route")
-        if active_tab in ("smtp", "proxy", "source", "icons", "backup", "users"):
+        if active_tab in ("smtp", "proxy", "source", "scanner", "icons", "backup", "users"):
             redirect_url += f"#{active_tab}"
         return redirect(redirect_url)
 
@@ -529,6 +581,14 @@ def settings_route():
         oidc_issuer=issuer_url,
         oidc_callback_url=get_oidc_callback_url(),
         match_claim=get_active_match_claim(),
+        common_ports=get_common_ports(),
+        https_ports=sorted(list(get_https_ports())),
+        scan_interval_minutes=get_scan_interval_minutes(),
+        history_retention_days=get_history_retention_days(),
+        scan_workers=get_scan_workers(),
+        maclookup_api_key=get_maclookup_api_key(),
+        dangerous_remote_patterns=get_dangerous_remote_patterns(),
+        default_dangerous_patterns=DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS,
     )
 
 
@@ -744,6 +804,8 @@ def api_get_icon_mappings():
         "regional_prefixes": get_regional_prefixes(),
         "known_service_domains": get_known_service_domains(),
         "html_content_icon_mappings": get_html_content_icon_mappings(),
+        "ignored_icon_hashes": sorted(list(get_ignored_icon_hashes())),
+        "corporate_suffixes": get_corporate_suffixes(),
     })
 
 
@@ -760,6 +822,8 @@ def api_save_icon_mappings():
         "regional_prefixes",
         "known_service_domains",
         "html_content_icon_mappings",
+        "ignored_icon_hashes",
+        "corporate_suffixes",
     )
     if mapping_type not in allowed_types:
         return jsonify({"success": False, "error": f"Invalid mapping type: '{mapping_type}'."}), 400
@@ -774,6 +838,20 @@ def api_save_icon_mappings():
             return jsonify({"success": False, "error": "Data must be a list of prefix strings."}), 400
         cleaned = [str(x).strip().lower() for x in data if str(x).strip()]
         serialized = json.dumps(cleaned)
+    elif mapping_type == "corporate_suffixes":
+        if not isinstance(data, list):
+            return jsonify({"success": False, "error": "Data must be a list of corporate suffix strings."}), 400
+        cleaned = [str(x).strip().lower() for x in data if str(x).strip()]
+        serialized = json.dumps(cleaned)
+    elif mapping_type == "ignored_icon_hashes":
+        if not isinstance(data, list):
+            return jsonify({"success": False, "error": "Data must be a list of MD5 hash strings."}), 400
+        cleaned = []
+        for h in data:
+            h_str = str(h).strip().lower()
+            if h_str and len(h_str) == 32 and re.match(r"^[0-9a-f]{32}$", h_str):
+                cleaned.append(h_str)
+        serialized = json.dumps(sorted(list(set(cleaned))))
     elif mapping_type == "html_content_icon_mappings":
         if not isinstance(data, list):
             return jsonify({"success": False, "error": "Data must be a list of [pattern, target] pairs."}), 400
@@ -810,6 +888,8 @@ def api_reset_icon_mappings():
         "regional_prefixes": json.dumps(DEFAULT_REGIONAL_PREFIXES),
         "known_service_domains": json.dumps(DEFAULT_KNOWN_SERVICE_DOMAINS),
         "html_content_icon_mappings": json.dumps(DEFAULT_HTML_CONTENT_ICON_MAPPINGS),
+        "ignored_icon_hashes": json.dumps(DEFAULT_IGNORED_ICON_HASHES),
+        "corporate_suffixes": json.dumps(DEFAULT_CORPORATE_SUFFIXES),
     }
 
     if mapping_type not in defaults:
@@ -830,6 +910,195 @@ def api_reset_icon_mappings():
         })
     except Exception as exc:
         return jsonify({"success": False, "error": f"Database error resetting mapping: {exc}"}), 500
+
+
+# ── Scanner & Probing Settings APIs ──────────────────────────────────────────
+
+@settings_bp.route("/api/settings/scanner", methods=["GET"], endpoint="api_get_scanner_settings")
+def api_get_scanner_settings():
+    """Return all scanner configuration and port lists."""
+    return jsonify({
+        "success": True,
+        "common_ports": get_common_ports(),
+        "https_ports": sorted(list(get_https_ports())),
+        "scan_interval_minutes": get_scan_interval_minutes(),
+        "history_retention_days": get_history_retention_days(),
+        "scan_workers": get_scan_workers(),
+        "maclookup_api_key": get_maclookup_api_key(),
+    })
+
+
+@settings_bp.route("/api/settings/scanner/save", methods=["POST"], endpoint="api_save_scanner_settings")
+def api_save_scanner_settings():
+    """Save updated scanner settings and port lists."""
+    payload = request.get_json(silent=True) or {}
+    conn = get_db_connection()
+    try:
+        # Common Ports
+        if "common_ports" in payload:
+            raw_ports = payload["common_ports"]
+            if not isinstance(raw_ports, list):
+                return jsonify({"success": False, "error": "common_ports must be a list of port numbers."}), 400
+            cleaned_ports = []
+            for p in raw_ports:
+                try:
+                    p_int = int(p)
+                    if 1 <= p_int <= 65535 and p_int not in cleaned_ports:
+                        cleaned_ports.append(p_int)
+                except (ValueError, TypeError):
+                    continue
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('common_ports', ?)", (json.dumps(cleaned_ports),))
+
+        # HTTPS Ports
+        if "https_ports" in payload:
+            raw_https = payload["https_ports"]
+            if not isinstance(raw_https, (list, set)):
+                return jsonify({"success": False, "error": "https_ports must be a list of port numbers."}), 400
+            cleaned_https = []
+            for p in raw_https:
+                try:
+                    p_int = int(p)
+                    if 1 <= p_int <= 65535 and p_int not in cleaned_https:
+                        cleaned_https.append(p_int)
+                except (ValueError, TypeError):
+                    continue
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('https_ports', ?)", (json.dumps(cleaned_https),))
+
+        # Scan Interval
+        old_interval = get_scan_interval_minutes()
+        new_interval = old_interval
+        if "scan_interval_minutes" in payload and payload["scan_interval_minutes"] is not None:
+            try:
+                new_interval = max(1, int(payload["scan_interval_minutes"]))
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan_interval_minutes', ?)", (str(new_interval),))
+            except (ValueError, TypeError):
+                pass
+
+        # History Retention Days
+        if "history_retention_days" in payload and payload["history_retention_days"] is not None:
+            try:
+                retention = max(1, int(payload["history_retention_days"]))
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('history_retention_days', ?)", (str(retention),))
+            except (ValueError, TypeError):
+                pass
+
+        # Scan Workers
+        if "scan_workers" in payload and payload["scan_workers"] is not None:
+            try:
+                workers = max(1, min(50, int(payload["scan_workers"])))
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan_workers', ?)", (str(workers),))
+            except (ValueError, TypeError):
+                pass
+
+        # MACLookup API Key
+        if "maclookup_api_key" in payload and payload["maclookup_api_key"] is not None:
+            key_val = str(payload["maclookup_api_key"]).strip()
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('maclookup_api_key', ?)", (key_val,))
+
+        conn.commit()
+        conn.close()
+
+        if new_interval != old_interval:
+            fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
+            if callable(fn_resched):
+                fn_resched(new_interval)
+
+        return jsonify({"success": True, "message": "Scanner settings saved successfully."})
+    except Exception as exc:
+        conn.close()
+        return jsonify({"success": False, "error": f"Database error saving scanner settings: {exc}"}), 500
+
+
+@settings_bp.route("/api/settings/scanner/reset", methods=["POST"], endpoint="api_reset_scanner_settings")
+def api_reset_scanner_settings():
+    """Reset scanner settings or ports to default values."""
+    payload = request.get_json(silent=True) or {}
+    reset_target = (payload.get("target") or "all").strip().lower()
+
+    conn = get_db_connection()
+    try:
+        if reset_target in ("common_ports", "all"):
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('common_ports', ?)", (json.dumps(DEFAULT_COMMON_PORTS),))
+        if reset_target in ("https_ports", "all"):
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('https_ports', ?)", (json.dumps(sorted(list(DEFAULT_HTTPS_PORTS))),))
+        if reset_target in ("timing", "all"):
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan_interval_minutes', ?)", (str(DEFAULT_SCAN_INTERVAL_MINUTES),))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('history_retention_days', ?)", (str(DEFAULT_HISTORY_RETENTION_DAYS),))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('scan_workers', ?)", (str(DEFAULT_SCAN_WORKERS),))
+            fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
+            if callable(fn_resched):
+                fn_resched(DEFAULT_SCAN_INTERVAL_MINUTES)
+        conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": f"Reset '{reset_target}' to defaults successfully.",
+            "common_ports": get_common_ports(),
+            "https_ports": sorted(list(get_https_ports())),
+            "scan_interval_minutes": get_scan_interval_minutes(),
+            "history_retention_days": get_history_retention_days(),
+            "scan_workers": get_scan_workers(),
+        })
+    except Exception as exc:
+        conn.close()
+        return jsonify({"success": False, "error": f"Database error resetting scanner settings: {exc}"}), 500
+
+
+# ── Remote Source Safety Pattern APIs ─────────────────────────────────────────
+
+@settings_bp.route("/api/settings/remote-source/safety", methods=["GET"], endpoint="api_get_remote_safety_patterns")
+def api_get_remote_safety_patterns():
+    """Return default and effective dangerous remote command patterns."""
+    return jsonify({
+        "success": True,
+        "default_patterns": DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS,
+        "effective_patterns": get_dangerous_remote_patterns(),
+    })
+
+
+@settings_bp.route("/api/settings/remote-source/safety/save", methods=["POST"], endpoint="api_save_remote_safety_patterns")
+def api_save_remote_safety_patterns():
+    """Save custom dangerous remote command patterns."""
+    payload = request.get_json(silent=True) or {}
+    patterns = payload.get("patterns")
+    if not isinstance(patterns, list):
+        return jsonify({"success": False, "error": "Patterns must be a list of regex strings."}), 400
+    cleaned = []
+    for p in patterns:
+        p_str = str(p).strip()
+        if p_str:
+            try:
+                re.compile(p_str)
+                if p_str not in cleaned:
+                    cleaned.append(p_str)
+            except re.error as ex:
+                return jsonify({"success": False, "error": f"Invalid regular expression '{p_str}': {ex}"}), 400
+    try:
+        conn = get_db_connection()
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('dangerous_remote_patterns', ?)", (json.dumps(cleaned),))
+        conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Remote safety patterns saved successfully."})
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Database error: {exc}"}), 500
+
+
+@settings_bp.route("/api/settings/remote-source/safety/reset", methods=["POST"], endpoint="api_reset_remote_safety_patterns")
+def api_reset_remote_safety_patterns():
+    """Reset custom dangerous remote command patterns to factory defaults."""
+    try:
+        conn = get_db_connection()
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('dangerous_remote_patterns', '[]')")
+        conn.commit()
+        conn.close()
+        return jsonify({
+            "success": True,
+            "message": "Reset safety patterns to defaults successfully.",
+            "patterns": DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS,
+        })
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Database error: {exc}"}), 500
 
 
 @settings_bp.route("/api/settings/backup/export", methods=["POST"], endpoint="api_backup_export")

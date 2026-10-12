@@ -22,6 +22,8 @@ from core.config import (
     DEFAULT_SCAN_RETRY_INTERVAL,
     EXPLICIT_DEBUG,
     LINE_PROFILER_ENABLED,
+    get_scan_interval_minutes,
+    get_maclookup_api_key,
 )
 import core.config as config_mod
 from core.database import (
@@ -143,7 +145,8 @@ def _lookup_manufacturer(mac: str) -> str:
     Throttled: holds _MAC_LOOKUP_LOCK + sleeps 1 s between calls.
     """
     global MACLOOKUP_API_KEY
-    current_api_key = _get_app_attr("MACLOOKUP_API_KEY", MACLOOKUP_API_KEY)
+    get_key_fn = _get_app_attr("get_maclookup_api_key", get_maclookup_api_key)
+    current_api_key = get_key_fn() if callable(get_key_fn) else _get_app_attr("MACLOOKUP_API_KEY", MACLOOKUP_API_KEY)
     with _MAC_LOOKUP_LOCK:
         try:
             url = f"https://api.maclookup.app/v2/macs/{mac}"
@@ -589,7 +592,8 @@ def get_scan_schedule_info() -> dict:
     global GLOBAL_SCHEDULER, IS_SCANNING
     scheduler = _get_app_attr("GLOBAL_SCHEDULER", GLOBAL_SCHEDULER)
     now_utc = datetime.now(timezone.utc)
-    interval_seconds = 600
+    scan_int_min = _get_app_attr("get_scan_interval_minutes", get_scan_interval_minutes)()
+    interval_seconds = max(1, scan_int_min) * 60
 
     next_dt = None
     if scheduler:
@@ -645,10 +649,11 @@ def run_background_tasks():
         app_mod.STARTUP_SCAN_PENDING = True
 
     scheduler = BackgroundScheduler(daemon=True)
+    scan_int_min = _get_app_attr("get_scan_interval_minutes", get_scan_interval_minutes)()
     scheduler.add_job(
         check_all_services,
         "interval",
-        minutes=10,
+        minutes=max(1, scan_int_min),
         id="pulsecheck_scan",
         next_run_time=datetime.now(),
     )
@@ -681,3 +686,20 @@ def run_background_tasks():
     ).start()
 
     return scheduler
+
+
+def reschedule_scan_job(interval_minutes: int) -> bool:
+    """Reschedule the background recurring scan job to a new interval in minutes."""
+    global GLOBAL_SCHEDULER
+    sched = _get_app_attr("GLOBAL_SCHEDULER", GLOBAL_SCHEDULER)
+    if sched and sched.running:
+        try:
+            sched.reschedule_job(
+                "pulsecheck_scan",
+                trigger="interval",
+                minutes=max(1, int(interval_minutes)),
+            )
+            return True
+        except Exception as exc:
+            print(f"[Scheduler] Failed to reschedule scan job: {exc}")
+    return False

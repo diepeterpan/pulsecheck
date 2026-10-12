@@ -234,13 +234,49 @@ DEFAULT_HTML_CONTENT_ICON_MAPPINGS = [
 ]
 
 # Known hashes of generic GoDaddy parked page favicons across multiple sizes and CDNs
-_GODADDY_PARKED_ICON_HASHES = {
+DEFAULT_IGNORED_ICON_HASHES = [
     "0f51e723b5ea18cf223bd66aaf0bda85",  # Google Favicon 64px (1045 bytes)
     "6bceda3c3c8d58b353b71a1641a3e73d",  # Google Favicon 32px (510 bytes)
     "8379b3a54a273ff25f7ec28c565341e8",  # Google Favicon 16px (302 bytes)
     "b01122b8efe9b9022ddb161443198081",  # Google Favicon 128px (1965 bytes)
     "d9e87c52cf05be95fb7a09ff01080983",  # GoDaddy CDN img1.wsimg.com direct favicon (2238 bytes)
-}
+]
+_GODADDY_PARKED_ICON_HASHES = set(DEFAULT_IGNORED_ICON_HASHES)
+
+DEFAULT_CORPORATE_SUFFIXES = [
+    "inc", "incorporated", "corp", "corporation", "llc", "ltd", "limited",
+    "co", "gmbh", "sa", "bv", "s.p.a", "s.a", "n.v"
+]
+
+
+def get_ignored_icon_hashes() -> set[str]:
+    """Retrieve set of ignored placeholder/parked icon MD5 hashes from settings table or fallback."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'ignored_icon_hashes'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, (list, set)):
+                return {str(h).strip().lower() for h in parsed if str(h).strip()}
+    except Exception:
+        pass
+    return set(DEFAULT_IGNORED_ICON_HASHES)
+
+
+def get_corporate_suffixes() -> list[str]:
+    """Retrieve list of corporate legal suffixes to strip from manufacturer names."""
+    try:
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'corporate_suffixes'").fetchone()
+        conn.close()
+        if row and row["value"]:
+            parsed = json.loads(row["value"])
+            if isinstance(parsed, list):
+                return [str(s).strip().lower() for s in parsed if str(s).strip()]
+    except Exception:
+        pass
+    return list(DEFAULT_CORPORATE_SUFFIXES)
 
 
 def _get_http_manager():
@@ -278,11 +314,11 @@ def make_basic_auth_headers(username: str | None, password: str | None) -> dict[
 
 
 def is_godaddy_or_parked_icon(data: bytes | None) -> bool:
-    """Return True if image data matches known GoDaddy parked domain favicon signatures."""
+    """Return True if image data matches known GoDaddy or configured placeholder icon signatures."""
     if not data or len(data) < 50:
         return True
-    h = hashlib.md5(data).hexdigest()
-    return h in _GODADDY_PARKED_ICON_HASHES
+    h = hashlib.md5(data).hexdigest().lower()
+    return h in get_ignored_icon_hashes()
 
 
 def is_valid_image_payload(data: bytes | None) -> bool:
@@ -497,7 +533,10 @@ def slugify_manufacturer(name: str) -> str:
         if alias_key == s or alias_key in s:
             s = canon_name.lower()
             break
-    s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|gmbh|sa|bv|s\.p\.a|s\.a|n\.v)\b\.?", "", s)
+    suffixes = get_corporate_suffixes()
+    if suffixes:
+        pattern = r"\b(?:" + "|".join(re.escape(sfx) for sfx in sorted(suffixes, key=len, reverse=True)) + r")\b\.?"
+        s = re.sub(pattern, "", s, flags=re.I)
     s = re.sub(r"[^\w\s-]", "", s)
     s = re.sub(r"[\s-]+", "_", s).strip("_")
     return s or "unknown"

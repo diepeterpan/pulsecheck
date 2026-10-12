@@ -701,11 +701,20 @@ def save_settings(new_settings: dict[str, str]) -> None:
         "regional_prefixes",
         "known_service_domains",
         "html_content_icon_mappings",
+        "common_ports",
+        "https_ports",
+        "scan_interval_minutes",
+        "history_retention_days",
+        "scan_workers",
+        "maclookup_api_key",
+        "ignored_icon_hashes",
+        "corporate_suffixes",
+        "dangerous_remote_patterns",
     }
     conn = get_db_connection()
     for key, value in new_settings.items():
         if key in DEFAULT_SETTINGS or key in allowed_extra_keys:
-            val_to_save = str(value) if key in ("smtp_password", "proxy_password", "remote_source_password", "remote_source_key") else str(value).strip()
+            val_to_save = str(value) if key in ("smtp_password", "proxy_password", "remote_source_password", "remote_source_key", "maclookup_api_key") else str(value).strip()
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (key, val_to_save),
