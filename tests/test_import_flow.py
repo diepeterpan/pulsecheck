@@ -396,6 +396,35 @@ legacy-1.local,Test 1,0,0,http,80,web,/status,ok,,
         self.assertEqual(svc["http_username"], "")
         self.assertEqual(svc["http_password"], "")
 
+    def test_export_services_route_password_confirmation(self):
+        c = pulsecheck_app.app.test_client()
+        # 1. Matching passwords succeeds (200 OK)
+        res_ok = c.post("/import/export", data={"encryption_password": "MyPass", "confirm_encryption_password": "MyPass"})
+        self.assertEqual(res_ok.status_code, 200)
+        self.assertEqual(res_ok.mimetype, "text/csv")
+
+        # 2. Mismatching passwords fails (400 Bad Request)
+        res_mismatch = c.post("/import/export", data={"encryption_password": "MyPass", "confirm_encryption_password": "Wrong"})
+        self.assertEqual(res_mismatch.status_code, 400)
+        self.assertIn("Encryption passwords do not match", res_mismatch.data.decode("utf-8"))
+
+        # 3. Empty password and empty confirm succeeds (200 OK)
+        res_empty = c.post("/import/export", data={"encryption_password": "", "confirm_encryption_password": ""})
+        self.assertEqual(res_empty.status_code, 200)
+
+        # 4. Backward compatibility without confirm_encryption_password parameter (200 OK)
+        res_legacy = c.post("/import/export", data={"encryption_password": "LegacyPass"})
+        self.assertEqual(res_legacy.status_code, 200)
+
+    def test_export_password_modal_elements_in_template(self):
+        c = pulsecheck_app.app.test_client()
+        res = c.get("/import")
+        self.assertEqual(res.status_code, 200)
+        html = res.data.decode("utf-8")
+        self.assertIn('id="export-password-input"', html)
+        self.assertIn('id="export-password-confirm-input"', html)
+        self.assertIn('id="export-password-error"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -354,13 +354,20 @@ custom-device.local,Hex Device,0,0,tcp,"9000",custom,,,"01 02 03","04 05",,</div
       <p style="font-size: 0.87rem; color: #475569; margin: 0 0 16px 0; line-height: 1.45;">
         You can optionally provide a password to encrypt all Basic Auth passwords using <strong>AES-256-GCM</strong>. If left blank, passwords will be exported in plain text.
       </p>
-      <div style="margin-bottom: 20px;">
+      <div style="margin-bottom: 14px;">
         <label for="export-password-input" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
           Encryption Password (Optional)
         </label>
         <input type="password" id="export-password-input" placeholder="Enter encryption passphrase or leave blank" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="new-password">
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+      <div style="margin-bottom: 14px;">
+        <label for="export-password-confirm-input" style="display: block; font-size: 0.82rem; font-weight: 600; color: #334155; margin-bottom: 6px;">
+          Confirm Encryption Password
+        </label>
+        <input type="password" id="export-password-confirm-input" placeholder="Re-enter encryption passphrase" style="width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem;" autocomplete="new-password">
+      </div>
+      <div id="export-password-error" class="hidden" style="color: #dc2626; font-size: 0.83rem; margin-bottom: 14px; background: #fef2f2; padding: 8px 10px; border-radius: 6px;"></div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
         <button type="button" id="btn-export-modal-cancel" class="button secondary">Cancel</button>
         <button type="button" id="btn-export-modal-confirm" class="button primary">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 5px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -647,26 +654,46 @@ custom-device.local,Hex Device,0,0,tcp,"9000",custom,,,"01 02 03","04 05",,</div
     const exportBanner = document.getElementById('export-stats-banner');
     const exportPasswordModal = document.getElementById('export-password-modal');
     const exportPasswordInput = document.getElementById('export-password-input');
+    const exportPasswordConfirmInput = document.getElementById('export-password-confirm-input');
+    const exportPasswordError = document.getElementById('export-password-error');
     const btnExportModalCancel = document.getElementById('btn-export-modal-cancel');
     const btnExportModalConfirm = document.getElementById('btn-export-modal-confirm');
+
+    function showExportPasswordError(msg) {
+      if (exportPasswordError) {
+        exportPasswordError.textContent = msg;
+        exportPasswordError.classList.remove('hidden');
+      }
+    }
+
+    function clearExportPasswordError() {
+      if (exportPasswordError) {
+        exportPasswordError.textContent = '';
+        exportPasswordError.classList.add('hidden');
+      }
+    }
 
     if (exportBtn && exportPasswordModal) {
       exportBtn.addEventListener('click', (e) => {
         e.preventDefault();
-        exportPasswordInput.value = '';
+        if (exportPasswordInput) exportPasswordInput.value = '';
+        if (exportPasswordConfirmInput) exportPasswordConfirmInput.value = '';
+        clearExportPasswordError();
         exportPasswordModal.classList.remove('hidden');
-        setTimeout(() => exportPasswordInput.focus(), 50);
+        setTimeout(() => exportPasswordInput && exportPasswordInput.focus(), 50);
       });
     }
 
     if (btnExportModalCancel) {
       btnExportModalCancel.addEventListener('click', () => {
         exportPasswordModal.classList.add('hidden');
+        clearExportPasswordError();
       });
     }
 
     function triggerExportDownload(password) {
       exportPasswordModal.classList.add('hidden');
+      clearExportPasswordError();
       if (exportBanner) exportBanner.classList.remove('hidden');
 
       // Use a hidden form POST to download the file seamlessly with encryption_password
@@ -681,6 +708,14 @@ custom-device.local,Hex Device,0,0,tcp,"9000",custom,,,"01 02 03","04 05",,</div
       pwdField.value = password || '';
       form.appendChild(pwdField);
 
+      if (password) {
+        const confirmField = document.createElement('input');
+        confirmField.type = 'hidden';
+        confirmField.name = 'confirm_encryption_password';
+        confirmField.value = password;
+        form.appendChild(confirmField);
+      }
+
       document.body.appendChild(form);
       form.submit();
       setTimeout(() => document.body.removeChild(form), 1000);
@@ -688,18 +723,40 @@ custom-device.local,Hex Device,0,0,tcp,"9000",custom,,,"01 02 03","04 05",,</div
 
     if (btnExportModalConfirm) {
       btnExportModalConfirm.addEventListener('click', () => {
-        triggerExportDownload(exportPasswordInput.value);
+        const pwd = exportPasswordInput ? exportPasswordInput.value : '';
+        const pwdConfirm = exportPasswordConfirmInput ? exportPasswordConfirmInput.value : '';
+
+        // If both fields are blank, proceed with plain text export (optional encryption)
+        if (!pwd && !pwdConfirm) {
+          triggerExportDownload('');
+          return;
+        }
+
+        // If one is filled or they do not match
+        if (pwd !== pwdConfirm) {
+          showExportPasswordError('Passwords do not match. Please verify.');
+          if (exportPasswordConfirmInput) exportPasswordConfirmInput.focus();
+          return;
+        }
+
+        clearExportPasswordError();
+        triggerExportDownload(pwd);
       });
     }
 
-    if (exportPasswordInput) {
-      exportPasswordInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          btnExportModalConfirm.click();
-        }
-      });
-    }
+    [exportPasswordInput, exportPasswordConfirmInput].forEach(inp => {
+      if (inp) {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            btnExportModalConfirm.click();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            btnExportModalCancel.click();
+          }
+        });
+      }
+    });
 
     // Progress Veil / Overlay polling logic
     const overlay = document.getElementById('import-overlay');

@@ -224,6 +224,9 @@ def handle_import():
 @login_required
 def export_services_route():
     enc_pass = request.values.get("encryption_password") or ""
+    confirm_pass = request.values.get("confirm_encryption_password")
+    if confirm_pass is not None and enc_pass != confirm_pass:
+        return Response("Encryption passwords do not match.", status=400, mimetype="text/plain")
     csv_content, count = export_services_csv(encryption_password=enc_pass)
     response = Response(csv_content, mimetype="text/csv")
     response.headers["Content-Disposition"] = "attachment; filename=pulsecheck_services.csv"
