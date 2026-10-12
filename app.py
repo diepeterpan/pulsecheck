@@ -200,6 +200,7 @@ from services.icons import (
     decode_data_uri_image,
     extract_script_icon_data_uris,
     extract_icon_links_from_html,
+    extract_html_base_href,
     fetch_service_html_body,
     fetch_service_content_responses,
     get_service_candidate_endpoints,

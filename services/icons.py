@@ -571,10 +571,12 @@ def resolve_and_cache_manufacturer_icon(manufacturer: str, force_refresh: bool =
                 data, status, _ = http_manager.get_url(home_url, headers={"User-Agent": ua}, timeout=4.0)
                 if status == 200:
                     html = data.decode("utf-8", errors="ignore")
+                    base_href = extract_html_base_href(html)
+                    effective_base = urljoin(home_url, base_href) if base_href else home_url
                     found_links = re.findall(r'<link[^>]+rel=[\"\'](?:shortcut )?icon[\"\'][^>]+href=[\"\']([^\"\']+)[\"\']', html, re.I)
                     found_logos = re.findall(r'<img[^>]+src=[\"\']([^\"\']*(?:logo|icon)[^\"\']*)[\"\']', html, re.I)
                     for relative_or_abs in (found_links + found_logos):
-                        target = urljoin(home_url, relative_or_abs)
+                        target = urljoin(effective_base, relative_or_abs)
                         try:
                             t_data, t_status, _ = http_manager.get_url(target, headers={"User-Agent": ua}, timeout=4.0)
                             if t_status == 200 and is_valid_image_payload(t_data):
@@ -691,9 +693,18 @@ class _HtmlIconLinkParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.candidates: list[dict] = []
+        self.base_href: str | None = None
 
     def handle_starttag(self, tag, attrs):
-        if tag.lower() != "link":
+        tag_lower = tag.lower()
+        if tag_lower == "base":
+            if self.base_href is None:
+                attr_map = {k.lower(): (v or "") for k, v in attrs}
+                href = attr_map.get("href", "").strip()
+                if href:
+                    self.base_href = href
+            return
+        if tag_lower != "link":
             return
         attr_map = {k.lower(): (v or "") for k, v in attrs}
         rel_val = attr_map.get("rel", "").lower()
@@ -730,6 +741,26 @@ class _HtmlIconLinkParser(HTMLParser):
             "is_apple": is_apple,
             "type": attr_map.get("type", "").lower()
         })
+
+
+def extract_html_base_href(html: str) -> str | None:
+    """Extract <base href="..."> value from HTML document if present."""
+    if not html or "<base" not in html.lower():
+        return None
+    parser = _HtmlIconLinkParser()
+    try:
+        parser.feed(html)
+        if parser.base_href:
+            return parser.base_href
+    except Exception:
+        pass
+    # Regex fallback for malformed HTML
+    m = re.search(r'<base\b[^>]*\bhref=["\']([^"\']+)["\']', html, re.I)
+    if m:
+        val = m.group(1).strip()
+        if val:
+            return val
+    return None
 
 
 def extract_script_icon_data_uris(text: str) -> list[str]:
@@ -1207,6 +1238,8 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                 home_data, home_status, _ = http_manager.get_url(landing_url, headers=direct_headers, timeout=1.5)
                 if home_status == 200:
                     html = home_data.decode("utf-8", errors="ignore")
+                    base_href = extract_html_base_href(html)
+                    effective_base = urljoin(landing_url, base_href) if base_href else landing_url
                     found_links = extract_icon_links_from_html(html)
                     for link_href in found_links:
                         if link_href.lower().startswith("data:"):
@@ -1216,7 +1249,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                                 is_device_origin = True
                                 break
                         else:
-                            target = urljoin(landing_url, link_href)
+                            target = urljoin(effective_base, link_href)
                             target_headers = direct_headers if (clean_host in target or ep_host in target) else {"User-Agent": ua}
                             try:
                                 t_data, t_status, t_headers = http_manager.get_url(target, headers=target_headers, timeout=1.5)
@@ -1248,7 +1281,7 @@ def resolve_and_cache_service_icon(service_name: str, force_refresh: bool = Fals
                             if s_src.startswith(("http://", "https://")):
                                 s_url = s_src
                             else:
-                                s_url = urljoin(landing_url, s_src)
+                                s_url = urljoin(effective_base, s_src)
 
                             s_hdrs = {"User-Agent": ua}
                             if basic_auth_hdrs and (clean_host in s_url or ep_host in s_url):

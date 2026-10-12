@@ -2979,6 +2979,80 @@ direct.example,direct,,Direct site,0,0,8080
         res = pulsecheck_app.fetch_service_content_responses("test-service.local")
         self.assertIsInstance(res, list)
 
+    def test_extract_html_base_href(self):
+        """Verify extraction of <base href> tags from HTML with various attribute formats."""
+        self.assertIsNone(pulsecheck_app.extract_html_base_href(""))
+        self.assertIsNone(pulsecheck_app.extract_html_base_href("<html><head><title>No Base</title></head></html>"))
+
+        html_abs = '<html><head><base href="https://medusa.galleon.co.za/sickrage/"><link rel="icon" href="fav.ico"></head></html>'
+        self.assertEqual(pulsecheck_app.extract_html_base_href(html_abs), "https://medusa.galleon.co.za/sickrage/")
+
+        html_rel = '<html><head><base href="/sickrage/"><link rel="icon" href="fav.ico"></head></html>'
+        self.assertEqual(pulsecheck_app.extract_html_base_href(html_rel), "/sickrage/")
+
+        html_target_first = '<html><head><base target="_blank" href="/app/base/"><link rel="icon" href="fav.ico"></head></html>'
+        self.assertEqual(pulsecheck_app.extract_html_base_href(html_target_first), "/app/base/")
+
+    def test_resolve_and_cache_service_icon_resolves_via_html_base_href(self):
+        """Verify that HTML relative icon links resolve against <base href> rather than document URL."""
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM services WHERE name = 'medusa-test.galleon.co.za'")
+        ports_json = json.dumps([
+            {"port": 443, "protocol": "https", "request_type": "web", "match": "medusa", "url_path": "/sickrage/home/"},
+        ])
+        conn.execute(
+            "INSERT INTO services (name, port_protocol) VALUES (?, ?)",
+            ("medusa-test.galleon.co.za", ports_json),
+        )
+        conn.commit()
+        conn.close()
+
+        landing_html = (
+            '<!DOCTYPE html><html><head>'
+            '<base href="https://medusa-test.galleon.co.za/sickrage/">'
+            '<link rel="shortcut icon" href="images/ico/favicon.ico?v=2">'
+            '<link rel="icon" type="image/png" sizes="196x196" href="images/ico/favicon-196.png">'
+            '</head><body>Medusa</body></html>'
+        )
+        valid_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 120
+        requested_urls = []
+
+        def fake_urlopen(req, timeout=None, context=None):
+            url = req.full_url if hasattr(req, "full_url") else str(req)
+            requested_urls.append(url)
+            mock_r = MagicMock()
+            if "/sickrage/images/ico/favicon-196.png" in url:
+                # Proper base-resolved icon URL returns valid image
+                mock_r.read.return_value = valid_png
+                mock_r.headers = {"Content-Type": "image/png"}
+            elif "/sickrage/home/images/" in url:
+                # Invalid subpath resolution returns HTML text, which must be rejected
+                mock_r.read.return_value = landing_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            elif "/sickrage/home/" in url:
+                mock_r.read.return_value = landing_html.encode("utf-8")
+                mock_r.headers = {"Content-Type": "text/html"}
+            else:
+                mock_r.read.return_value = b""
+                mock_r.headers = {"Content-Type": "text/plain"}
+            mock_r.__enter__.return_value = mock_r
+            mock_r.__exit__.return_value = None
+            return mock_r
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            res = pulsecheck_app.resolve_and_cache_service_icon("medusa-test.galleon.co.za", force_refresh=True)
+
+        self.assertIsNotNone(res)
+        self.assertEqual(res, "/static/service-icons/medusa-test.png")
+        saved_file = pulsecheck_app.SERVICE_ICONS_DIR / "medusa-test.png"
+        self.assertTrue(saved_file.is_file())
+        self.assertEqual(saved_file.read_bytes(), valid_png)
+        saved_file.unlink(missing_ok=True)
+
+        # Confirm the request targeted the base-resolved URL (/sickrage/images/...), NOT (/sickrage/home/images/...)
+        self.assertTrue(any("https://medusa-test.galleon.co.za/sickrage/images/ico/favicon-196.png" in u for u in requested_urls))
+        self.assertFalse(any("https://medusa-test.galleon.co.za/sickrage/home/images/ico/favicon-196.png" in u for u in requested_urls))
+
 
 if __name__ == "__main__":
     unittest.main()
