@@ -36,6 +36,14 @@ from core.config import (
     get_history_retention_days,
     get_scan_workers,
     get_maclookup_api_key,
+    DEFAULT_MAC_ARP_PRIMING_ENABLED,
+    DEFAULT_MAC_NETBIOS_ENABLED,
+    DEFAULT_MAC_SNMP_ENABLED,
+    DEFAULT_MAC_SNMP_COMMUNITY,
+    get_mac_arp_priming_enabled,
+    get_mac_netbios_enabled,
+    get_mac_snmp_enabled,
+    get_mac_snmp_community,
 )
 from core.database import (
     get_db_connection,
@@ -589,6 +597,10 @@ def settings_route():
         maclookup_api_key=get_maclookup_api_key(),
         dangerous_remote_patterns=get_dangerous_remote_patterns(),
         default_dangerous_patterns=DEFAULT_DANGEROUS_REMOTE_COMMAND_PATTERNS,
+        mac_arp_priming_enabled=get_mac_arp_priming_enabled(),
+        mac_netbios_enabled=get_mac_netbios_enabled(),
+        mac_snmp_enabled=get_mac_snmp_enabled(),
+        mac_snmp_community=get_mac_snmp_community(),
     )
 
 
@@ -925,6 +937,10 @@ def api_get_scanner_settings():
         "history_retention_days": get_history_retention_days(),
         "scan_workers": get_scan_workers(),
         "maclookup_api_key": get_maclookup_api_key(),
+        "mac_arp_priming_enabled": get_mac_arp_priming_enabled(),
+        "mac_netbios_enabled": get_mac_netbios_enabled(),
+        "mac_snmp_enabled": get_mac_snmp_enabled(),
+        "mac_snmp_community": get_mac_snmp_community(),
     })
 
 
@@ -995,6 +1011,23 @@ def api_save_scanner_settings():
             key_val = str(payload["maclookup_api_key"]).strip()
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('maclookup_api_key', ?)", (key_val,))
 
+        # MAC Discovery Settings
+        if "mac_arp_priming_enabled" in payload and payload["mac_arp_priming_enabled"] is not None:
+            val = "1" if bool(payload["mac_arp_priming_enabled"]) and str(payload["mac_arp_priming_enabled"]).lower() not in ("0", "false") else "0"
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_arp_priming_enabled', ?)", (val,))
+
+        if "mac_netbios_enabled" in payload and payload["mac_netbios_enabled"] is not None:
+            val = "1" if bool(payload["mac_netbios_enabled"]) and str(payload["mac_netbios_enabled"]).lower() not in ("0", "false") else "0"
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_netbios_enabled', ?)", (val,))
+
+        if "mac_snmp_enabled" in payload and payload["mac_snmp_enabled"] is not None:
+            val = "1" if bool(payload["mac_snmp_enabled"]) and str(payload["mac_snmp_enabled"]).lower() not in ("0", "false") else "0"
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_enabled', ?)", (val,))
+
+        if "mac_snmp_community" in payload and payload["mac_snmp_community"] is not None:
+            comm = str(payload["mac_snmp_community"]).strip() or "public"
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_community', ?)", (comm,))
+
         conn.commit()
         conn.close()
 
@@ -1028,6 +1061,11 @@ def api_reset_scanner_settings():
             fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
             if callable(fn_resched):
                 fn_resched(DEFAULT_SCAN_INTERVAL_MINUTES)
+        if reset_target in ("mac_discovery", "all"):
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_arp_priming_enabled', ?)", ("1" if DEFAULT_MAC_ARP_PRIMING_ENABLED else "0",))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_netbios_enabled', ?)", ("1" if DEFAULT_MAC_NETBIOS_ENABLED else "0",))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_enabled', ?)", ("1" if DEFAULT_MAC_SNMP_ENABLED else "0",))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_community', ?)", (DEFAULT_MAC_SNMP_COMMUNITY,))
         conn.commit()
         conn.close()
 
@@ -1039,6 +1077,10 @@ def api_reset_scanner_settings():
             "scan_interval_minutes": get_scan_interval_minutes(),
             "history_retention_days": get_history_retention_days(),
             "scan_workers": get_scan_workers(),
+            "mac_arp_priming_enabled": get_mac_arp_priming_enabled(),
+            "mac_netbios_enabled": get_mac_netbios_enabled(),
+            "mac_snmp_enabled": get_mac_snmp_enabled(),
+            "mac_snmp_community": get_mac_snmp_community(),
         })
     except Exception as exc:
         conn.close()

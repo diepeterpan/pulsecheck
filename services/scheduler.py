@@ -5,6 +5,7 @@ import json
 import os
 import re
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -87,54 +88,360 @@ def _resolve_ip(hostname: str) -> str | None:
         return None
 
 
-def _resolve_mac(ip: str) -> str | None:
-    """
-    Look up MAC address for ip from the local ARP/neighbour cache.
-    Works for same-LAN hosts; returns None for remote hosts.
-    Checks /proc/net/arp first, then falls back to 'ip neigh' and 'arp -n'.
-    """
-    # 1. Direct file lookup in /proc/net/arp
-    arp_path = Path("/proc/net/arp")
-    if arp_path.is_file():
-        try:
-            with open(arp_path, "r", encoding="utf-8", errors="ignore") as f:
-                # Skip header line: IP address HW type Flags HW address Mask Device
-                lines = f.readlines()
-                for line in lines[1:]:
-                    parts = line.split()
-                    if len(parts) >= 4 and parts[0] == ip:
-                        flags = parts[2]
-                        hw_addr = parts[3]
-                        # Flags 0x0 indicates incomplete/failed ARP entry
-                        if flags != "0x0" and re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", hw_addr):
-                            if hw_addr != "00:00:00:00:00:00":
-                                return hw_addr.upper()
-        except Exception:
-            pass
+def _normalize_mac(raw_mac: str | None) -> str | None:
+    """Validate and normalize MAC address string to XX:XX:XX:XX:XX:XX format."""
+    if not raw_mac or not isinstance(raw_mac, str):
+        return None
+    cleaned = raw_mac.strip().upper().replace("-", ":")
+    if re.match(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$", cleaned):
+        if cleaned not in ("00:00:00:00:00:00", "FF:FF:FF:FF:FF:FF"):
+            return cleaned
+    return None
 
-    # 2. CLI fallback: 'ip neigh'
+
+def _read_proc_arp(ip: str) -> str | None:
+    """Look up MAC address directly from /proc/net/arp table without spawning child processes."""
+    arp_path = Path("/proc/net/arp")
+    if not arp_path.is_file():
+        return None
+    try:
+        with open(arp_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            for line in lines[1:]:
+                parts = line.split()
+                if len(parts) >= 4 and parts[0] == ip:
+                    flags = parts[2]
+                    hw_addr = parts[3]
+                    if flags != "0x0":
+                        return _normalize_mac(hw_addr)
+    except Exception:
+        pass
+    return None
+
+
+def _prime_arp_cache(ip: str) -> None:
+    """Trigger the Linux kernel ARP subsystem by sending a single unprivileged UDP packet."""
+    try:
+        socket.inet_aton(ip)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(0.05)
+        sock.sendto(b"\x00", (ip, 53530))
+        sock.close()
+    except Exception:
+        pass
+    time.sleep(0.025)
+
+
+def _query_cli_arp(ip: str) -> str | None:
+    """Query local neighbour table via 'ip neigh', 'arping', or 'arp -n' CLI utilities."""
+    # 1. 'ip neigh show <ip>'
     try:
         result = subprocess.run(
             ["ip", "neigh", "show", ip],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=1,
         )
         for token in result.stdout.split():
-            if re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", token):
-                return token.upper()
+            mac = _normalize_mac(token)
+            if mac:
+                return mac
     except Exception:
         pass
 
-    # 3. CLI fallback: 'arp -n'
+    # 2. 'arping -c 1 -w 1 <ip>'
+    try:
+        result = subprocess.run(
+            ["arping", "-c", "1", "-w", "1", ip],
+            capture_output=True, text=True, timeout=1.5,
+        )
+        for line in result.stdout.splitlines():
+            m = re.search(r"\[([0-9a-fA-F:]{17})\]", line)
+            if m:
+                mac = _normalize_mac(m.group(1))
+                if mac:
+                    return mac
+            m = re.search(r"([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", line)
+            if m:
+                mac = _normalize_mac(m.group(0))
+                if mac:
+                    return mac
+    except Exception:
+        pass
+
+    # 3. 'arp -n <ip>'
     try:
         result = subprocess.run(
             ["arp", "-n", ip],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=1,
         )
         m = re.search(r"([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", result.stdout)
         if m:
-            return m.group(0).upper()
+            return _normalize_mac(m.group(0))
     except Exception:
         pass
+
+    return None
+
+
+def _build_netbios_query(trans_id: int = 0x1337) -> bytes:
+    """Build an RFC 1002 NBSTAT wildcard query packet."""
+    header = struct.pack(">HHHHHH", trans_id, 0x0000, 1, 0, 0, 0)
+    raw_name = b"*" + b" " * 15
+    encoded_name = bytearray([32])
+    for b in raw_name:
+        encoded_name.append(0x41 + (b >> 4))
+        encoded_name.append(0x41 + (b & 0x0F))
+    encoded_name.append(0x00)
+    qtype_qclass = struct.pack(">HH", 0x0021, 0x0001)
+    return header + bytes(encoded_name) + qtype_qclass
+
+
+def _parse_netbios_response(resp: bytes, expected_trans_id: int | None = 0x1337) -> str | None:
+    """Extract MAC address from RFC 1002 NBSTAT response."""
+    try:
+        if len(resp) < 31:
+            return None
+        trans_id, flags, questions, answerrrs, _, _ = struct.unpack(">HHHHHH", resp[:12])
+        if expected_trans_id is not None and trans_id != expected_trans_id:
+            return None
+        if answerrrs < 1:
+            return None
+        idx = 12
+        while idx < len(resp):
+            length = resp[idx]
+            if length == 0:
+                idx += 1
+                break
+            elif (length & 0xC0) == 0xC0:
+                idx += 2
+                break
+            else:
+                idx += 1 + length
+        if idx + 10 > len(resp):
+            return None
+        rr_type, rr_class, ttl, rdlength = struct.unpack(">HHIH", resp[idx : idx + 10])
+        idx += 10
+        if rr_type != 0x0021 or idx + rdlength > len(resp):
+            return None
+        num_names = resp[idx]
+        unit_id_offset = idx + 1 + (num_names * 18)
+        if unit_id_offset + 6 <= idx + rdlength:
+            mac_bytes = resp[unit_id_offset : unit_id_offset + 6]
+            return _normalize_mac(":".join(f"{b:02X}" for b in mac_bytes))
+    except Exception:
+        pass
+    return None
+
+
+def _query_netbios_mac(ip: str, timeout: float = 0.3) -> str | None:
+    """Send RFC 1002 NBSTAT wildcard query to UDP port 137 and extract MAC."""
+    try:
+        socket.inet_aton(ip)
+    except OSError:
+        return None
+
+    trans_id = 0x1337
+    packet = _build_netbios_query(trans_id)
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        sock.sendto(packet, (ip, 137))
+        resp, _ = sock.recvfrom(1024)
+        return _parse_netbios_response(resp, trans_id)
+    except (OSError, socket.timeout):
+        return None
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+
+def _asn1_encode_length(length: int) -> bytes:
+    if length < 128:
+        return bytes([length])
+    elif length < 256:
+        return bytes([0x81, length])
+    else:
+        return bytes([0x82, (length >> 8) & 0xFF, length & 0xFF])
+
+
+def _asn1_encode_tlv(tag: int, value: bytes) -> bytes:
+    return bytes([tag]) + _asn1_encode_length(len(value)) + value
+
+
+def _asn1_encode_int(val: int) -> bytes:
+    if val == 0:
+        return b"\x02\x01\x00"
+    raw = []
+    v = val
+    while v > 0:
+        raw.append(v & 0xFF)
+        v >>= 8
+    if raw[-1] & 0x80:
+        raw.append(0)
+    raw.reverse()
+    val_bytes = bytes(raw)
+    return b"\x02" + _asn1_encode_length(len(val_bytes)) + val_bytes
+
+
+def _build_snmp_get_request(community: str = "public", req_id: int = 0x1337) -> bytes:
+    """Build an SNMP v2c GET PDU for IF-MIB ifPhysAddress.1 (1.3.6.1.2.1.2.2.1.6.1)."""
+    oid_bytes = bytes([0x2B, 6, 1, 2, 1, 2, 2, 1, 6, 1])
+    varbind_oid = _asn1_encode_tlv(0x06, oid_bytes)
+    varbind_val = _asn1_encode_tlv(0x05, b"")
+    varbind = _asn1_encode_tlv(0x30, varbind_oid + varbind_val)
+    varbind_list = _asn1_encode_tlv(0x30, varbind)
+    pdu = _asn1_encode_tlv(0xA0, _asn1_encode_int(req_id) + _asn1_encode_int(0) + _asn1_encode_int(0) + varbind_list)
+    version_tlv = _asn1_encode_int(1)
+    comm_tlv = _asn1_encode_tlv(0x04, (community or "public").encode("utf-8"))
+    return _asn1_encode_tlv(0x30, version_tlv + comm_tlv + pdu)
+
+
+def _parse_asn1_tlv(data: bytes, offset: int = 0) -> tuple[int, bytes, int]:
+    if offset >= len(data):
+        raise ValueError("Offset out of bounds")
+    tag = data[offset]
+    offset += 1
+    if offset >= len(data):
+        raise ValueError("Truncated TLV header")
+    len_byte = data[offset]
+    offset += 1
+    if len_byte < 128:
+        length = len_byte
+    elif len_byte == 0x81:
+        if offset >= len(data):
+            raise ValueError("Truncated length byte")
+        length = data[offset]
+        offset += 1
+    elif len_byte == 0x82:
+        if offset + 1 >= len(data):
+            raise ValueError("Truncated length bytes")
+        length = (data[offset] << 8) | data[offset + 1]
+        offset += 2
+    else:
+        raise ValueError("Unsupported length format")
+    if offset + length > len(data):
+        raise ValueError("TLV value exceeds packet length")
+    return tag, data[offset : offset + length], offset + length
+
+
+def _parse_snmp_response_mac(resp: bytes) -> str | None:
+    """Extract MAC address from SNMP v2c GetResponse PDU."""
+    try:
+        tag, seq_val, _ = _parse_asn1_tlv(resp, 0)
+        if tag != 0x30:
+            return None
+        # version
+        _, _, off = _parse_asn1_tlv(seq_val, 0)
+        # community
+        _, _, off = _parse_asn1_tlv(seq_val, off)
+        # PDU
+        pdu_tag, pdu_val, _ = _parse_asn1_tlv(seq_val, off)
+        if pdu_tag != 0xA2:
+            return None
+        # req_id
+        _, _, pdu_off = _parse_asn1_tlv(pdu_val, 0)
+        # error status
+        _, err_val, pdu_off = _parse_asn1_tlv(pdu_val, pdu_off)
+        if err_val != b"\x00":
+            return None
+        # error index
+        _, _, pdu_off = _parse_asn1_tlv(pdu_val, pdu_off)
+        # varbind list
+        vbl_tag, vbl_val, _ = _parse_asn1_tlv(pdu_val, pdu_off)
+        if vbl_tag != 0x30:
+            return None
+        # varbind 1
+        vb_tag, vb_val, _ = _parse_asn1_tlv(vbl_val, 0)
+        if vb_tag != 0x30:
+            return None
+        # OID
+        _, _, vb_off = _parse_asn1_tlv(vb_val, 0)
+        # Value
+        val_tag, val_val, _ = _parse_asn1_tlv(vb_val, vb_off)
+        if val_tag == 0x04 and len(val_val) == 6:
+            return _normalize_mac(":".join(f"{b:02X}" for b in val_val))
+    except Exception:
+        pass
+    return None
+
+
+def _query_snmp_mac(ip: str, community: str = "public", timeout: float = 0.3) -> str | None:
+    """Send SNMP v2c GET query for IF-MIB ifPhysAddress.1 to UDP port 161 and extract MAC."""
+    try:
+        socket.inet_aton(ip)
+    except OSError:
+        return None
+
+    packet = _build_snmp_get_request(community=community, req_id=0x1337)
+    sock = None
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        sock.sendto(packet, (ip, 161))
+        resp, _ = sock.recvfrom(1024)
+        return _parse_snmp_response_mac(resp)
+    except (OSError, socket.timeout):
+        return None
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+
+def _resolve_mac(ip: str) -> str | None:
+    """
+    Look up MAC address for ip using a 5-tier hybrid discovery pipeline:
+    Tier 1: Instant /proc/net/arp in-memory cache (<1ms)
+    Tier 2: Active local ARP priming via UDP probe if enabled (~25ms)
+    Tier 3: Local CLI fallback ('ip neigh', 'arping', 'arp -n') (~35ms)
+    Tier 4: Cross-VLAN NetBIOS NBSTAT query (UDP 137) if enabled (~60ms)
+    Tier 5: Cross-VLAN SNMP query (UDP 161) if enabled (~80ms)
+    """
+    if not ip or not isinstance(ip, str):
+        return None
+    ip = ip.strip()
+
+    # Tier 1: Instant /proc/net/arp check
+    mac = _read_proc_arp(ip)
+    if mac:
+        return mac
+
+    # Tier 2: Active Local ARP Priming (if enabled)
+    from core.config import (
+        get_mac_arp_priming_enabled,
+        get_mac_netbios_enabled,
+        get_mac_snmp_enabled,
+        get_mac_snmp_community,
+    )
+    if get_mac_arp_priming_enabled():
+        _prime_arp_cache(ip)
+        mac = _read_proc_arp(ip)
+        if mac:
+            return mac
+
+    # Tier 3: CLI fallback
+    mac = _query_cli_arp(ip)
+    if mac:
+        return mac
+
+    # Tier 4: Cross-VLAN NetBIOS NBSTAT (UDP 137)
+    if get_mac_netbios_enabled():
+        mac = _query_netbios_mac(ip)
+        if mac:
+            return mac
+
+    # Tier 5: Device SNMP IF-MIB (UDP 161)
+    if get_mac_snmp_enabled():
+        community = get_mac_snmp_community()
+        mac = _query_snmp_mac(ip, community)
+        if mac:
+            return mac
+
     return None
 
 

@@ -45,8 +45,9 @@ def export_settings_encrypted(password: str) -> bytes:
     if not password or not str(password).strip():
         raise ValueError("Password is mandatory to export settings.")
 
+    from core.database import get_settings
+
     conn = get_db_connection()
-    rows = conn.execute("SELECT key, value FROM settings").fetchall()
     user_rows = []
     try:
         user_rows = conn.execute("SELECT identifier, display_name, created_at, updated_at FROM authorized_users ORDER BY id ASC").fetchall()
@@ -54,9 +55,7 @@ def export_settings_encrypted(password: str) -> bytes:
         pass
     conn.close()
 
-    settings_dict = {}
-    for row in rows:
-        settings_dict[row["key"]] = row["value"]
+    settings_dict = get_settings()
 
     users_list = []
     for u in user_rows:

@@ -584,6 +584,50 @@
                 <button type="button" class="btn btn-primary btn-sm" id="btn-save-maclookup-key">Save API Key</button>
               </div>
             </div>
+
+            <!-- Card 5: Hardware MAC Discovery Fallbacks -->
+            <div class="tab-sidebar-card">
+              <div class="sidebar-card-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #8b5cf6;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                <h3 style="margin: 0; font-size: 0.95rem;">Hardware MAC Discovery Fallbacks</h3>
+              </div>
+              <p class="sidebar-card-desc" style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 12px;">Configure active ARP priming and cross-VLAN network discovery fallbacks for resolving device MAC addresses.</p>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_mac_arp_priming" style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #334155; margin: 0; user-select: none;">
+                  <input type="checkbox" id="scanner_mac_arp_priming" name="mac_arp_priming_enabled" style="width: 16px; height: 16px; margin: 0; padding: 0; flex-shrink: 0; cursor: pointer; accent-color: #2563eb;" {% if mac_arp_priming_enabled %}checked{% endif %}>
+                  <span style="line-height: 1.2;">Active Local ARP Cache Priming</span>
+                </label>
+                <span class="field-hint" style="margin-top: 4px; margin-left: 26px; display: block; font-size: 0.78rem; line-height: 1.4; color: #64748b;">Sends a fast unprivileged UDP probe to trigger the kernel ARP table before reading.</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_mac_netbios" style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #334155; margin: 0; user-select: none;">
+                  <input type="checkbox" id="scanner_mac_netbios" name="mac_netbios_enabled" style="width: 16px; height: 16px; margin: 0; padding: 0; flex-shrink: 0; cursor: pointer; accent-color: #2563eb;" {% if mac_netbios_enabled %}checked{% endif %}>
+                  <span style="line-height: 1.2;">Cross-VLAN NetBIOS Discovery (UDP 137)</span>
+                </label>
+                <span class="field-hint" style="margin-top: 4px; margin-left: 26px; display: block; font-size: 0.78rem; line-height: 1.4; color: #64748b;">Resolves Windows, Samba, Synology, and TrueNAS hosts across routed subnets via RFC 1002 NBSTAT.</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_mac_snmp" style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #334155; margin: 0; user-select: none;">
+                  <input type="checkbox" id="scanner_mac_snmp" name="mac_snmp_enabled" style="width: 16px; height: 16px; margin: 0; padding: 0; flex-shrink: 0; cursor: pointer; accent-color: #2563eb;" {% if mac_snmp_enabled %}checked{% endif %}>
+                  <span style="line-height: 1.2;">Device SNMP Discovery (UDP 161)</span>
+                </label>
+                <span class="field-hint" style="margin-top: 4px; margin-left: 26px; display: block; font-size: 0.78rem; line-height: 1.4; color: #64748b;">Queries managed switches, APs, and printers via SNMP v2c IF-MIB (ifPhysAddress).</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_mac_snmp_community" style="font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 4px;">SNMP Read Community</label>
+                <input type="text" id="scanner_mac_snmp_community" name="mac_snmp_community" value="{{ mac_snmp_community }}" placeholder="public" style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
+                <span class="field-hint">SNMP community string for device queries (default: public).</span>
+              </div>
+
+              <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-mac-discovery">Reset Defaults</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-mac-discovery">Save MAC Discovery</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1685,6 +1729,26 @@
         if (macKeyInput && data.maclookup_api_key != null) {
           macKeyInput.value = data.maclookup_api_key;
         }
+
+        const arpPrimingChk = document.getElementById('scanner_mac_arp_priming');
+        if (arpPrimingChk && data.mac_arp_priming_enabled != null) {
+          arpPrimingChk.checked = Boolean(data.mac_arp_priming_enabled);
+        }
+
+        const netbiosChk = document.getElementById('scanner_mac_netbios');
+        if (netbiosChk && data.mac_netbios_enabled != null) {
+          netbiosChk.checked = Boolean(data.mac_netbios_enabled);
+        }
+
+        const snmpChk = document.getElementById('scanner_mac_snmp');
+        if (snmpChk && data.mac_snmp_enabled != null) {
+          snmpChk.checked = Boolean(data.mac_snmp_enabled);
+        }
+
+        const snmpCommInput = document.getElementById('scanner_mac_snmp_community');
+        if (snmpCommInput && data.mac_snmp_community != null) {
+          snmpCommInput.value = data.mac_snmp_community;
+        }
       } catch (err) {
         console.error('Failed to load scanner settings:', err);
       }
@@ -1911,6 +1975,61 @@
         alert(res.message || (res.success ? 'MACLookup API key saved.' : res.error));
       } catch (err) {
         alert(`Error saving MACLookup API key: ${err.message}`);
+      }
+    });
+
+    // Hardware MAC Discovery Fallbacks Saving & Resetting
+    document.getElementById('btn-save-mac-discovery')?.addEventListener('click', async () => {
+      const arpPriming = document.getElementById('scanner_mac_arp_priming')?.checked ? 1 : 0;
+      const netbios = document.getElementById('scanner_mac_netbios')?.checked ? 1 : 0;
+      const snmp = document.getElementById('scanner_mac_snmp')?.checked ? 1 : 0;
+      const community = document.getElementById('scanner_mac_snmp_community')?.value.trim() || 'public';
+      try {
+        const resp = await fetch('/api/settings/scanner/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mac_arp_priming_enabled: arpPriming,
+            mac_netbios_enabled: netbios,
+            mac_snmp_enabled: snmp,
+            mac_snmp_community: community,
+          }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Hardware MAC discovery settings saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving MAC discovery settings: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-reset-mac-discovery')?.addEventListener('click', async () => {
+      if (!confirm('Reset Hardware MAC Discovery fallbacks to factory default settings?')) return;
+      try {
+        const resp = await fetch('/api/settings/scanner/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'mac_discovery' }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          if (res.mac_arp_priming_enabled != null) {
+            document.getElementById('scanner_mac_arp_priming').checked = Boolean(res.mac_arp_priming_enabled);
+          }
+          if (res.mac_netbios_enabled != null) {
+            document.getElementById('scanner_mac_netbios').checked = Boolean(res.mac_netbios_enabled);
+          }
+          if (res.mac_snmp_enabled != null) {
+            document.getElementById('scanner_mac_snmp').checked = Boolean(res.mac_snmp_enabled);
+          }
+          if (res.mac_snmp_community != null) {
+            document.getElementById('scanner_mac_snmp_community').value = res.mac_snmp_community;
+          }
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
       }
     });
 

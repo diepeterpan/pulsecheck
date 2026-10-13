@@ -48,6 +48,10 @@ class TestSettingsBackup(unittest.TestCase):
             "remote_source_type": "ssh",
             "remote_source_host": "router.local",
             "known_manufacturer_domains": json.dumps({"custom": "custom.com"}),
+            "mac_arp_priming_enabled": "0",
+            "mac_netbios_enabled": "1",
+            "mac_snmp_enabled": "0",
+            "mac_snmp_community": "private-snmp-comm",
         }
         save_settings(custom_data)
 
@@ -91,6 +95,10 @@ class TestSettingsBackup(unittest.TestCase):
         self.assertEqual(restored.get("proxy_password"), "proxy-pass-value")
         self.assertEqual(restored.get("remote_source_host"), "router.local")
         self.assertEqual(restored.get("known_manufacturer_domains"), json.dumps({"custom": "custom.com"}))
+        self.assertEqual(restored.get("mac_arp_priming_enabled"), "0")
+        self.assertEqual(restored.get("mac_netbios_enabled"), "1")
+        self.assertEqual(restored.get("mac_snmp_enabled"), "0")
+        self.assertEqual(restored.get("mac_snmp_community"), "private-snmp-comm")
 
     def test_import_with_wrong_password_fails_and_keeps_existing_data(self):
         save_settings({"smtp_host": "original.example.com"})

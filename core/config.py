@@ -62,6 +62,10 @@ DEFAULT_SCAN_WORKERS = int(os.getenv("PULSECHECK_SCAN_WORKERS", "5"))
 DEFAULT_SCAN_RETRIES = int(os.getenv("PULSECHECK_SCAN_RETRIES", "6"))
 DEFAULT_SCAN_RETRY_INTERVAL = int(os.getenv("PULSECHECK_SCAN_RETRY_INTERVAL", "5"))
 DEFAULT_HISTORY_RETENTION_DAYS = int(os.getenv("PULSECHECK_HISTORY_RETENTION_DAYS", "1"))
+DEFAULT_MAC_ARP_PRIMING_ENABLED = True
+DEFAULT_MAC_NETBIOS_ENABLED = True
+DEFAULT_MAC_SNMP_ENABLED = True
+DEFAULT_MAC_SNMP_COMMUNITY = "public"
 DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
     "PULSECHECK_SCANNER_BYPASS_KEY",
     os.getenv("SCANNER_BYPASS_KEY", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
@@ -69,7 +73,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.6.0")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.6.1")
 __version__ = APP_VERSION
 
 # OIDC Configuration
@@ -116,6 +120,10 @@ DEFAULT_SETTINGS = {
     "history_retention_days": str(DEFAULT_HISTORY_RETENTION_DAYS),
     "scan_workers": str(DEFAULT_SCAN_WORKERS),
     "maclookup_api_key": "",
+    "mac_arp_priming_enabled": "1",
+    "mac_netbios_enabled": "1",
+    "mac_snmp_enabled": "1",
+    "mac_snmp_community": "public",
 }
 
 
@@ -215,6 +223,64 @@ def get_maclookup_api_key() -> str:
     except Exception:
         pass
     return os.getenv("PULSECHECK_MACLOOKUP_API_KEY", "").strip()
+
+
+def get_mac_arp_priming_enabled() -> bool:
+    """Retrieve whether active local ARP priming is enabled."""
+    try:
+        from core.database import get_db_connection
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'mac_arp_priming_enabled'").fetchone()
+        conn.close()
+        if row and row["value"] is not None:
+            return str(row["value"]).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        pass
+    return DEFAULT_MAC_ARP_PRIMING_ENABLED
+
+
+def get_mac_netbios_enabled() -> bool:
+    """Retrieve whether cross-subnet NetBIOS (UDP 137) fallback is enabled."""
+    try:
+        from core.database import get_db_connection
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'mac_netbios_enabled'").fetchone()
+        conn.close()
+        if row and row["value"] is not None:
+            return str(row["value"]).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        pass
+    return DEFAULT_MAC_NETBIOS_ENABLED
+
+
+def get_mac_snmp_enabled() -> bool:
+    """Retrieve whether cross-subnet device SNMP (UDP 161) fallback is enabled."""
+    try:
+        from core.database import get_db_connection
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'mac_snmp_enabled'").fetchone()
+        conn.close()
+        if row and row["value"] is not None:
+            return str(row["value"]).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        pass
+    return DEFAULT_MAC_SNMP_ENABLED
+
+
+def get_mac_snmp_community() -> str:
+    """Retrieve SNMP community string for device interface probing."""
+    try:
+        from core.database import get_db_connection
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'mac_snmp_community'").fetchone()
+        conn.close()
+        if row and row["value"] is not None:
+            val = str(row["value"]).strip()
+            if val:
+                return val
+    except Exception:
+        pass
+    return os.getenv("PULSECHECK_MAC_SNMP_COMMUNITY", DEFAULT_MAC_SNMP_COMMUNITY).strip()
 
 
 def get_url_scheme() -> str:

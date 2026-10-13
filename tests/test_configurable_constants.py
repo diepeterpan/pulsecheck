@@ -21,7 +21,16 @@ from core.config import (
     get_history_retention_days,
     get_scan_workers,
     get_maclookup_api_key,
+    DEFAULT_MAC_ARP_PRIMING_ENABLED,
+    DEFAULT_MAC_NETBIOS_ENABLED,
+    DEFAULT_MAC_SNMP_ENABLED,
+    DEFAULT_MAC_SNMP_COMMUNITY,
+    get_mac_arp_priming_enabled,
+    get_mac_netbios_enabled,
+    get_mac_snmp_enabled,
+    get_mac_snmp_community,
 )
+from core.database import save_settings
 from services.icons import (
     get_corporate_suffixes,
     get_ignored_icon_hashes,
@@ -33,6 +42,16 @@ from routes.settings import (
     is_safe_remote_command,
 )
 from services.scanner import discover_ports
+from services.scheduler import (
+    _normalize_mac,
+    _build_netbios_query,
+    _parse_netbios_response,
+    _build_snmp_get_request,
+    _parse_snmp_response_mac,
+    _resolve_mac,
+    _asn1_encode_tlv,
+    _asn1_encode_int,
+)
 
 
 class ConfigurableConstantsTests(unittest.TestCase):
@@ -249,6 +268,189 @@ class ConfigurableConstantsTests(unittest.TestCase):
             res = discover_ports("192.168.1.50")
             self.assertEqual(res, [])
             self.assertEqual(probed_ports, [19999, 29999])
+
+    def test_mac_discovery_getters_and_settings_persistence(self):
+        # 1. Defaults
+        self.assertTrue(get_mac_arp_priming_enabled())
+        self.assertTrue(get_mac_netbios_enabled())
+        self.assertTrue(get_mac_snmp_enabled())
+        self.assertEqual(get_mac_snmp_community(), "public")
+
+        # 2. Modify settings
+        save_settings({
+            "mac_arp_priming_enabled": "0",
+            "mac_netbios_enabled": "0",
+            "mac_snmp_enabled": "1",
+            "mac_snmp_community": "mycommunity",
+        })
+
+        self.assertFalse(get_mac_arp_priming_enabled())
+        self.assertFalse(get_mac_netbios_enabled())
+        self.assertTrue(get_mac_snmp_enabled())
+        self.assertEqual(get_mac_snmp_community(), "mycommunity")
+
+    def test_mac_discovery_api_roundtrip(self):
+        # 1. Check GET returns default values
+        resp = self.client.get("/api/settings/scanner")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data["success"])
+        self.assertTrue(data["mac_arp_priming_enabled"])
+        self.assertTrue(data["mac_netbios_enabled"])
+        self.assertTrue(data["mac_snmp_enabled"])
+        self.assertEqual(data["mac_snmp_community"], "public")
+
+        # 2. Save custom values via POST /save
+        save_resp = self.client.post(
+            "/api/settings/scanner/save",
+            data=json.dumps({
+                "mac_arp_priming_enabled": 0,
+                "mac_netbios_enabled": 1,
+                "mac_snmp_enabled": 0,
+                "mac_snmp_community": "secret-comm",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(save_resp.status_code, 200)
+        self.assertTrue(save_resp.get_json()["success"])
+
+        # Check GET reflects saved values
+        get_resp = self.client.get("/api/settings/scanner")
+        saved_data = get_resp.get_json()
+        self.assertFalse(saved_data["mac_arp_priming_enabled"])
+        self.assertTrue(saved_data["mac_netbios_enabled"])
+        self.assertFalse(saved_data["mac_snmp_enabled"])
+        self.assertEqual(saved_data["mac_snmp_community"], "secret-comm")
+
+        # 3. Reset via POST /reset target='mac_discovery'
+        reset_resp = self.client.post(
+            "/api/settings/scanner/reset",
+            data=json.dumps({"target": "mac_discovery"}),
+            content_type="application/json",
+        )
+        self.assertEqual(reset_resp.status_code, 200)
+        reset_data = reset_resp.get_json()
+        self.assertTrue(reset_data["success"])
+        self.assertTrue(reset_data["mac_arp_priming_enabled"])
+        self.assertTrue(reset_data["mac_netbios_enabled"])
+        self.assertTrue(reset_data["mac_snmp_enabled"])
+        self.assertEqual(reset_data["mac_snmp_community"], "public")
+
+    def test_netbios_packet_encode_and_decode(self):
+        query = _build_netbios_query(0x4321)
+        self.assertEqual(len(query), 50)
+
+        # Build simulated NBSTAT response
+        import struct
+        resp_buf = bytearray(struct.pack(">HHHHHH", 0x4321, 0x8400, 0, 1, 0, 0))
+        resp_buf.extend(b"\xC0\x0C")  # compressed name
+        resp_buf.extend(struct.pack(">HHIH", 0x0021, 0x0001, 0, 25))  # RR
+        resp_buf.append(1)  # num_names
+        resp_buf.extend(b"STORAGE         \x00\x00")
+        resp_buf.extend(bytes([0x00, 0x11, 0x32, 0xAA, 0xBB, 0xCC]))
+
+        mac = _parse_netbios_response(bytes(resp_buf), 0x4321)
+        self.assertEqual(mac, "00:11:32:AA:BB:CC")
+
+        # Malformed packet returns None
+        self.assertIsNone(_parse_netbios_response(b"short", 0x4321))
+        self.assertIsNone(_parse_netbios_response(b"\x00" * 40, 0x4321))
+
+    def test_snmp_packet_encode_and_decode(self):
+        req = _build_snmp_get_request(community="public", req_id=0x9999)
+        self.assertTrue(len(req) > 0)
+
+        # Build simulated SNMP response with MAC 00:0C:29:11:22:33
+        oid_bytes = bytes([0x2B, 6, 1, 2, 1, 2, 2, 1, 6, 1])
+        mock_mac = bytes([0x00, 0x0C, 0x29, 0x11, 0x22, 0x33])
+        vb_oid = _asn1_encode_tlv(0x06, oid_bytes)
+        vb_val = _asn1_encode_tlv(0x04, mock_mac)
+        vb = _asn1_encode_tlv(0x30, vb_oid + vb_val)
+        vbl = _asn1_encode_tlv(0x30, vb)
+        pdu = _asn1_encode_tlv(0xA2, _asn1_encode_int(0x9999) + _asn1_encode_int(0) + _asn1_encode_int(0) + vbl)
+        resp = _asn1_encode_tlv(0x30, _asn1_encode_int(1) + _asn1_encode_tlv(0x04, b"public") + pdu)
+
+        mac = _parse_snmp_response_mac(resp)
+        self.assertEqual(mac, "00:0C:29:11:22:33")
+
+        # Corrupted packet returns None
+        self.assertIsNone(_parse_snmp_response_mac(b""))
+        self.assertIsNone(_parse_snmp_response_mac(b"\x30\x02\x00\x00"))
+
+    def test_resolve_mac_tiered_fallback_order(self):
+        test_ip = "192.168.10.88"
+
+        # Tier 1 hit: Instant /proc/net/arp
+        with patch("services.scheduler._read_proc_arp", return_value="AA:BB:CC:DD:EE:01") as m_arp, \
+             patch("services.scheduler._prime_arp_cache") as m_prime, \
+             patch("services.scheduler._query_cli_arp") as m_cli, \
+             patch("services.scheduler._query_netbios_mac") as m_nb, \
+             patch("services.scheduler._query_snmp_mac") as m_snmp:
+            res = _resolve_mac(test_ip)
+            self.assertEqual(res, "AA:BB:CC:DD:EE:01")
+            m_arp.assert_called_once_with(test_ip)
+            m_prime.assert_not_called()
+            m_cli.assert_not_called()
+            m_nb.assert_not_called()
+            m_snmp.assert_not_called()
+
+        # Tier 2 hit: Priming triggers kernel cache
+        with patch("services.scheduler._read_proc_arp", side_effect=[None, "AA:BB:CC:DD:EE:02"]) as m_arp, \
+             patch("services.scheduler._prime_arp_cache") as m_prime, \
+             patch("services.scheduler._query_cli_arp") as m_cli:
+            res = _resolve_mac(test_ip)
+            self.assertEqual(res, "AA:BB:CC:DD:EE:02")
+            m_prime.assert_called_once_with(test_ip)
+            self.assertEqual(m_arp.call_count, 2)
+            m_cli.assert_not_called()
+
+        # Tier 3 hit: CLI fallback
+        with patch("services.scheduler._read_proc_arp", return_value=None), \
+             patch("services.scheduler._prime_arp_cache"), \
+             patch("services.scheduler._query_cli_arp", return_value="AA:BB:CC:DD:EE:03") as m_cli, \
+             patch("services.scheduler._query_netbios_mac") as m_nb:
+            res = _resolve_mac(test_ip)
+            self.assertEqual(res, "AA:BB:CC:DD:EE:03")
+            m_cli.assert_called_once_with(test_ip)
+            m_nb.assert_not_called()
+
+        # Tier 4 hit: Cross-VLAN NetBIOS
+        with patch("services.scheduler._read_proc_arp", return_value=None), \
+             patch("services.scheduler._prime_arp_cache"), \
+             patch("services.scheduler._query_cli_arp", return_value=None), \
+             patch("services.scheduler._query_netbios_mac", return_value="AA:BB:CC:DD:EE:04") as m_nb, \
+             patch("services.scheduler._query_snmp_mac") as m_snmp:
+            res = _resolve_mac(test_ip)
+            self.assertEqual(res, "AA:BB:CC:DD:EE:04")
+            m_nb.assert_called_once_with(test_ip)
+            m_snmp.assert_not_called()
+
+        # Tier 5 hit: Cross-VLAN SNMP
+        with patch("services.scheduler._read_proc_arp", return_value=None), \
+             patch("services.scheduler._prime_arp_cache"), \
+             patch("services.scheduler._query_cli_arp", return_value=None), \
+             patch("services.scheduler._query_netbios_mac", return_value=None), \
+             patch("services.scheduler._query_snmp_mac", return_value="AA:BB:CC:DD:EE:05") as m_snmp:
+            res = _resolve_mac(test_ip)
+            self.assertEqual(res, "AA:BB:CC:DD:EE:05")
+            m_snmp.assert_called_once_with(test_ip, "public")
+
+        # Disabled toggles are respected
+        save_settings({
+            "mac_arp_priming_enabled": "0",
+            "mac_netbios_enabled": "0",
+            "mac_snmp_enabled": "0",
+        })
+        with patch("services.scheduler._read_proc_arp", return_value=None), \
+             patch("services.scheduler._prime_arp_cache") as m_prime, \
+             patch("services.scheduler._query_cli_arp", return_value=None), \
+             patch("services.scheduler._query_netbios_mac") as m_nb, \
+             patch("services.scheduler._query_snmp_mac") as m_snmp:
+            res = _resolve_mac(test_ip)
+            self.assertIsNone(res)
+            m_prime.assert_not_called()
+            m_nb.assert_not_called()
+            m_snmp.assert_not_called()
 
 
 if __name__ == "__main__":

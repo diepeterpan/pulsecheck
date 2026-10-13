@@ -710,6 +710,10 @@ def save_settings(new_settings: dict[str, str]) -> None:
         "ignored_icon_hashes",
         "corporate_suffixes",
         "dangerous_remote_patterns",
+        "mac_arp_priming_enabled",
+        "mac_netbios_enabled",
+        "mac_snmp_enabled",
+        "mac_snmp_community",
     }
     conn = get_db_connection()
     for key, value in new_settings.items():
