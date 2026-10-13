@@ -2587,15 +2587,48 @@ button:disabled {
     color: #556453;
 }
 
-/* System Settings Tab Bar - Further Reduced Whitespace (~7% additional reduction) */
-.settings-tab-bar {
-    gap: 2.5px;
-    padding: 2.5px;
+/* System Settings, Import/Export & Service Form Tab Navigation & Compact Density */
+.settings-panel .tab-nav-wrapper,
+.import-panel .tab-nav-wrapper,
+.edit-service-panel .tab-nav-wrapper {
+    margin-bottom: 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
 }
 
-.settings-tab-bar .import-tab-btn {
-    padding: 6.5px 13px;
-    gap: 6.5px;
+.settings-panel .tab-nav-wrapper::-webkit-scrollbar,
+.import-panel .tab-nav-wrapper::-webkit-scrollbar,
+.edit-service-panel .tab-nav-wrapper::-webkit-scrollbar {
+    display: none;
+}
+
+.settings-tab-bar,
+.import-panel .import-tab-bar,
+.service-tab-bar {
+    gap: 2.5px;
+    padding: 2.5px;
+    margin-bottom: 0;
+    white-space: nowrap;
+}
+
+.settings-tab-bar .import-tab-btn,
+.import-panel .import-tab-btn,
+.service-tab-bar .import-tab-btn {
+    padding: 5px 10px;
+    gap: 5px;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.settings-tab-bar .import-tab-btn svg,
+.import-panel .import-tab-btn svg,
+.service-tab-bar .import-tab-btn svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
 }
 
 /* Tab Panels */
@@ -2974,7 +3007,7 @@ button:disabled {
 
 /* Tabbed Service Form Styles */
 .service-tab-bar {
-    margin-bottom: 20px;
+    margin-bottom: 0;
 }
 
 .service-tab-panel {
