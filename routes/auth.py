@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import functools
 import os
-import urllib.parse
 from flask import (
     Blueprint,
     flash,
     redirect,
-    render_template,
     request,
     session,
     url_for,
@@ -19,16 +17,18 @@ from core.config import (
     OIDC_ISSUER,
     OIDC_CLIENT_ID,
     OIDC_CLIENT_SECRET,
-    OIDC_REDIRECT_URI,
     OIDC_SCOPES,
     OIDC_MATCH_CLAIM,
     OIDC_SSL_VERIFY,
+    OIDC_INITIAL_ADMIN,
     get_oidc_callback_url,
 )
 from core.database import (
     get_settings,
     is_user_authorized,
     get_authorized_user_by_identifier,
+    get_authorized_users,
+    add_authorized_user,
 )
 
 auth_bp = Blueprint("auth_bp", __name__)
@@ -208,7 +208,8 @@ def callback():
 
     # 2. Try fetching from userinfo endpoint explicitly passing the access token
     try:
-        ui = client.userinfo(token=token)
+        ssl_verify = get_oidc_ssl_verify()
+        ui = client.userinfo(token=token, verify=ssl_verify)
         if isinstance(ui, dict):
             claims.update(ui)
     except Exception as ui_exc:
@@ -241,6 +242,7 @@ def callback():
                 print(f"[OIDC] Warning: Failed decoding id_token payload: {jwt_exc}")
 
     userinfo = claims
+    print(f"[OIDC] Callback received. Available claims from IdP: {list(userinfo.keys())}")
     match_claim = get_active_match_claim()
     raw_ident = userinfo.get(match_claim)
 
@@ -263,13 +265,32 @@ def callback():
         )
         return redirect(url_for("home_bp.status"))
 
+    print(f"[OIDC] Match claim '{match_claim}' resolved identifier: '{ident}'")
+
     # Check authorization in database
+    initial_admin = (os.getenv("PULSECHECK_OIDC_INITIAL_ADMIN") or OIDC_INITIAL_ADMIN or "").strip()
     if not is_user_authorized(ident):
-        flash(
-            f"User '{ident}' is authenticated with OIDC but not authorized to access PulseCheck. Contact your administrator.",
-            "error",
-        )
-        return redirect(url_for("home_bp.status"))
+        # Auto-provision if this authenticating user matches the configured initial admin
+        if initial_admin and ident.lower() == initial_admin.lower():
+            try:
+                add_authorized_user(ident, "Initial Administrator")
+                print(f"[OIDC] Auto-provisioned configured initial admin '{ident}' into database on first successful login.")
+            except Exception as auto_prov_err:
+                print(f"[OIDC] Warning: Failed auto-provisioning initial admin '{ident}': {auto_prov_err}")
+
+        if not is_user_authorized(ident):
+            try:
+                existing_users = [u["identifier"] for u in get_authorized_users()]
+            except Exception:
+                existing_users = []
+            print(f"[OIDC] Access DENIED: User '{ident}' is authenticated with OIDC but not authorized. Authorized in DB: {existing_users}")
+            flash(
+                f"User '{ident}' is authenticated with OIDC but not authorized to access PulseCheck. Contact your administrator.",
+                "error",
+            )
+            return redirect(url_for("home_bp.status"))
+
+    print(f"[OIDC] Access GRANTED: User '{ident}' is authorized.")
 
     db_user = get_authorized_user_by_identifier(ident)
     display_name = (db_user["display_name"] if db_user and db_user["display_name"] else userinfo.get("name") or ident)

@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from core.config import (
-    DB_PATH,
     DEFAULT_HISTORY_RETENTION_DAYS,
     DEFAULT_SETTINGS,
 )
@@ -273,10 +272,6 @@ def parse_port_protocol(value) -> list[PortEntry]:
         elif isinstance(item, dict):
             port_val = item.get("port")
             proto_val = (item.get("protocol") or "").strip().lower()
-            if proto_val == "socket":
-                proto_val = "tcp"
-            elif proto_val == "socket-ssl":
-                proto_val = "tcp-ssl"
             rtype_val = (item.get("request_type") or "web").strip().lower()
             if rtype_val not in ("web", "custom"):
                 rtype_val = "web"
@@ -307,23 +302,6 @@ def parse_port_protocol(value) -> list[PortEntry]:
     return result
 
 
-def port_numbers(ports: list[dict]) -> list[int]:
-    """Return sorted list of numeric port numbers, excluding ICMP (port=None) entries."""
-    return sorted({int(p["port"]) for p in ports if p.get("port") is not None})
-
-
-def has_icmp(ports: list[dict]) -> bool:
-    """Return True if ports list contains an ICMP (portless) probe entry."""
-    return any(p.get("port") is None and p.get("protocol") in ("icmp-ping", "icmp") for p in ports)
-
-
-def get_port_protocol(ports: list[dict], port_num: int) -> str:
-    """Return the configured protocol for a specific port number, or empty string."""
-    for p in ports:
-        if p.get("port") == port_num:
-            return (p.get("protocol") or "").strip().lower()
-    return ""
-
 
 def port_protocol_to_json(ports) -> str:
     """Serialise a list of port dicts back to JSON for DB storage.
@@ -337,10 +315,6 @@ def port_protocol_to_json(ports) -> str:
     for p in (ports or []):
         if isinstance(p, dict):
             proto_val = (p.get("protocol") or "").strip().lower()
-            if proto_val == "socket":
-                proto_val = "tcp"
-            elif proto_val == "socket-ssl":
-                proto_val = "tcp-ssl"
             rtype = (p.get("request_type") or "web").strip().lower()
             if rtype not in ("web", "custom"):
                 rtype = "web"
@@ -479,19 +453,19 @@ def service_list():
             "has_match": has_match,
             "captured_matches": captured_matches,
             "overall_status": overall_status,
-            "comment": row["comment"] if "comment" in row.keys() else "",
+            "comment": row["comment"] or "",
             "paused": bool(row["paused"]),
-            "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
-            "request_type": row["request_type"] if "request_type" in row.keys() else "web",
+            "use_proxy": bool(row["use_proxy"]),
+            "request_type": row["request_type"] or "web",
             "protocol": proto,
             "port_protocol": parsed_ports,
             "ports": parsed_ports,
             "created_at": row["created_at"],
-            "discovered_ip": row["discovered_ip"] if "discovered_ip" in row.keys() else None,
-            "discovered_mac": row["discovered_mac"] if "discovered_mac" in row.keys() else None,
-            "discovered_manufacturer": row["discovered_manufacturer"] if "discovered_manufacturer" in row.keys() else None,
-            "http_username": row["http_username"] if "http_username" in row.keys() else "",
-            "http_password": row["http_password"] if "http_password" in row.keys() else "",
+            "discovered_ip": row["discovered_ip"],
+            "discovered_mac": row["discovered_mac"],
+            "discovered_manufacturer": row["discovered_manufacturer"],
+            "http_username": row["http_username"] or "",
+            "http_password": row["http_password"] or "",
         })
     return services
 
@@ -540,19 +514,19 @@ def get_service_by_id(service_id):
         "has_match": has_match,
         "captured_matches": captured_matches,
         "overall_status": overall_status,
-        "comment": row["comment"] if "comment" in row.keys() else "",
+        "comment": row["comment"] or "",
         "paused": bool(row["paused"]),
-        "use_proxy": bool(row["use_proxy"]) if "use_proxy" in row.keys() else False,
-        "request_type": row["request_type"] if "request_type" in row.keys() else "web",
+        "use_proxy": bool(row["use_proxy"]),
+        "request_type": row["request_type"] or "web",
         "protocol": proto,
         "port_protocol": parsed_ports,
         "ports": parsed_ports,
         "created_at": row["created_at"],
-        "discovered_ip": row["discovered_ip"] if "discovered_ip" in row.keys() else None,
-        "discovered_mac": row["discovered_mac"] if "discovered_mac" in row.keys() else None,
-        "discovered_manufacturer": row["discovered_manufacturer"] if "discovered_manufacturer" in row.keys() else None,
-        "http_username": row["http_username"] if "http_username" in row.keys() else "",
-        "http_password": row["http_password"] if "http_password" in row.keys() else "",
+        "discovered_ip": row["discovered_ip"],
+        "discovered_mac": row["discovered_mac"],
+        "discovered_manufacturer": row["discovered_manufacturer"],
+        "http_username": row["http_username"] or "",
+        "http_password": row["http_password"] or "",
     }
 
 
@@ -807,7 +781,7 @@ def delete_authorized_user(user_id: int) -> bool:
 
 
 def bootstrap_initial_admin(admin_identifier: str = "") -> bool:
-    admin_ident = (admin_identifier or "").strip()
+    admin_ident = (admin_identifier or os.getenv("PULSECHECK_OIDC_INITIAL_ADMIN") or getattr(core.config, "OIDC_INITIAL_ADMIN", "") or "").strip()
     if not admin_ident:
         return False
     conn = get_db_connection()
@@ -820,10 +794,12 @@ def bootstrap_initial_admin(admin_identifier: str = "") -> bool:
                 (admin_ident, "Initial Administrator", now_str, now_str),
             )
             conn.commit()
+            print(f"[OIDC] Initial admin bootstrapped: '{admin_ident}'")
             return True
         return False
     finally:
         conn.close()
+
 
 
 def get_status_rows():
@@ -853,9 +829,9 @@ def get_status_rows():
     result = []
     for s in service_rows:
         ports_list: list[dict] = parse_port_protocol(s["port_protocol"])
-        disc_ip = s["discovered_ip"] if "discovered_ip" in s.keys() else None
-        disc_mac = s["discovered_mac"] if "discovered_mac" in s.keys() else None
-        disc_mfg = s["discovered_manufacturer"] if "discovered_manufacturer" in s.keys() else None
+        disc_ip = s["discovered_ip"]
+        disc_mac = s["discovered_mac"]
+        disc_mfg = s["discovered_manufacturer"]
 
         if not ports_list:
             result.append({
@@ -864,7 +840,7 @@ def get_status_rows():
                 "match": "",
                 "ports": ports_list,
                 "has_ports": False,
-                "use_proxy": bool(s["use_proxy"]) if "use_proxy" in s.keys() else False,
+                "use_proxy": bool(s["use_proxy"]),
                 "protocol": "",
                 "port": None,
                 "is_online": False,
@@ -906,7 +882,7 @@ def get_status_rows():
                 "url_path": p.get("url_path", "") if port_val is not None else "",
                 "ports": ports_list,
                 "has_ports": True,
-                "use_proxy": bool(s["use_proxy"]) if "use_proxy" in s.keys() else False,
+                "use_proxy": bool(s["use_proxy"]),
                 "protocol": port_protocol,
                 "port": port_val,
                 "is_online": is_online,
@@ -1013,125 +989,20 @@ def init_db():
         """
     )
 
-    try:
-        service_rows = conn.execute("SELECT id, port_protocol FROM services").fetchall()
-        for s in service_rows:
-            p_list = parse_port_protocol(s["port_protocol"])
-            cfg_ports = {p.get("port") for p in p_list}
-            if None not in cfg_ports:
-                conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NULL", (s["id"],))
-                conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NULL", (s["id"],))
-            num_ports = [p["port"] for p in p_list if p.get("port") is not None]
-            if num_ports:
-                ph = ", ".join("?" for _ in num_ports)
-                conn.execute(f"DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({ph})", (s["id"], *num_ports))
-                conn.execute(f"DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL AND port NOT IN ({ph})", (s["id"], *num_ports))
-            else:
-                conn.execute("DELETE FROM port_checks WHERE service_id = ? AND port IS NOT NULL", (s["id"],))
-                conn.execute("DELETE FROM latest_port_checks WHERE service_id = ? AND port IS NOT NULL", (s["id"],))
-    except Exception:
-        pass
 
-    try:
-        service_cols = [c[1] for c in conn.execute("PRAGMA table_info(services)").fetchall()]
-        if "match" in service_cols or "url_path" in service_cols:
-            rows_to_migrate = conn.execute("SELECT id, name, comment, paused, use_proxy, port_protocol, created_at, " +
-                                           ("match" if "match" in service_cols else "'' AS match") + ", " +
-                                           ("url_path" if "url_path" in service_cols else "'' AS url_path") +
-                                           " FROM services").fetchall()
-            for row in rows_to_migrate:
-                raw_ports = parse_port_protocol(row["port_protocol"])
-                if not raw_ports:
-                    continue
-                changed = False
-                srv_match = (row["match"] or "").strip()
-                srv_url_path = (row["url_path"] or "").strip()
-                for p in raw_ports:
-                    if p.get("port") is None:
-                        if p.get("match") != "" or p.get("url_path") != "":
-                            p["match"] = ""
-                            p["url_path"] = ""
-                            changed = True
-                        continue
-                    if not p.get("match") and srv_match:
-                        p["match"] = srv_match
-                        changed = True
-                    if not p.get("url_path") and srv_url_path:
-                        p["url_path"] = srv_url_path
-                        changed = True
-                if changed:
-                    conn.execute(
-                        "UPDATE services SET port_protocol = ? WHERE id = ?",
-                        (port_protocol_to_json(raw_ports), row["id"]),
-                    )
-
-            conn.execute("PRAGMA foreign_keys = OFF")
-            conn.execute(
-                """
-                CREATE TABLE services_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    comment TEXT NOT NULL DEFAULT '',
-                    paused INTEGER NOT NULL DEFAULT 0,
-                    use_proxy INTEGER NOT NULL DEFAULT 0,
-                    port_protocol TEXT NOT NULL DEFAULT '[]',
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO services_new (id, name, comment, paused, use_proxy, port_protocol, created_at)
-                SELECT id, name, comment, paused, use_proxy, port_protocol, created_at FROM services
-                """
-            )
-            conn.execute("DROP TABLE services")
-            conn.execute("ALTER TABLE services_new RENAME TO services")
-            conn.execute("PRAGMA foreign_keys = ON")
-    except Exception:
-        pass
-
-    try:
-        svc_cols = [c[1] for c in conn.execute("PRAGMA table_info(services)").fetchall()]
-        if "request_type" not in svc_cols:
-            conn.execute("ALTER TABLE services ADD COLUMN request_type TEXT NOT NULL DEFAULT 'web'")
-        if "discovered_ip" not in svc_cols:
-            conn.execute("ALTER TABLE services ADD COLUMN discovered_ip TEXT DEFAULT NULL")
-        if "discovered_mac" not in svc_cols:
-            conn.execute("ALTER TABLE services ADD COLUMN discovered_mac TEXT DEFAULT NULL")
-        if "discovered_manufacturer" not in svc_cols:
-            conn.execute("ALTER TABLE services ADD COLUMN discovered_manufacturer TEXT DEFAULT NULL")
-        if "http_username" not in svc_cols:
-            conn.execute("ALTER TABLE services ADD COLUMN http_username TEXT NOT NULL DEFAULT ''")
-        if "http_password" not in svc_cols:
-            conn.execute("ALTER TABLE services ADD COLUMN http_password TEXT NOT NULL DEFAULT ''")
-    except Exception:
-        pass
-
-    try:
-        rows_to_check = conn.execute("SELECT id, port_protocol FROM services").fetchall()
-        for r in rows_to_check:
-            raw_ports = parse_port_protocol(r["port_protocol"])
-            migrated = False
-            for p in raw_ports:
-                proto = (p.get("protocol") or "").strip().lower()
-                if proto == "socket":
-                    p["protocol"] = "tcp"
-                    migrated = True
-                elif proto == "socket-ssl":
-                    p["protocol"] = "tcp-ssl"
-                    migrated = True
-            if migrated:
-                conn.execute(
-                    "UPDATE services SET port_protocol = ? WHERE id = ?",
-                    (port_protocol_to_json(raw_ports), r["id"]),
-                )
-    except Exception:
-        pass
 
     conn.commit()
     conn.close()
+
+    try:
+        initial_admin = (os.getenv("PULSECHECK_OIDC_INITIAL_ADMIN") or getattr(core.config, "OIDC_INITIAL_ADMIN", "") or "").strip()
+        if initial_admin:
+            bootstrap_initial_admin(initial_admin)
+    except Exception as _boot_err:
+        print(f"[OIDC] Warning bootstrapping initial admin during init_db: {_boot_err}", file=sys.stderr)
+
     try:
         prune_historical_port_checks()
     except Exception:
         pass
+

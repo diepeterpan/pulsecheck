@@ -9,12 +9,10 @@ import hashlib
 from html.parser import HTMLParser
 import io
 import json
-import os
 from pathlib import Path
 import re
 import sys
 import threading
-import time
 import urllib.parse
 from urllib.parse import urljoin
 

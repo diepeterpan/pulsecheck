@@ -286,20 +286,10 @@ def import_services_from_csv(
                 col_map["http_password"] = idx
         data_rows = raw_rows[1:]
     else:
-        first_len = len(raw_rows[0])
-        if first_len >= 13:
-            col_map = {"service": 0, "comment": 1, "paused": 2, "proxy": 3, "protocol": 4, "ports": 5, "request_type": 6, "url_path": 7, "match": 8, "request": 9, "response": 10, "http_username": 11, "http_password": 12}
-        elif first_len >= 11:
-            col_map = {"service": 0, "comment": 1, "paused": 2, "proxy": 3, "protocol": 4, "ports": 5, "request_type": 6, "url_path": 7, "match": 8, "request": 9, "response": 10}
-        elif first_len >= 8:
-            col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "protocol": 6, "ports": 7}
-        elif first_len == 7:
-            col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "proxy": 5, "ports": 6}
-        elif first_len == 6:
-            col_map = {"service": 0, "match": 1, "url_path": 2, "comment": 3, "paused": 4, "ports": 5}
-        else:
-            col_map = {"service": 0, "match": 1, "url_path": 2, "paused": 3, "ports": 4}
-        data_rows = raw_rows
+        summary["total"] = len(raw_rows)
+        summary["invalid"] = len(raw_rows)
+        summary["invalid_rows"].append("CSV header row missing or missing required 'Service' column.")
+        return summary
 
     total_records = len(data_rows)
 

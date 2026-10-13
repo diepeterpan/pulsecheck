@@ -8,7 +8,6 @@ import socket
 import sys
 import threading
 import time
-from pathlib import Path
 
 from flask import (
     Blueprint,
@@ -22,8 +21,6 @@ from flask import (
 
 from core.config import (
     APP_VERSION,
-    MANUFACTURER_ICONS_DIR,
-    SERVICE_ICONS_DIR,
     DEFAULT_COMMON_PORTS,
     DEFAULT_HTTPS_PORTS,
     DEFAULT_SCAN_INTERVAL_MINUTES,

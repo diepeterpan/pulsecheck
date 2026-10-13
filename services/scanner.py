@@ -18,9 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 import sys
 import threading
 import time
-import urllib.parse
 import urllib.request
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit
 import warnings
 import zlib
 
@@ -30,8 +29,6 @@ from core.config import (
     DEFAULT_SCANNER_BYPASS_KEY,
     EXPLICIT_DEBUG,
     HTTP_PROBE_EXCEPTIONS,
-    HTTPS_PORTS,
-    COMMON_PORTS,
     get_common_ports,
     get_https_ports,
 )
@@ -42,17 +39,13 @@ from core.database import (
     get_db_connection,
     get_service_by_id,
     get_settings,
-    normalize_service,
     parse_hex_bytes,
     parse_port_protocol,
     port_protocol_to_json,
-    prune_historical_port_checks,
     store_port_check,
 )
-from services.notifications import send_state_change_notification
 
 import http
-import http.client
 
 # Dummy profile decorator if not under kernprof / line_profiler
 if 'profile' not in dir(__builtins__):

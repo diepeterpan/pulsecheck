@@ -13,17 +13,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from core.config import APP_VERSION, DEFAULT_SETTINGS
+from core.config import APP_VERSION
 from core.database import get_db_connection
 
 
 class BackupError(Exception):
     """Base exception for backup operations."""
-    pass
-
-
-class InvalidPasswordError(BackupError):
-    """Raised when password decryption fails."""
     pass
 
 

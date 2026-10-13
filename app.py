@@ -1,45 +1,15 @@
 from __future__ import annotations
 
-import asyncio
-import base64
-import csv
-import functools
-import gzip
-import hashlib
-from html.parser import HTMLParser
-import http.client
-import io
-import json
 import os
-import re
-import sqlite3
 import socket
-import aiohttp
-from aiohttp.http_exceptions import HttpProcessingError
-import smtplib
-import ssl
-import struct
-import subprocess
 import sys
 import threading
-import time
 
 # Ensure sys.modules["app"] references this module even when executed as __main__
 if "app" not in sys.modules:
     sys.modules["app"] = sys.modules[__name__]
-import uuid
-import warnings
-import zlib
-from datetime import datetime, timezone, timedelta
-from email.message import EmailMessage
-from pathlib import Path
-from urllib.parse import urljoin, urlsplit
-import urllib.request
-from zoneinfo import ZoneInfo
 
-from concurrent.futures import ThreadPoolExecutor
-from apscheduler.schedulers.background import BackgroundScheduler
-from flask import Flask, Response, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, url_for
 from flask_compress import Compress
 
 from core.config import *
@@ -103,40 +73,6 @@ def run_web_server(host: str = DEFAULT_IP, port: int = DEFAULT_PORT):
         GLOBAL_SERVER = None
 
 
-def store_port_check(service_id: int, port: int | None, status: str, response_ms: int | None):
-    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S %Z")
-    is_online_val = 1 if status == "online" else 0
-    conn = get_db_connection()
-    conn.execute(
-        """
-        INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            service_id,
-            port,
-            is_online_val,
-            status,
-            response_ms,
-            now_str,
-        ),
-    )
-    conn.execute(
-        """
-        INSERT OR REPLACE INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (
-            service_id,
-            port,
-            is_online_val,
-            status,
-            response_ms,
-            now_str,
-        ),
-    )
-    conn.commit()
-    conn.close()
 
 from services.scanner import (
     create_ssl_context,

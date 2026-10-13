@@ -21,8 +21,6 @@ from core.config import (
     DEFAULT_SCAN_WORKERS,
     DEFAULT_SCAN_RETRIES,
     DEFAULT_SCAN_RETRY_INTERVAL,
-    EXPLICIT_DEBUG,
-    LINE_PROFILER_ENABLED,
     get_scan_interval_minutes,
     get_maclookup_api_key,
 )

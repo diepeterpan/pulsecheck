@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 
 from flask import (
@@ -26,7 +25,7 @@ from core.database import (
     get_last_scheduled_check,
     get_current_local_time_str,
 )
-from services.icons import is_godaddy_or_parked_icon, is_valid_image_payload
+from services.icons import is_valid_image_payload
 from services.scheduler import (
     get_scan_schedule_info,
     get_line_profiler_stats_text,

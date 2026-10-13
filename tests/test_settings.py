@@ -633,9 +633,15 @@ site3.com,site3,,0,80
             service2 = next(d for d in pulsecheck_app.service_list() if d["name"] == "legacy-no-comment.io")
             self.assertEqual(service2["comment"], "")
 
-            # Import headerless 6-column CSV
+            # Verify headerless CSV is rejected
             headerless_csv = "headerless-comment.io,headerless,,Direct node,0,80\n"
-            summary3 = pulsecheck_app.import_services_from_csv(headerless_csv)
+            summary_invalid = pulsecheck_app.import_services_from_csv(headerless_csv)
+            self.assertEqual(summary_invalid["imported"], 0)
+            self.assertEqual(summary_invalid["invalid"], 1)
+
+            # Import third service with valid headers
+            valid_csv_3 = "Service,Match,URL path,Comment,Paused,Ports\nheaderless-comment.io,headerless,,Direct node,0,80\n"
+            summary3 = pulsecheck_app.import_services_from_csv(valid_csv_3)
             self.assertEqual(summary3["imported"], 1)
             service3 = next(d for d in pulsecheck_app.service_list() if d["name"] == "headerless-comment.io")
             self.assertEqual(service3["comment"], "Direct node")

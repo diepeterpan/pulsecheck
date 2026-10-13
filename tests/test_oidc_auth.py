@@ -305,6 +305,97 @@ class TestOidcAuthAndUserManagement(unittest.TestCase):
             self.assertNotIn('<nav class="main-nav"', html)
             self.assertIn("Sign in", html)
 
+    def test_init_db_bootstraps_configured_admin(self):
+        """init_db() should automatically seed PULSECHECK_OIDC_INITIAL_ADMIN on a new database."""
+        fresh_db = Path(self.temp_dir.name) / "fresh_boot.db"
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_INITIAL_ADMIN": "bootstrapped_admin@example.com"}):
+            with patch("core.database.get_db_path", return_value=fresh_db):
+                init_db()
+                self.assertTrue(is_user_authorized("bootstrapped_admin@example.com"))
+
+    def test_callback_auto_provisions_initial_admin_on_first_login(self):
+        """If user matches PULSECHECK_OIDC_INITIAL_ADMIN, /auth/callback should auto-provision them."""
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_ENABLED": "true", "PULSECHECK_OIDC_INITIAL_ADMIN": "first_login@example.com", "PULSECHECK_OIDC_MATCH_CLAIM": "email"}):
+            with patch("core.database.get_db_path", return_value=self.db_path):
+                # Ensure user does not exist yet
+                self.assertFalse(is_user_authorized("first_login@example.com"))
+
+                mock_client = MagicMock()
+                mock_client.authorize_access_token.return_value = {
+                    "access_token": "token-123",
+                    "userinfo": {"email": "first_login@example.com", "name": "First Admin"},
+                }
+                mock_client.userinfo.return_value = {"email": "first_login@example.com", "name": "First Admin"}
+
+                with patch("routes.auth.oauth.create_client", return_value=mock_client):
+                    resp = self.client.get("/auth/callback")
+                    self.assertEqual(resp.status_code, 302)
+                    self.assertIn("/services", resp.headers["Location"])
+
+                # Now user should be auto-provisioned in database
+                self.assertTrue(is_user_authorized("first_login@example.com"))
+                with self.client.session_transaction() as sess:
+                    self.assertIn("user", sess)
+                    self.assertEqual(sess["user"]["identifier"], "first_login@example.com")
+
+    def test_callback_grants_access_for_preexisting_authorized_user(self):
+        """/auth/callback should grant access if user is already in authorized_users."""
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_ENABLED": "true", "PULSECHECK_OIDC_MATCH_CLAIM": "email"}):
+            with patch("core.database.get_db_path", return_value=self.db_path):
+                add_authorized_user("existing@example.com", "Existing Admin")
+
+                mock_client = MagicMock()
+                mock_client.authorize_access_token.return_value = {
+                    "access_token": "token-456",
+                    "userinfo": {"email": "existing@example.com", "name": "Existing Admin"},
+                }
+                mock_client.userinfo.return_value = {"email": "existing@example.com", "name": "Existing Admin"}
+
+                with patch("routes.auth.oauth.create_client", return_value=mock_client):
+                    resp = self.client.get("/auth/callback")
+                    self.assertEqual(resp.status_code, 302)
+                    self.assertIn("/services", resp.headers["Location"])
+
+                with self.client.session_transaction() as sess:
+                    self.assertEqual(sess["user"]["identifier"], "existing@example.com")
+
+    def test_callback_denies_access_for_unauthorized_user(self):
+        """/auth/callback should deny access and redirect to /status if user is not in database."""
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_ENABLED": "true", "PULSECHECK_OIDC_INITIAL_ADMIN": "admin@example.com", "PULSECHECK_OIDC_MATCH_CLAIM": "email"}):
+            with patch("core.database.get_db_path", return_value=self.db_path):
+                add_authorized_user("admin@example.com", "Admin")
+
+                mock_client = MagicMock()
+                mock_client.authorize_access_token.return_value = {
+                    "access_token": "token-789",
+                    "userinfo": {"email": "stranger@example.com", "name": "Stranger"},
+                }
+                mock_client.userinfo.return_value = {"email": "stranger@example.com", "name": "Stranger"}
+
+                with patch("routes.auth.oauth.create_client", return_value=mock_client):
+                    resp = self.client.get("/auth/callback")
+                    self.assertEqual(resp.status_code, 302)
+                    self.assertIn("/status", resp.headers["Location"])
+
+                with self.client.session_transaction() as sess:
+                    self.assertNotIn("user", sess)
+
+    def test_callback_denies_when_match_claim_missing(self):
+        """/auth/callback should redirect to /status if configured match claim is not in provider response."""
+        with patch.dict(os.environ, {"PULSECHECK_OIDC_ENABLED": "true", "PULSECHECK_OIDC_MATCH_CLAIM": "email"}):
+            with patch("core.database.get_db_path", return_value=self.db_path):
+                mock_client = MagicMock()
+                mock_client.authorize_access_token.return_value = {
+                    "access_token": "token-999",
+                    "userinfo": {"sub": "user-uuid-123", "preferred_username": "diepeterpan"},
+                }
+                mock_client.userinfo.return_value = {"sub": "user-uuid-123", "preferred_username": "diepeterpan"}
+
+                with patch("routes.auth.oauth.create_client", return_value=mock_client):
+                    resp = self.client.get("/auth/callback")
+                    self.assertEqual(resp.status_code, 302)
+                    self.assertIn("/status", resp.headers["Location"])
+
 
 if __name__ == "__main__":
     unittest.main()
