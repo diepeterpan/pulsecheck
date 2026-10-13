@@ -147,6 +147,7 @@ from services.icons import (
 from services.notifications import (
     send_email,
     send_state_change_notification,
+    send_apprise_notification,
 )
 from services.scheduler import (
     _resolve_ip,

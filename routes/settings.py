@@ -21,6 +21,7 @@ from flask import (
 
 from core.config import (
     APP_VERSION,
+    get_status_url,
     DEFAULT_COMMON_PORTS,
     DEFAULT_HTTPS_PORTS,
     DEFAULT_SCAN_INTERVAL_MINUTES,
@@ -57,6 +58,13 @@ from core.database import (
     add_authorized_user,
     update_authorized_user,
     delete_authorized_user,
+    get_apprise_channels,
+    save_apprise_channels,
+    add_apprise_channel,
+    delete_apprise_channel,
+    toggle_apprise_channel,
+    normalize_apprise_url,
+    detect_apprise_service,
 )
 from routes.auth import login_required, is_oidc_active, get_active_match_claim
 from services.backup import (
@@ -64,7 +72,7 @@ from services.backup import (
     import_settings_encrypted,
     trigger_server_restart,
 )
-from services.notifications import send_email
+from services.notifications import send_email, send_apprise_notification
 from services.icons import (
     get_manufacturer_icons_dir,
     get_service_icons_dir,
@@ -536,17 +544,75 @@ def settings_route():
             else:
                 updated["maclookup_api_key"] = current_settings.get("maclookup_api_key", "")
 
-        save_settings(updated)
+        if "notification_smtp_enabled" in request.form:
+            updated["notification_smtp_enabled"] = "1" if request.form.get("notification_smtp_enabled") in ("1", "true", "on") else "0"
+        elif "notification_settings_submitted" in request.form:
+            updated["notification_smtp_enabled"] = "0"
 
-        # If scan interval changed, reschedule background scan job
-        old_interval = str(current_settings.get("scan_interval_minutes", "10")).strip()
-        new_interval = str(updated.get("scan_interval_minutes", "10")).strip()
-        if old_interval != new_interval and new_interval.isdigit():
-            fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
-            if callable(fn_resched):
-                fn_resched(int(new_interval))
+        if "notification_apprise_enabled" in request.form:
+            updated["notification_apprise_enabled"] = "1" if request.form.get("notification_apprise_enabled") in ("1", "true", "on") else "0"
+        elif "notification_settings_submitted" in request.form:
+            updated["notification_apprise_enabled"] = "0"
 
-        if action == "test":
+        # Dedicated Apprise Channel Management Actions
+        if action == "add_apprise_channel":
+            ch_name = request.form.get("channel_name", "").strip()
+            ch_url = request.form.get("channel_url", "").strip()
+            ch_enabled = request.form.get("channel_enabled") in ("1", "true", "on", None)
+            success, msg, _ = add_apprise_channel(name=ch_name, url=ch_url, enabled=ch_enabled)
+            flash(msg, "success" if success else "error")
+
+        elif action == "delete_apprise_channel":
+            target_id = request.form.get("channel_id", "").strip()
+            success = delete_apprise_channel(target_id)
+            flash("Notification channel removed successfully." if success else "Channel not found.", "success" if success else "error")
+
+        elif action == "toggle_apprise_channel":
+            target_id = request.form.get("channel_id", "").strip()
+            success = toggle_apprise_channel(target_id)
+            flash("Notification channel status updated." if success else "Channel not found.", "success" if success else "error")
+
+        elif action == "test_apprise_all":
+            save_settings(updated)
+            channels = [c for c in get_apprise_channels() if c.get("enabled", True)]
+            if not channels:
+                flash("No active Apprise notification channels configured to test.", "error")
+            else:
+                now_str = get_current_local_time_str()
+                test_title = f"[PulseCheck v{APP_VERSION}] Test Notification"
+                test_body = (
+                    f"**Hello from PulseCheck v{APP_VERSION}!**\n\n"
+                    f"This is a test notification confirming your Apprise notification delivery path is working properly.\n\n"
+                    f"• **Timestamp:** {now_str}\n"
+                    f"• **Status:** All systems normal\n\n"
+                    f"🔗 [View Live Status]({get_status_url()})"
+                )
+                fn_send_ap = _get_app_attr("send_apprise_notification", send_apprise_notification)
+                success, msg, _ = fn_send_ap(test_title, test_body, notify_type="info", channels=channels)
+                flash(msg, "success" if success else "error")
+
+        elif action == "test_apprise_channel":
+            target_id = request.form.get("channel_id", "").strip()
+            all_ch = get_apprise_channels()
+            target_ch = [c for c in all_ch if str(c.get("id")) == target_id]
+            if not target_ch:
+                flash("Specified notification channel not found.", "error")
+            else:
+                now_str = get_current_local_time_str()
+                test_title = f"[PulseCheck v{APP_VERSION}] Test Notification"
+                test_body = (
+                    f"**Hello from PulseCheck v{APP_VERSION}!**\n\n"
+                    f"This is a test notification confirming delivery to channel: **{target_ch[0]['name']}**.\n\n"
+                    f"• **Timestamp:** {now_str}\n"
+                    f"• **Service Type:** `{target_ch[0].get('service', 'custom')}`\n\n"
+                    f"🔗 [View Live Status]({get_status_url()})"
+                )
+                fn_send_ap = _get_app_attr("send_apprise_notification", send_apprise_notification)
+                success, msg, _ = fn_send_ap(test_title, test_body, notify_type="info", channels=target_ch)
+                flash(f"{target_ch[0]['name']}: {msg}", "success" if success else "error")
+
+        elif action == "test":
+            save_settings(updated)
             dest = updated["recipient_email"]
             if not dest:
                 flash("Destination email address is required to send a test message.", "error")
@@ -569,7 +635,16 @@ def settings_route():
                     settings=updated,
                 )
                 flash(msg, "success" if success else "error")
+
         else:
+            save_settings(updated)
+            # If scan interval changed, reschedule background scan job
+            old_interval = str(current_settings.get("scan_interval_minutes", "10")).strip()
+            new_interval = str(updated.get("scan_interval_minutes", "10")).strip()
+            if old_interval != new_interval and new_interval.isdigit():
+                fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
+                if callable(fn_resched):
+                    fn_resched(int(new_interval))
             flash("Settings saved successfully.", "success")
 
         # Redirect back to tab if specified
@@ -586,6 +661,7 @@ def settings_route():
         "settings.html",
         settings=current_settings,
         authorized_users=authorized_users,
+        apprise_channels=get_apprise_channels(),
         oidc_active=is_oidc_active(),
         oidc_issuer=issuer_url,
         oidc_callback_url=get_oidc_callback_url(),
@@ -606,6 +682,35 @@ def settings_route():
         server_lan_ip_override=get_server_lan_ip_override(),
         detected_host_lan_ip=_get_host_primary_lan_ip(),
     )
+
+
+@settings_bp.route("/api/settings/notifications/test-url", methods=["POST"], endpoint="api_test_notification_url")
+@login_required
+def api_test_notification_url():
+    """Test a raw Apprise URL before adding it to channels."""
+    data = request.get_json(silent=True) or request.form.to_dict()
+    raw_url = (data.get("url") or "").strip()
+    if not raw_url:
+        return jsonify({"success": False, "message": "Target notification URL is required."}), 400
+    norm_url = normalize_apprise_url(raw_url)
+    now_str = get_current_local_time_str()
+    test_title = f"[PulseCheck v{APP_VERSION}] Test Notification"
+    test_body = (
+        f"**Hello from PulseCheck v{APP_VERSION}!**\n\n"
+        f"This is a test notification confirming your webhook/service URL is working properly.\n\n"
+        f"• **Timestamp:** {now_str}\n"
+        f"• **Status:** Everything is configured properly!\n\n"
+        f"🔗 [View Live Status]({get_status_url()})"
+    )
+    temp_channel = [{
+        "id": "test",
+        "name": (data.get("name") or "Test Endpoint").strip(),
+        "url": norm_url,
+        "enabled": True,
+    }]
+    fn_send_ap = _get_app_attr("send_apprise_notification", send_apprise_notification)
+    success, msg, results = fn_send_ap(test_title, test_body, notify_type="info", channels=temp_channel)
+    return jsonify({"success": success, "message": msg, "details": results})
 
 
 @settings_bp.route("/api/settings/remote-source/test", methods=["POST"], endpoint="api_test_remote_source")

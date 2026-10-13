@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import sys
+import uuid
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -701,6 +702,142 @@ def save_settings(new_settings: dict[str, str]) -> None:
             )
     conn.commit()
     conn.close()
+
+
+def normalize_apprise_url(url: str) -> str:
+    """Normalize raw webhook/service URLs to Apprise compatible URL formats where applicable."""
+    if not url:
+        return ""
+    u = url.strip()
+    # Discord direct incoming webhook URL: https://discord.com/api/webhooks/<id>/<token>
+    discord_m = re.match(
+        r"^https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/(\d+)/([A-Za-z0-9_\-]+)/?$",
+        u,
+    )
+    if discord_m:
+        return f"discord://{discord_m.group(1)}/{discord_m.group(2)}"
+    # Slack direct incoming webhook URL: https://hooks.slack.com/services/T.../B.../X...
+    slack_m = re.match(
+        r"^https?://hooks\.slack\.com/services/([A-Za-z0-9]+)/([A-Za-z0-9]+)/([A-Za-z0-9]+)/?$",
+        u,
+    )
+    if slack_m:
+        return f"slack://{slack_m.group(1)}/{slack_m.group(2)}/{slack_m.group(3)}"
+    return u
+
+
+def detect_apprise_service(url: str) -> str:
+    """Detect service type name from Apprise URL scheme for UI display and icons."""
+    normalized = normalize_apprise_url(url)
+    scheme = normalized.split("://", 1)[0].lower() if "://" in normalized else ""
+    if scheme in ("discord",):
+        return "discord"
+    if scheme in ("tgram", "telegram"):
+        return "telegram"
+    if scheme in ("slack",):
+        return "slack"
+    if scheme in ("pover", "pushover"):
+        return "pushover"
+    if scheme in ("ntfy", "ntfys"):
+        return "ntfy"
+    if scheme in ("gotify", "gotifys"):
+        return "gotify"
+    if scheme in ("msteams", "teams"):
+        return "teams"
+    if scheme in ("matrix", "matrixs"):
+        return "matrix"
+    if scheme in ("json", "jsons", "http", "https"):
+        return "webhook"
+    return scheme or "custom"
+
+
+def get_apprise_channels() -> list[dict]:
+    """Retrieve the list of configured Apprise notification channels."""
+    settings = get_settings()
+    raw = settings.get("notification_apprise_channels", "[]")
+    try:
+        channels = json.loads(raw)
+        if isinstance(channels, list):
+            return channels
+    except Exception:
+        pass
+    return []
+
+
+def save_apprise_channels(channels: list[dict]) -> None:
+    """Save the list of Apprise notification channels into settings."""
+    save_settings({"notification_apprise_channels": json.dumps(channels)})
+
+
+def add_apprise_channel(
+    name: str,
+    url: str,
+    enabled: bool = True,
+    notify_on_degraded: bool = True,
+    notify_on_offline: bool = True,
+    notify_on_recovery: bool = True,
+) -> tuple[bool, str, dict | None]:
+    """Add a new Apprise notification channel with syntax validation."""
+    name = (name or "").strip()
+    raw_url = (url or "").strip()
+    if not raw_url:
+        return False, "Target notification URL is required.", None
+    norm_url = normalize_apprise_url(raw_url)
+
+    # Validate with Apprise
+    try:
+        import apprise
+        ap = apprise.Apprise()
+        if not ap.add(norm_url):
+            return False, f"Invalid or unsupported notification URL format for Apprise: '{raw_url}'", None
+    except Exception as exc:
+        return False, f"Apprise validation error: {exc}", None
+
+    service = detect_apprise_service(norm_url)
+    channel_id = uuid.uuid4().hex[:12]
+    new_channel = {
+        "id": channel_id,
+        "name": name or f"{service.capitalize()} Alert",
+        "url": norm_url,
+        "service": service,
+        "enabled": bool(enabled),
+        "notify_on_degraded": bool(notify_on_degraded),
+        "notify_on_offline": bool(notify_on_offline),
+        "notify_on_recovery": bool(notify_on_recovery),
+        "created_at": get_current_local_time_str(),
+    }
+    channels = get_apprise_channels()
+    channels.append(new_channel)
+    save_apprise_channels(channels)
+    return True, f"Notification channel '{new_channel['name']}' added successfully.", new_channel
+
+
+def delete_apprise_channel(channel_id: str) -> bool:
+    """Delete an Apprise notification channel by ID."""
+    channels = get_apprise_channels()
+    filtered = [c for c in channels if str(c.get("id")) != str(channel_id)]
+    if len(filtered) != len(channels):
+        save_apprise_channels(filtered)
+        return True
+    return False
+
+
+def toggle_apprise_channel(channel_id: str, enabled: bool | None = None) -> bool:
+    """Toggle or set the enabled state of an Apprise notification channel."""
+    channels = get_apprise_channels()
+    updated = False
+    for c in channels:
+        if str(c.get("id")) == str(channel_id):
+            if enabled is None:
+                c["enabled"] = not c.get("enabled", True)
+            else:
+                c["enabled"] = bool(enabled)
+            updated = True
+            break
+    if updated:
+        save_apprise_channels(channels)
+        return True
+    return False
 
 
 def get_authorized_users() -> list[sqlite3.Row]:

@@ -128,6 +128,9 @@ DEFAULT_SETTINGS = {
     "mac_snmp_community": "public",
     "replace_loopback_ip_enabled": "1",
     "server_lan_ip_override": DEFAULT_SERVER_LAN_IP_OVERRIDE,
+    "notification_smtp_enabled": "1",
+    "notification_apprise_enabled": "1",
+    "notification_apprise_channels": "[]",
 }
 
 

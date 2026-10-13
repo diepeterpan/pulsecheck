@@ -3059,6 +3059,230 @@ direct.example,direct,,Direct site,0,0,8080
         self.assertTrue(any("https://medusa-test.galleon.co.za/sickrage/images/ico/favicon-196.png" in u for u in requested_urls))
         self.assertFalse(any("https://medusa-test.galleon.co.za/sickrage/home/images/ico/favicon-196.png" in u for u in requested_urls))
 
+    def test_apprise_url_normalization_and_detection(self):
+        from core.database import normalize_apprise_url, detect_apprise_service
+
+        # Discord incoming webhook URL normalization
+        disc_raw = "https://discord.com/api/webhooks/123456789/AbCdEfGhIjKlMnOp"
+        disc_norm = normalize_apprise_url(disc_raw)
+        self.assertEqual(disc_norm, "discord://123456789/AbCdEfGhIjKlMnOp")
+        self.assertEqual(detect_apprise_service(disc_norm), "discord")
+
+        # Slack incoming webhook URL normalization
+        slack_raw = "https://hooks.slack.com/services/T123/B456/X789"
+        slack_norm = normalize_apprise_url(slack_raw)
+        self.assertEqual(slack_norm, "slack://T123/B456/X789")
+        self.assertEqual(detect_apprise_service(slack_norm), "slack")
+
+        # Telegram detection
+        self.assertEqual(detect_apprise_service("tgram://123456:ABC-DEF/987654321"), "telegram")
+        # Ntfy detection
+        self.assertEqual(detect_apprise_service("ntfy://my-alerts"), "ntfy")
+        # Pushover detection
+        self.assertEqual(detect_apprise_service("pover://userkey@apptoken/"), "pushover")
+        # Gotify detection
+        self.assertEqual(detect_apprise_service("gotify://my.gotify.server/apptoken"), "gotify")
+        # Custom webhook detection
+        self.assertEqual(detect_apprise_service("json://webhook.example.com/api/alert"), "webhook")
+
+    def test_apprise_channel_crud(self):
+        from core.database import (
+            get_apprise_channels,
+            add_apprise_channel,
+            delete_apprise_channel,
+            toggle_apprise_channel,
+            save_apprise_channels,
+        )
+
+        # Clear any channels
+        save_apprise_channels([])
+        self.assertEqual(get_apprise_channels(), [])
+
+        # Add valid channel
+        success, msg, ch = add_apprise_channel(
+            name="DevOps Discord",
+            url="discord://12345/abcdef",
+            enabled=True,
+        )
+        self.assertTrue(success)
+        self.assertIsNotNone(ch)
+        self.assertEqual(ch["name"], "DevOps Discord")
+        self.assertEqual(ch["service"], "discord")
+        self.assertTrue(ch["enabled"])
+
+        # Check in DB
+        channels = get_apprise_channels()
+        self.assertEqual(len(channels), 1)
+        ch_id = ch["id"]
+
+        # Toggle channel
+        toggle_apprise_channel(ch_id, enabled=False)
+        channels = get_apprise_channels()
+        self.assertFalse(channels[0]["enabled"])
+
+        toggle_apprise_channel(ch_id)
+        channels = get_apprise_channels()
+        self.assertTrue(channels[0]["enabled"])
+
+        # Add invalid channel
+        bad_success, bad_msg, _ = add_apprise_channel(
+            name="Bad Channel",
+            url="unknownprotocol://invalid/url",
+        )
+        self.assertFalse(bad_success)
+
+        # Delete channel
+        del_success = delete_apprise_channel(ch_id)
+        self.assertTrue(del_success)
+        self.assertEqual(len(get_apprise_channels()), 0)
+
+    def test_build_state_change_markdown(self):
+        from services.notifications import build_state_change_markdown
+
+        changes = [
+            {
+                "service": "App Gateway",
+                "old_status": "ONLINE",
+                "new_status": "OFFLINE",
+                "discovered_ip": "192.168.1.1",
+                "discovered_mac": "00:11:22:33:44:55",
+                "discovered_manufacturer": "Ubiquiti",
+                "port_changes": ["443/tcp: ONLINE -> OFFLINE"],
+                "web_url": "https://gateway.local",
+            },
+            {
+                "service": "Internal DB",
+                "old_status": "OFFLINE",
+                "new_status": "ONLINE",
+                "discovered_ip": "192.168.1.10",
+                "port_changes": ["5432/tcp: OFFLINE -> ONLINE"],
+            },
+        ]
+        md = build_state_change_markdown(changes)
+        self.assertIn("App Gateway", md)
+        self.assertIn("OFFLINE", md)
+        self.assertIn("Internal DB", md)
+        self.assertIn("ONLINE", md)
+        self.assertIn("192.168.1.1", md)
+        self.assertIn("Ubiquiti", md)
+        self.assertIn("443/tcp: ONLINE -> OFFLINE", md)
+        self.assertIn("🔴", md)
+        self.assertIn("🟢", md)
+
+    @patch("apprise.Apprise")
+    def test_send_apprise_notification(self, mock_apprise_cls):
+        from services.notifications import send_apprise_notification
+
+        mock_ap = MagicMock()
+        mock_ap.add.return_value = True
+        mock_ap.notify.return_value = True
+        mock_apprise_cls.return_value = mock_ap
+
+        test_channels = [
+            {"id": "c1", "name": "Discord", "url": "discord://123/abc", "enabled": True},
+            {"id": "c2", "name": "Telegram", "url": "tgram://123/abc", "enabled": True},
+        ]
+        success, msg, results = send_apprise_notification(
+            title="Test Alert",
+            body="Test message",
+            notify_type="warning",
+            channels=test_channels,
+        )
+        self.assertTrue(success)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(results[0]["success"])
+        self.assertTrue(results[1]["success"])
+        self.assertEqual(mock_ap.notify.call_count, 2)
+
+    @patch("apprise.Apprise")
+    @patch("app.send_email")
+    def test_state_change_dispatches_apprise_and_smtp(self, mock_send_email, mock_apprise_cls):
+        from core.database import save_settings, save_apprise_channels
+        import app as pulsecheck_app
+
+        mock_send_email.return_value = (True, "Email dispatched")
+        mock_ap = MagicMock()
+        mock_ap.add.return_value = True
+        mock_ap.notify.return_value = True
+        mock_apprise_cls.return_value = mock_ap
+
+        save_settings({
+            "smtp_host": "smtp.example.com",
+            "from_email": "admin@example.com",
+            "recipient_email": "admin@example.com",
+            "notification_smtp_enabled": "1",
+            "notification_apprise_enabled": "1",
+        })
+        save_apprise_channels([
+            {"id": "c1", "name": "Ops Discord", "url": "discord://12345/token", "enabled": True}
+        ])
+
+        changes = [{
+            "service": "srv1.com",
+            "old_status": "online",
+            "new_status": "offline",
+        }]
+        success, msg = pulsecheck_app.send_state_change_notification(changes)
+        self.assertTrue(success)
+        mock_send_email.assert_called_once()
+        self.assertTrue(mock_ap.notify.called)
+
+    def test_settings_routes_apprise_actions(self):
+        from core.database import get_apprise_channels, save_apprise_channels
+
+        save_apprise_channels([])
+
+        # 1. Add channel via POST
+        resp = self.client.post("/settings", data={
+            "action": "add_apprise_channel",
+            "channel_name": "Alerts Channel",
+            "channel_url": "discord://12345/webhook_token",
+            "channel_enabled": "1",
+        }, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        channels = get_apprise_channels()
+        self.assertEqual(len(channels), 1)
+        self.assertEqual(channels[0]["name"], "Alerts Channel")
+
+        ch_id = channels[0]["id"]
+
+        # 2. Toggle channel via POST
+        resp = self.client.post("/settings", data={
+            "action": "toggle_apprise_channel",
+            "channel_id": ch_id,
+        }, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(get_apprise_channels()[0]["enabled"])
+
+        # 3. Test single channel
+        with patch("app.send_apprise_notification") as mock_ap_send:
+            mock_ap_send.return_value = (True, "Delivered", [])
+            resp = self.client.post("/settings", data={
+                "action": "test_apprise_channel",
+                "channel_id": ch_id,
+            }, follow_redirects=True)
+            self.assertEqual(resp.status_code, 200)
+            mock_ap_send.assert_called_once()
+
+        # 4. Test API endpoint /api/settings/notifications/test-url
+        with patch("app.send_apprise_notification") as mock_ap_send:
+            mock_ap_send.return_value = (True, "OK", [])
+            resp = self.client.post("/api/settings/notifications/test-url", json={
+                "url": "discord://12345/webhook_token",
+                "name": "Quick Test",
+            })
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data["success"])
+
+        # 5. Delete channel via POST
+        resp = self.client.post("/settings", data={
+            "action": "delete_apprise_channel",
+            "channel_id": ch_id,
+        }, follow_redirects=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(get_apprise_channels()), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
