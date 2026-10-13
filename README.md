@@ -23,7 +23,7 @@ Real-time monitoring overview displaying service availability, countdown timer t
 
 - **Enlarged Overall Health Indicator**: Prominent header status badge with dedicated status SVGs (**✓ GREEN = ALL ONLINE**, **⚠ ORANGE = SOME DEGRADED**, **✕ RED = SOME OFFLINE**), sized 50% larger with dark contrasting borders.
 - **Next Check Countdown**: Digital countdown timer updated every second showing time remaining until the next scan run.
-- **Status Filter Pills**: Quick one-click state filtering (**All**, **Online**, **Degraded**, **Offline**, **Skipped**) with live count badges and dark borders.
+- **Status Filter Pills**: Quick one-click state filtering (**Cushing Green = All**, **Green = Online**, **Orange = Degraded**, **Red = Offline**, **Gray = Skipped**) with live count badges and crisp borders.
 - **Sort & Collapse Controls**: One-click sorting by **Service** or **Status** severity, plus an **Expand all / Collapse all** (`⤢` / `⤡`) toggle button with persistent session memory.
 - **Expandable Service Tiles with Network Discovery**: Click any tile to reveal resolved **IP address**, Layer 2 **MAC address**, and **Manufacturer name with brand logo** alongside monitored port chips.
 - **Clean Protocol Micro-Icons**: Status port chips feature protocol micro-icons (`🌐 HTTP`, `🔒 HTTPS`, `🔌 Socket`, `⚡ UDP`, `ﮩ٨ـ ICMP Ping`) with clean status color coding, keeping cards clutter-free without repetitive status text.
@@ -43,6 +43,7 @@ Centralized directory for viewing and maintaining all monitored services with in
   - 💬 **Speech Bubble**: Service comment or notes attached.
 - **Direct Application Web Links**: Services running web ports (HTTP/HTTPS) automatically render service names as clickable links navigating straight to the application web interface.
 - **Redesigned Seamless Toolbar & Sticky Headers**: Compact toolbar unified directly above the table structure with sticky header alignment, keeping column filters and bulk actions accessible across long lists.
+- **Interactive Resizable Columns**: Drag column divider handles to customize table columns to your preferred width, with automatic local persistence across sessions.
 - **Interactive Column Filters**: Real-time filtering by service name, hardware/network attributes (IP, MAC, vendor), paused state, and port numbers.
 - **Per-Port Details on Hover**: Hovering over any entry in the **PORTS** column displays the individual port configuration including protocol, per-port Match string, and URL path.
 - **Bulk Port Operations**: Batch add or remove ports across multiple selected services simultaneously.
@@ -66,18 +67,19 @@ Dedicated tabbed workflow for adding and editing services with automated network
 - **Tabbed Port Inspector**: Switch between individual port tabs or the "All Ports" summary table with status indicators, result codes, latency, and local timestamps.
 - **Response Token Highlighting**: Scrollable dark console viewer displaying HTTP headers and response body with matching tokens highlighted in real time.
 
-### 4. System Settings & SMTP Configuration
-Centralized settings for automated notification dispatch, test emails, HTTP proxy configuration, and encrypted backup/restore.
+### 4. System Settings, Multi-Channel Alerts & SMTP Configuration
+Centralized settings for automated notification dispatch, Apprise multi-channel alerts, test emails, HTTP proxy configuration, and encrypted backup/restore.
 
 <p align="center">
   <img src="docs/screenshots/settings.png" alt="System Settings and Alerts" width="100%">
 </p>
 
+- **Multi-Channel Alert Dispatch (Apprise)**: Out-of-the-box integration dispatching real-time notifications to **Discord**, **Telegram**, **Pushover**, **Slack**, **Ntfy**, **Gotify**, and custom HTTP webhooks with individual test buttons and instant status badges.
 - **Responsive Dual-Column Grid Layout**: Structured card layout pairing configuration panels with integrated contextual helper guides (Alerting & Delivery Guide, OIDC Provider Status, Backup & Encryption Guide) for optimal screen real estate.
 - **One-Click Mail Provider Presets**: Instant configuration presets for popular email services (**Gmail**, **Outlook 365**, **Mailgun**, **SendGrid**) prefilling recommended ports and encryption protocols.
 - **Outgoing SMTP Server**: Support for STARTTLS (port 587), SSL/TLS (port 465), or plain authentication with password protection.
 - **Automatic State Change Alerts**: Dispatches notifications when services transition between states (e.g. Online &rarr; Degraded, Degraded &rarr; Offline).
-- **Send Test Email**: Built-in verification tool to validate SMTP credentials and delivery path immediately.
+- **Send Test Notifications**: Built-in verification tools to validate SMTP credentials and Apprise webhook delivery immediately.
 - **HTTP Proxy Server**: Centralized proxy configuration with per-service routing toggles.
 - **Password-Protected Encrypted Backup & Restore**: AES-256-GCM encrypted backup of all system settings and authorized user registries with passphrase protection and automatic server restart.
 
@@ -91,6 +93,7 @@ Protect administrative views with your corporate or self-hosted identity provide
 - **Public Status Dashboard by Default**: Live health indicators, service statuses, and check states remain publicly readable without requiring a login.
 - **Protected Administrative Endpoints**: Clicks on **Services**, **Import & Export**, or **Settings** seamlessly redirect unauthenticated visitors to your OIDC provider login and return them to their destination upon successful sign-in.
 - **Strict Authorization Registry (No Auto-Provisioning)**: Only explicitly approved accounts listed in PulseCheck's **Authorized Users** table are granted access.
+- **Signed-in User Badge**: Active user identity rendered in the top navigation header as an elegant system grey badge matching the application's clean design.
 - **Configurable Claim Matching**: Match incoming tokens against user records using configurable claims (default `email`, or `preferred_username`, `sub`).
 - **User Administration**: Add, update, and revoke authorized users directly from the Settings interface.
 - **Configurable Callback URL & SSL Verification**: Supports custom callback URIs (`PULSECHECK_OIDC_REDIRECT_URI`) and internal private PKI/CA certificates with configurable `PULSECHECK_OIDC_SSL_VERIFY` (`true`, path to custom internal CA PEM file, or `false`).
@@ -181,7 +184,7 @@ Rapid onboarding and data portability through raw text blocks and standard CSV f
     - **Last Scheduled Check**: Server local timezone formatted timestamp of the most recent background run.
     - **Next Check Countdown**: Digital countdown timer updated every second showing time remaining until the next scan.
     - **Automatic Screen Refresh**: Seamlessly polls and reloads the screen as soon as the scheduled background run finishes and database records are updated.
-  - **Color-Coded Status Filter Pills**: Two-tone shaded pills with dark outlines for quick filtering and live counts: **BLUE = ALL**, **GREEN = ONLINE**, **ORANGE = DEGRADED**, **RED = OFFLINE**, and **GRAY = SKIPPED**.
+  - **Color-Coded Status Filter Pills**: Two-tone shaded pills with dark outlines for quick filtering and live counts: **CUSHING GREEN = ALL**, **GREEN = ONLINE**, **ORANGE = DEGRADED**, **RED = OFFLINE**, and **GRAY = SKIPPED**.
   - **Expand all / Collapse all Toggle**: Expand or collapse all service cards simultaneously with session persistence.
   - **Visual Protocol Port Badges**: Clean port pills with inline protocol symbols and status border/background styling.
   - **Discovered Host Details**: Compact display of IP address, MAC address, and manufacturer logo/name directly below service names.
@@ -367,7 +370,7 @@ PulseCheck uses [`aiohttp`](https://docs.aiohttp.org/) for high-throughput, non-
 
 ## Testing
 
-PulseCheck includes a comprehensive automated test suite (157 tests) covering OIDC authentication and authorization, user administration, encrypted backup/restore, settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
+PulseCheck includes a comprehensive automated test suite (207 tests) covering OIDC authentication and authorization, user administration, encrypted backup/restore, settings persistence, database migrations, proxy tunneling, CSV import/export, live port diagnostics, template versioning, and automated health check workflows.
 
 Run tests using Python's built-in `unittest` runner:
 

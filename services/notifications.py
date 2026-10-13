@@ -72,15 +72,15 @@ def send_email(
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
   <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #c5cdc3; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
-    <div style="background: #0f172a; padding: 16px 24px;">
+    <div style="background: #556453; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>
           <td width="28" style="width: 28px; vertical-align: middle; padding-right: 10px;">
-            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
+            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px; background: #ffffff; padding: 2px; box-sizing: border-box;" />
           </td>
           <td style="vertical-align: middle;">
             <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; vertical-align: middle;">PulseCheck</span>
-            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #94a3b8; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
+            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #ffffff; background: rgba(0, 0, 0, 0.18); border: 1px solid rgba(255, 255, 255, 0.25); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
           </td>
         </tr>
       </table>
@@ -468,7 +468,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
             # Service name header with optional web URL
             if web_url:
-                svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #556453; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
+                svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #3d493b; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
             else:
                 svc_title_html = f'<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>'
 
@@ -525,15 +525,15 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
   <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #c5cdc3; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
-    <div style="background: #0f172a; padding: 16px 24px;">
+    <div style="background: #556453; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>
           <td width="28" style="width: 28px; vertical-align: middle; padding-right: 10px;">
-            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px;" />
+            <img src="cid:pulsecheck_logo" alt="PulseCheck Logo" width="28" height="28" style="display: block; width: 28px !important; height: 28px !important; max-width: 28px !important; max-height: 28px !important; border-radius: 6px; background: #ffffff; padding: 2px; box-sizing: border-box;" />
           </td>
           <td style="vertical-align: middle;">
             <span style="color: #ffffff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px; vertical-align: middle;">PulseCheck</span>
-            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #94a3b8; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.15); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
+            <span style="display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 600; color: #ffffff; background: rgba(0, 0, 0, 0.18); border: 1px solid rgba(255, 255, 255, 0.25); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">v{APP_VERSION}</span>
           </td>
         </tr>
       </table>
@@ -544,7 +544,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
       <p style="margin: 0 0 16px 0; font-size: 14px; color: #334155;">The following <strong>{count}</strong> service{'s have' if count > 1 else ' has'} changed state since the previous scan:</p>
       {service_cards_str}
       <div style="margin-top: 20px; text-align: center;">
-        <a href="{get_status_url()}" style="display: inline-block; background: #1145d6; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
+        <a href="{get_status_url()}" style="display: inline-block; background: #556453; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; font-size: 14px;">View Live Status</a>
       </div>
     </div>
     <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; text-align: center; line-height: 1.5;">

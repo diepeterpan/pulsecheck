@@ -160,11 +160,14 @@ env = os.environ.copy()
 env["PULSECHECK_HEADLESS"] = "1"
 env["PULSECHECK_DB_PATH"] = DEMO_DB
 env["PULSECHECK_PORT"] = "8189"
+env["PULSECHECK_SCAN_RETRIES"] = "0"
+env["PULSECHECK_SCAN_RETRY_INTERVAL"] = "0"
+env["PULSECHECK_SCAN_WORKERS"] = "20"
 flask_proc = subprocess.Popen([sys.executable, "app.py"], cwd=BASE_DIR, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-time.sleep(2.5)
+time.sleep(2.0)
 
 # Wait for Flask
-for _ in range(20):
+for _ in range(30):
     try:
         with urllib.request.urlopen("http://127.0.0.1:8189/status") as r:
             if r.status == 200:
@@ -172,6 +175,49 @@ for _ in range(20):
                 break
     except Exception:
         time.sleep(0.5)
+
+# Wait for initial scan / startup veil to complete
+print("Waiting for initial scan / startup veil to finish...")
+for _ in range(80):
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8189/status/check-state") as r:
+            if r.status == 200:
+                data = json.loads(r.read().decode())
+                if not data.get("is_initial_scan") and not data.get("is_scanning"):
+                    print("Initial scan completed and startup veil is dismissed!")
+                    break
+    except Exception:
+        pass
+    time.sleep(0.5)
+
+# Seed latest_port_checks and last_scan_completed_at after initial scan completes
+# so dashboard & services display realistic live statuses without being overwritten
+conn = sqlite3.connect(DEMO_DB)
+c = conn.cursor()
+c.execute("DELETE FROM latest_port_checks")
+c.execute("SELECT id, port_protocol FROM services WHERE paused = 0")
+for sid, pp in c.fetchall():
+    ports = json.loads(pp) if pp else []
+    for p_info in ports:
+        p_num = p_info.get("port")
+        c.execute(
+            "INSERT INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at) "
+            "VALUES (?, ?, 1, 'online', 24, datetime('now'))",
+            (sid, p_num)
+        )
+# Set beszel-lenovo to degraded
+c.execute("SELECT id FROM services WHERE name = 'beszel-lenovo.dummy.net'")
+row = c.fetchone()
+if row:
+    c.execute("UPDATE latest_port_checks SET status = 'degraded', last_response_ms = 412 WHERE service_id = ?", (row[0],))
+# Set camera to offline
+c.execute("SELECT id FROM services WHERE name = 'camera.dummy.net'")
+row = c.fetchone()
+if row:
+    c.execute("UPDATE latest_port_checks SET status = 'offline', is_online = 0, last_response_ms = NULL WHERE service_id = ?", (row[0],))
+c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_scan_completed_at', datetime('now'))")
+conn.commit()
+conn.close()
 
 # 3. Launch Chrome Headless via Flatpak
 chrome_cmd = [
@@ -218,13 +264,36 @@ try:
             if resp.get("id") == payload["id"]:
                 return resp.get("result")
 
+    def wait_for_veil(max_wait=15.0):
+        """Ensure #startup-veil modal is completely absent before taking screenshot."""
+        start = time.time()
+        while time.time() - start < max_wait:
+            res = send_cmd("Runtime.evaluate", {
+                "expression": "Boolean(document.getElementById('startup-veil'))"
+            })
+            has_veil = res.get("result", {}).get("value", False) if res else False
+            if not has_veil:
+                return True
+            send_cmd("Runtime.evaluate", {
+                "expression": "if (typeof dismissVeil === 'function') dismissVeil();"
+            })
+            time.sleep(0.3)
+        # Force remove if still lingering
+        send_cmd("Runtime.evaluate", {
+            "expression": "var v = document.getElementById('startup-veil'); if (v) v.remove();"
+        })
+        time.sleep(0.4)
+        return True
+
     def capture(name, path, js_action=None, wait=1.5, height=920):
         print(f"Capturing {name} ({path})...")
         send_cmd("Page.navigate", {"url": f"http://127.0.0.1:8189{path}"})
         time.sleep(wait)
+        wait_for_veil()
         if js_action:
             send_cmd("Runtime.evaluate", {"expression": js_action})
             time.sleep(0.6)
+            wait_for_veil()
         res = send_cmd("Page.captureScreenshot", {
             "format": "png",
             "clip": {"x": 0, "y": 0, "width": 1440, "height": height, "scale": 1}
@@ -241,34 +310,6 @@ try:
         "mobile": False,
     })
     send_cmd("Page.enable")
-
-    # Seed latest_port_checks and last_scan_completed_at so dashboard & services display realistic live statuses
-    conn = sqlite3.connect(DEMO_DB)
-    c = conn.cursor()
-    c.execute("DELETE FROM latest_port_checks")
-    c.execute("SELECT id, port_protocol FROM services WHERE paused = 0")
-    for sid, pp in c.fetchall():
-        ports = json.loads(pp) if pp else []
-        for p_info in ports:
-            p_num = p_info.get("port")
-            c.execute(
-                "INSERT INTO latest_port_checks (service_id, port, is_online, status, last_response_ms, checked_at) "
-                "VALUES (?, ?, 1, 'online', 24, datetime('now'))",
-                (sid, p_num)
-            )
-    # Set beszel-lenovo to degraded
-    c.execute("SELECT id FROM services WHERE name = 'beszel-lenovo.dummy.net'")
-    row = c.fetchone()
-    if row:
-        c.execute("UPDATE latest_port_checks SET status = 'degraded', last_response_ms = 412 WHERE service_id = ?", (row[0],))
-    # Set camera to offline
-    c.execute("SELECT id FROM services WHERE name = 'camera.dummy.net'")
-    row = c.fetchone()
-    if row:
-        c.execute("UPDATE latest_port_checks SET status = 'offline', is_online = 0, last_response_ms = NULL WHERE service_id = ?", (row[0],))
-    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_scan_completed_at', datetime('now'))")
-    conn.commit()
-    conn.close()
 
     # 1. Live Status Dashboard
     # Expand first card to showcase the discovery metadata and port chips with protocol micro-icons
