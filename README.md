@@ -255,9 +255,9 @@ The application runs in headless mode inside the container and is immediately ac
 >       ...
 > ```
 >
-> **Alternative Methods:**
 > - **MACVLAN / IPVLAN Network**: If you want to keep container network isolation while providing direct Layer 2 access to the physical network, configure a Docker [macvlan network](https://docs.docker.com/engine/network/drivers/macvlan/). This assigns the container its own dedicated IP and virtual MAC address directly on your physical LAN subnet.
 > - **Bare-Metal / Systemd**: Running PulseCheck directly on the host OS via a Python virtual environment automatically shares the host's ARP table with zero extra configuration.
+> - **Host IP & Local Service Resolution**: When running in host networking mode, the container inherits the host's `/etc/hosts` where the server hostname is often mapped to `127.0.1.1` or `127.0.0.1`. PulseCheck automatically bypasses `/etc/hosts` by querying your network DNS server directly over UDP (port 53), auto-detects the server's official LAN IP, and extracts the host physical MAC from `/sys/class/net` so the machine displays its real LAN IP and hardware manufacturer logo.
 
 ---
 
@@ -301,6 +301,7 @@ PulseCheck includes built-in line-by-line performance profiling to pinpoint exac
 | `PULSECHECK_IP` | `0.0.0.0` | IP address for the web server to bind on |
 | `PULSECHECK_PORT` | `8182` | Web server listening port |
 | `PULSECHECK_HOSTNAME` | `127.0.0.1` | Hostname / IP used for generating links in alert emails |
+| `PULSECHECK_LAN_IP` | `""` | Optional override for the server's official LAN IP used when substituting loopback/localhost addresses |
 | `PULSECHECK_SSL` | `FALSE` | Set to `TRUE` (or `1`) if PulseCheck is served over HTTPS |
 | `PULSECHECK_HEADLESS` | `0` (`1` in Docker) | Set to `1` to bypass the interactive console menu and start the web server directly |
 | `PULSECHECK_PROFILE` | `0` | Set to `1` to start with line-profiler enabled |

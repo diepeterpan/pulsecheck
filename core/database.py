@@ -714,6 +714,8 @@ def save_settings(new_settings: dict[str, str]) -> None:
         "mac_netbios_enabled",
         "mac_snmp_enabled",
         "mac_snmp_community",
+        "replace_loopback_ip_enabled",
+        "server_lan_ip_override",
     }
     conn = get_db_connection()
     for key, value in new_settings.items():

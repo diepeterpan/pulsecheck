@@ -79,13 +79,278 @@ def is_initial_scan_active() -> bool:
 
 # ── Network discovery ─────────────────────────────────────────────────────────
 
-def _resolve_ip(hostname: str) -> str | None:
-    """Return the first IPv4/IPv6 address for hostname, or None."""
+def _get_resolv_nameservers() -> list[str]:
+    """Extract nameserver IP addresses from /etc/resolv.conf, non-loopback first."""
+    nameservers: list[str] = []
+    resolv_path = Path("/etc/resolv.conf")
+    if not resolv_path.is_file():
+        return nameservers
     try:
-        infos = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-        return infos[0][4][0] if infos else None
-    except (socket.gaierror, OSError):
+        with open(resolv_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("nameserver"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        ns = parts[1].strip()
+                        if ns:
+                            nameservers.append(ns)
+    except Exception:
+        pass
+    non_loop = [ns for ns in nameservers if not ns.startswith("127.") and ns != "::1"]
+    loop = [ns for ns in nameservers if ns.startswith("127.") or ns == "::1"]
+    return non_loop + loop
+
+
+def _build_dns_a_query(hostname: str, trans_id: int = 0x1234) -> bytes | None:
+    """Build a standard RFC 1035 UDP DNS query packet for an A record."""
+    if not hostname or not isinstance(hostname, str):
         return None
+    cleaned = hostname.strip().rstrip(".")
+    if not cleaned or len(cleaned) > 253:
+        return None
+    header = struct.pack(">HHHHHH", trans_id, 0x0100, 1, 0, 0, 0)
+    question = bytearray()
+    for part in cleaned.split("."):
+        if not part or len(part) > 63:
+            return None
+        encoded_part = part.encode("ascii", errors="ignore")
+        if not encoded_part:
+            return None
+        question.append(len(encoded_part))
+        question.extend(encoded_part)
+    question.append(0)
+    question.extend(struct.pack(">HH", 1, 1))  # QTYPE=1 (A), QCLASS=1 (IN)
+    return header + bytes(question)
+
+
+def _parse_dns_a_response(resp: bytes, expected_trans_id: int = 0x1234) -> str | None:
+    """Extract first non-loopback IPv4 address from an RFC 1035 DNS response."""
+    if not resp or len(resp) < 12:
+        return None
+    try:
+        tid, flags, qdcount, ancount, _, _ = struct.unpack(">HHHHHH", resp[:12])
+        if tid != expected_trans_id:
+            return None
+        if (flags & 0x000F) != 0 or ancount == 0:
+            return None
+        offset = 12
+        # Skip question section
+        for _ in range(qdcount):
+            while offset < len(resp) and resp[offset] != 0:
+                if resp[offset] & 0xC0 == 0xC0:
+                    offset += 2
+                    break
+                offset += 1 + resp[offset]
+            else:
+                offset += 1
+            offset += 4  # QTYPE (2) + QCLASS (2)
+        # Process answer section
+        for _ in range(ancount):
+            if offset >= len(resp):
+                break
+            if resp[offset] & 0xC0 == 0xC0:
+                offset += 2
+            else:
+                while offset < len(resp) and resp[offset] != 0:
+                    offset += 1 + resp[offset]
+                offset += 1
+            if offset + 10 > len(resp):
+                break
+            rtype, rclass, ttl, rdlen = struct.unpack(">HHIH", resp[offset : offset + 10])
+            offset += 10
+            if offset + rdlen > len(resp):
+                break
+            if rtype == 1 and rclass == 1 and rdlen == 4:
+                ip = socket.inet_ntoa(resp[offset : offset + 4])
+                if not ip.startswith("127."):
+                    return ip
+            offset += rdlen
+    except Exception:
+        pass
+    return None
+
+
+def _query_direct_dns_a_record(hostname: str, nameserver: str | None = None, timeout: float = 0.5) -> str | None:
+    """Query upstream nameserver over UDP port 53 directly to resolve A record, bypassing /etc/hosts."""
+    query = _build_dns_a_query(hostname)
+    if not query:
+        return None
+    ns_list = [nameserver] if nameserver else _get_resolv_nameservers()
+    if not ns_list:
+        return None
+    for ns in ns_list:
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(timeout)
+            sock.sendto(query, (ns, 53))
+            resp, _ = sock.recvfrom(1024)
+            ip = _parse_dns_a_response(resp)
+            if ip:
+                return ip
+        except Exception:
+            continue
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+    return None
+
+
+def _get_host_primary_lan_ip() -> str | None:
+    """Determine the host machine's primary non-loopback LAN IP address."""
+    from core.config import get_server_lan_ip_override
+    override = get_server_lan_ip_override()
+    if override:
+        return override
+
+    candidates = _get_resolv_nameservers() + ["1.1.1.1", "8.8.8.8"]
+    for target in candidates:
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.settimeout(0.05)
+            sock.connect((target, 53))
+            local_ip = sock.getsockname()[0]
+            if local_ip and not local_ip.startswith("127.") and local_ip != "0.0.0.0":
+                return local_ip
+        except Exception:
+            continue
+        finally:
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+    try:
+        res = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[2] == "inet":
+                cand_ip = parts[3].split("/")[0]
+                if not cand_ip.startswith("127."):
+                    return cand_ip
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_all_local_host_ips() -> set[str]:
+    """Retrieve the set of all IP addresses associated with the local host."""
+    ips = {"127.0.0.1", "::1"}
+    try:
+        h = socket.gethostname()
+        for info in socket.getaddrinfo(h, None):
+            ips.add(info[4][0])
+    except Exception:
+        pass
+    primary = _get_host_primary_lan_ip()
+    if primary:
+        ips.add(primary)
+    try:
+        res = subprocess.run(
+            ["ip", "-o", "addr", "show"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        for line in res.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 4 and parts[2] in ("inet", "inet6"):
+                ips.add(parts[3].split("/")[0])
+    except Exception:
+        pass
+    return ips
+
+
+def _is_local_host_ip(ip: str | None) -> bool:
+    """Check if an IP address belongs to the local host machine."""
+    if not ip or not isinstance(ip, str):
+        return False
+    clean_ip = ip.strip()
+    if clean_ip.startswith("127.") or clean_ip == "::1":
+        return True
+    return clean_ip in _get_all_local_host_ips()
+
+
+def _get_host_local_mac(target_ip: str | None = None) -> str | None:
+    """Read the physical hardware MAC address of the local host from /sys/class/net sysfs."""
+    sys_net = Path("/sys/class/net")
+    if not sys_net.is_dir():
+        return None
+    best_mac = None
+    try:
+        for iface_dir in sorted(sys_net.iterdir(), key=lambda p: p.name):
+            name = iface_dir.name
+            if name == "lo" or name.startswith(("docker", "br-", "veth", "virbr", "tailscale", "wg")):
+                continue
+            addr_file = iface_dir / "address"
+            if addr_file.is_file():
+                raw = addr_file.read_text().strip()
+                mac = _normalize_mac(raw)
+                if mac:
+                    if name.startswith(("eth", "en")):
+                        return mac
+                    if not best_mac:
+                        best_mac = mac
+    except Exception:
+        pass
+    return best_mac
+
+
+def _resolve_ip(hostname: str) -> str | None:
+    """
+    Return the first IPv4/IPv6 address for hostname.
+    When running in Docker host mode, avoids resolving local services to 127.0.0.1
+    by querying upstream DNS directly (bypassing /etc/hosts) or substituting the host's LAN IP.
+    """
+    if not hostname or not isinstance(hostname, str):
+        return None
+    clean_host = hostname.strip()
+    if "://" in clean_host:
+        clean_host = clean_host.split("://", 1)[1]
+    clean_host = clean_host.split("/")[0].split(":")[0].strip()
+    if not clean_host:
+        return None
+
+    raw_ip: str | None = None
+    try:
+        infos = socket.getaddrinfo(clean_host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        raw_ip = infos[0][4][0] if infos else None
+    except (socket.gaierror, OSError):
+        pass
+
+    if not raw_ip:
+        direct_ip = _query_direct_dns_a_record(clean_host)
+        if direct_ip:
+            return direct_ip
+        return None
+
+    is_loopback = raw_ip.startswith("127.") or raw_ip == "::1"
+    is_local_name = clean_host.lower() in ("localhost", "127.0.0.1", "::1")
+
+    if is_loopback or is_local_name:
+        from core.config import get_replace_loopback_ip_enabled
+        if get_replace_loopback_ip_enabled():
+            if not is_local_name and not clean_host.startswith("127."):
+                direct_ip = _query_direct_dns_a_record(clean_host)
+                if direct_ip:
+                    return direct_ip
+            lan_ip = _get_host_primary_lan_ip()
+            if lan_ip:
+                return lan_ip
+
+    return raw_ip
 
 
 def _normalize_mac(raw_mac: str | None) -> str | None:
@@ -395,7 +660,8 @@ def _query_snmp_mac(ip: str, community: str = "public", timeout: float = 0.3) ->
 
 def _resolve_mac(ip: str) -> str | None:
     """
-    Look up MAC address for ip using a 5-tier hybrid discovery pipeline:
+    Look up MAC address for ip using a tiered hybrid discovery pipeline:
+    Tier 0: Local host physical interface MAC (/sys/class/net) for host services (<1ms)
     Tier 1: Instant /proc/net/arp in-memory cache (<1ms)
     Tier 2: Active local ARP priming via UDP probe if enabled (~25ms)
     Tier 3: Local CLI fallback ('ip neigh', 'arping', 'arp -n') (~35ms)
@@ -405,6 +671,12 @@ def _resolve_mac(ip: str) -> str | None:
     if not ip or not isinstance(ip, str):
         return None
     ip = ip.strip()
+
+    # Tier 0: Local host physical interface check (avoids empty ARP for local machine)
+    if _is_local_host_ip(ip):
+        local_mac = _get_host_local_mac(ip)
+        if local_mac:
+            return local_mac
 
     # Tier 1: Instant /proc/net/arp check
     mac = _read_proc_arp(ip)

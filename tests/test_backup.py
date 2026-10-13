@@ -52,6 +52,8 @@ class TestSettingsBackup(unittest.TestCase):
             "mac_netbios_enabled": "1",
             "mac_snmp_enabled": "0",
             "mac_snmp_community": "private-snmp-comm",
+            "replace_loopback_ip_enabled": "0",
+            "server_lan_ip_override": "10.0.0.99",
         }
         save_settings(custom_data)
 
@@ -99,6 +101,8 @@ class TestSettingsBackup(unittest.TestCase):
         self.assertEqual(restored.get("mac_netbios_enabled"), "1")
         self.assertEqual(restored.get("mac_snmp_enabled"), "0")
         self.assertEqual(restored.get("mac_snmp_community"), "private-snmp-comm")
+        self.assertEqual(restored.get("replace_loopback_ip_enabled"), "0")
+        self.assertEqual(restored.get("server_lan_ip_override"), "10.0.0.99")
 
     def test_import_with_wrong_password_fails_and_keeps_existing_data(self):
         save_settings({"smtp_host": "original.example.com"})

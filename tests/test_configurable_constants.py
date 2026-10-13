@@ -25,10 +25,14 @@ from core.config import (
     DEFAULT_MAC_NETBIOS_ENABLED,
     DEFAULT_MAC_SNMP_ENABLED,
     DEFAULT_MAC_SNMP_COMMUNITY,
+    DEFAULT_REPLACE_LOOPBACK_IP_ENABLED,
+    DEFAULT_SERVER_LAN_IP_OVERRIDE,
     get_mac_arp_priming_enabled,
     get_mac_netbios_enabled,
     get_mac_snmp_enabled,
     get_mac_snmp_community,
+    get_replace_loopback_ip_enabled,
+    get_server_lan_ip_override,
 )
 from core.database import save_settings
 from services.icons import (
@@ -51,6 +55,13 @@ from services.scheduler import (
     _resolve_mac,
     _asn1_encode_tlv,
     _asn1_encode_int,
+    _build_dns_a_query,
+    _parse_dns_a_response,
+    _query_direct_dns_a_record,
+    _get_host_primary_lan_ip,
+    _is_local_host_ip,
+    _get_host_local_mac,
+    _resolve_ip,
 )
 
 
@@ -451,6 +462,122 @@ class ConfigurableConstantsTests(unittest.TestCase):
             m_prime.assert_not_called()
             m_nb.assert_not_called()
             m_snmp.assert_not_called()
+
+    def test_dns_query_and_response_parsing(self):
+        import struct, socket
+        # 1. Query building
+        q = _build_dns_a_query("andregaming.galleon.co.za", trans_id=0x4321)
+        self.assertIsNotNone(q)
+        self.assertTrue(len(q) > 12)
+        tid = struct.unpack(">H", q[:2])[0]
+        self.assertEqual(tid, 0x4321)
+
+        # 2. Parse response with direct A record
+        resp = struct.pack(">HHHHHH", 0x4321, 0x8180, 1, 1, 0, 0) + q[12:] + b"\xc0\x0c" + struct.pack(">HHIH", 1, 1, 300, 4) + socket.inet_aton("10.0.0.50")
+        ip = _parse_dns_a_response(resp, expected_trans_id=0x4321)
+        self.assertEqual(ip, "10.0.0.50")
+
+        # 3. Parse response with CNAME then A record
+        cname_ans = b"\xc0\x0c" + struct.pack(">HHIH", 5, 1, 300, 6) + b"\x03foo\xc0\x0c"
+        a_ans = b"\xc0\x1f" + struct.pack(">HHIH", 1, 1, 300, 4) + socket.inet_aton("10.0.0.75")
+        resp_cname = struct.pack(">HHHHHH", 0x4321, 0x8180, 1, 2, 0, 0) + q[12:] + cname_ans + a_ans
+        ip_cname = _parse_dns_a_response(resp_cname, expected_trans_id=0x4321)
+        self.assertEqual(ip_cname, "10.0.0.75")
+
+        # 4. Response with loopback IP is ignored
+        resp_loopback = struct.pack(">HHHHHH", 0x4321, 0x8180, 1, 1, 0, 0) + q[12:] + b"\xc0\x0c" + struct.pack(">HHIH", 1, 1, 300, 4) + socket.inet_aton("127.0.1.1")
+        self.assertIsNone(_parse_dns_a_response(resp_loopback, expected_trans_id=0x4321))
+
+        # 5. Response with error flags returns None
+        resp_err = struct.pack(">HHHHHH", 0x4321, 0x8183, 1, 0, 0, 0) + q[12:]
+        self.assertIsNone(_parse_dns_a_response(resp_err, expected_trans_id=0x4321))
+
+    def test_direct_dns_query_function(self):
+        with patch("services.scheduler._get_resolv_nameservers", return_value=["10.0.0.2"]):
+            with patch("socket.socket") as mock_sock_cls:
+                mock_sock = MagicMock()
+                mock_sock_cls.return_value = mock_sock
+                import struct, socket
+                q = _build_dns_a_query("myhost.lan", trans_id=0x1234)
+                valid_resp = struct.pack(">HHHHHH", 0x1234, 0x8180, 1, 1, 0, 0) + q[12:] + b"\xc0\x0c" + struct.pack(">HHIH", 1, 1, 300, 4) + socket.inet_aton("10.0.0.111")
+                mock_sock.recvfrom.return_value = (valid_resp, ("10.0.0.2", 53))
+
+                resolved = _query_direct_dns_a_record("myhost.lan")
+                self.assertEqual(resolved, "10.0.0.111")
+                mock_sock.sendto.assert_called_once()
+
+    def test_host_primary_lan_ip_detection(self):
+        # Override takes precedence
+        with patch("core.config.get_server_lan_ip_override", return_value="10.0.0.99"):
+            self.assertEqual(_get_host_primary_lan_ip(), "10.0.0.99")
+
+        # Fallback probe
+        with patch("core.config.get_server_lan_ip_override", return_value=""):
+            with patch("socket.socket") as mock_sock_cls:
+                mock_sock = MagicMock()
+                mock_sock_cls.return_value = mock_sock
+                mock_sock.getsockname.return_value = ("10.0.0.231", 53530)
+                self.assertEqual(_get_host_primary_lan_ip(), "10.0.0.231")
+
+    def test_resolve_ip_loopback_substitution(self):
+        # Normal remote IP passes through unchanged
+        with patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("10.0.0.121", 80))]):
+            self.assertEqual(_resolve_ip("remote.lan"), "10.0.0.121")
+
+        # Loopback resolution for FQDN with direct DNS hit
+        with patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("127.0.1.1", 80))]), \
+             patch("services.scheduler._query_direct_dns_a_record", return_value="10.0.0.26"):
+            self.assertEqual(_resolve_ip("andregaming.galleon.co.za"), "10.0.0.26")
+
+        # Loopback resolution for localhost (or direct DNS miss) falls back to host primary LAN IP
+        with patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("127.0.0.1", 80))]), \
+             patch("services.scheduler._query_direct_dns_a_record", return_value=None), \
+             patch("services.scheduler._get_host_primary_lan_ip", return_value="10.0.0.231"):
+            self.assertEqual(_resolve_ip("localhost"), "10.0.0.231")
+
+        # When feature is disabled, returns loopback as-is
+        with patch("core.config.get_replace_loopback_ip_enabled", return_value=False), \
+             patch("socket.getaddrinfo", return_value=[(None, None, None, None, ("127.0.1.1", 80))]):
+            self.assertEqual(_resolve_ip("andregaming.galleon.co.za"), "127.0.1.1")
+
+    def test_resolve_mac_tier_0_local_host(self):
+        local_ip = "10.0.0.231"
+        # When IP is identified as local host, returns host physical MAC directly
+        with patch("services.scheduler._is_local_host_ip", return_value=True), \
+             patch("services.scheduler._get_host_local_mac", return_value="04:D9:F5:D7:7D:89") as m_local, \
+             patch("services.scheduler._read_proc_arp") as m_arp:
+            res = _resolve_mac(local_ip)
+            self.assertEqual(res, "04:D9:F5:D7:7D:89")
+            m_local.assert_called_once_with(local_ip)
+            m_arp.assert_not_called()
+
+    def test_scanner_settings_api_loopback_controls(self):
+        client = pulsecheck_app.app.test_client()
+
+        # 1. GET scanner settings includes loopback fields
+        res = client.get("/api/settings/scanner")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertIn("replace_loopback_ip_enabled", data)
+        self.assertIn("server_lan_ip_override", data)
+        self.assertIn("detected_host_lan_ip", data)
+
+        # 2. POST save scanner settings updates loopback fields
+        save_res = client.post("/api/settings/scanner/save", json={
+            "replace_loopback_ip_enabled": 0,
+            "server_lan_ip_override": "192.168.1.200",
+        })
+        self.assertEqual(save_res.status_code, 200)
+        self.assertFalse(get_replace_loopback_ip_enabled())
+        self.assertEqual(get_server_lan_ip_override(), "192.168.1.200")
+
+        # 3. POST reset scanner settings with target='loopback_ip'
+        reset_res = client.post("/api/settings/scanner/reset", json={"target": "loopback_ip"})
+        self.assertEqual(reset_res.status_code, 200)
+        reset_data = reset_res.get_json()
+        self.assertTrue(reset_data["replace_loopback_ip_enabled"])
+        self.assertEqual(reset_data["server_lan_ip_override"], "")
+        self.assertTrue(get_replace_loopback_ip_enabled())
 
 
 if __name__ == "__main__":

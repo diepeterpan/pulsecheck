@@ -628,6 +628,34 @@
                 <button type="button" class="btn btn-primary btn-sm" id="btn-save-mac-discovery">Save MAC Discovery</button>
               </div>
             </div>
+
+            <!-- Card 6: Docker Host Network & Official LAN IP Resolution -->
+            <div class="tab-sidebar-card">
+              <div class="sidebar-card-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #0284c7;"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/><path d="M12 10v4"/></svg>
+                <h3 style="margin: 0; font-size: 0.95rem;">Host Network &amp; LAN IP Resolution</h3>
+              </div>
+              <p class="sidebar-card-desc" style="font-size: 0.8rem; color: #64748b; margin-top: 0; margin-bottom: 12px;">Manage loopback resolution for services running on the local host or inside Docker with host networking (<code>network_mode: host</code>).</p>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_replace_loopback_ip" style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #334155; margin: 0; user-select: none;">
+                  <input type="checkbox" id="scanner_replace_loopback_ip" name="replace_loopback_ip_enabled" style="width: 16px; height: 16px; margin: 0; padding: 0; flex-shrink: 0; cursor: pointer; accent-color: #2563eb;" {% if replace_loopback_ip_enabled %}checked{% endif %}>
+                  <span style="line-height: 1.2;">Replace Loopback / Localhost with Server LAN IP</span>
+                </label>
+                <span class="field-hint" style="margin-top: 4px; margin-left: 26px; display: block; font-size: 0.78rem; line-height: 1.4; color: #64748b;">Automatically queries upstream DNS (port 53) to bypass /etc/hosts or substitutes the server's official LAN IP when a service resolves to 127.0.0.1 or 127.0.1.1.</span>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 14px;">
+                <label for="scanner_server_lan_ip_override" style="font-size: 0.85rem; font-weight: 600; color: #334155; display: block; margin-bottom: 4px;">Server LAN IP Override</label>
+                <input type="text" id="scanner_server_lan_ip_override" name="server_lan_ip_override" value="{{ server_lan_ip_override }}" placeholder="{% if detected_host_lan_ip %}Auto-detected: {{ detected_host_lan_ip }}{% else %}e.g. 10.0.0.X{% endif %}" style="width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem;">
+                <span class="field-hint">Auto-detected host IP: <strong id="detected-host-lan-ip-display">{{ detected_host_lan_ip or 'None' }}</strong>. Leave blank to use auto-detected IP.</span>
+              </div>
+
+              <div style="margin-top: 18px; display: flex; justify-content: space-between; align-items: center;">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-loopback-ip">Reset Defaults</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-save-loopback-ip">Save Host LAN Settings</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2030,6 +2058,55 @@
         }
       } catch (err) {
         alert(`Network error: ${err.message}`);
+      }
+    });
+
+    // Docker Host Network & LAN IP Resolution Saving & Resetting
+    document.getElementById('btn-save-loopback-ip')?.addEventListener('click', async () => {
+      const replaceLoopback = document.getElementById('scanner_replace_loopback_ip')?.checked ? 1 : 0;
+      const ipOverride = document.getElementById('scanner_server_lan_ip_override')?.value.trim() || '';
+      try {
+        const resp = await fetch('/api/settings/scanner/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            replace_loopback_ip_enabled: replaceLoopback,
+            server_lan_ip_override: ipOverride,
+          }),
+        });
+        const res = await resp.json();
+        alert(res.message || (res.success ? 'Host LAN IP resolution settings saved.' : res.error));
+      } catch (err) {
+        alert(`Error saving Host LAN IP settings: ${err.message}`);
+      }
+    });
+
+    document.getElementById('btn-reset-loopback-ip')?.addEventListener('click', async () => {
+      if (!confirm('Reset Host LAN IP resolution settings to factory defaults?')) return;
+      try {
+        const resp = await fetch('/api/settings/scanner/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target: 'loopback_ip' }),
+        });
+        const res = await resp.json();
+        if (res.success) {
+          alert(res.message);
+          if (res.replace_loopback_ip_enabled != null) {
+            document.getElementById('scanner_replace_loopback_ip').checked = Boolean(res.replace_loopback_ip_enabled);
+          }
+          if (res.server_lan_ip_override != null) {
+            document.getElementById('scanner_server_lan_ip_override').value = res.server_lan_ip_override;
+          }
+          if (res.detected_host_lan_ip != null) {
+            const disp = document.getElementById('detected-host-lan-ip-display');
+            if (disp) disp.textContent = res.detected_host_lan_ip || 'None';
+          }
+        } else {
+          alert(`Error: ${res.error}`);
+        }
+      } catch (err) {
+        alert(`Error resetting Host LAN IP settings: ${err.message}`);
       }
     });
 

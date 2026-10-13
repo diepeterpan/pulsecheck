@@ -66,6 +66,8 @@ DEFAULT_MAC_ARP_PRIMING_ENABLED = True
 DEFAULT_MAC_NETBIOS_ENABLED = True
 DEFAULT_MAC_SNMP_ENABLED = True
 DEFAULT_MAC_SNMP_COMMUNITY = "public"
+DEFAULT_REPLACE_LOOPBACK_IP_ENABLED = True
+DEFAULT_SERVER_LAN_IP_OVERRIDE = os.getenv("PULSECHECK_LAN_IP", "").strip()
 DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
     "PULSECHECK_SCANNER_BYPASS_KEY",
     os.getenv("SCANNER_BYPASS_KEY", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
@@ -73,7 +75,7 @@ DEFAULT_SCANNER_BYPASS_KEY = os.getenv(
 EXPLICIT_DEBUG = os.getenv("PULSECHECK_EXPLICIT_DEBUG", os.getenv("PULSECHECK_DEBUG", "FALSE")).strip().lower() in ("true", "1", "yes")
 LINE_PROFILER_ENABLED = os.getenv("PULSECHECK_PROFILE", "").strip().lower() in ("true", "1", "yes")
 GLOBAL_LINE_PROFILER = None
-APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.6.1")
+APP_VERSION = os.getenv("PULSECHECK_VERSION", "1.6.2")
 __version__ = APP_VERSION
 
 # OIDC Configuration
@@ -124,6 +126,8 @@ DEFAULT_SETTINGS = {
     "mac_netbios_enabled": "1",
     "mac_snmp_enabled": "1",
     "mac_snmp_community": "public",
+    "replace_loopback_ip_enabled": "1",
+    "server_lan_ip_override": DEFAULT_SERVER_LAN_IP_OVERRIDE,
 }
 
 
@@ -281,6 +285,36 @@ def get_mac_snmp_community() -> str:
     except Exception:
         pass
     return os.getenv("PULSECHECK_MAC_SNMP_COMMUNITY", DEFAULT_MAC_SNMP_COMMUNITY).strip()
+
+
+def get_replace_loopback_ip_enabled() -> bool:
+    """Retrieve whether loopback IP replacement with official LAN IP is enabled."""
+    try:
+        from core.database import get_db_connection
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'replace_loopback_ip_enabled'").fetchone()
+        conn.close()
+        if row and row["value"] is not None:
+            return str(row["value"]).strip().lower() in ("1", "true", "yes", "on")
+    except Exception:
+        pass
+    return DEFAULT_REPLACE_LOOPBACK_IP_ENABLED
+
+
+def get_server_lan_ip_override() -> str:
+    """Retrieve user-configured override for the server LAN IP."""
+    try:
+        from core.database import get_db_connection
+        conn = get_db_connection()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'server_lan_ip_override'").fetchone()
+        conn.close()
+        if row and row["value"] is not None:
+            val = str(row["value"]).strip()
+            if val:
+                return val
+    except Exception:
+        pass
+    return os.getenv("PULSECHECK_LAN_IP", DEFAULT_SERVER_LAN_IP_OVERRIDE).strip()
 
 
 def get_url_scheme() -> str:

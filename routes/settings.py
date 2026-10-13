@@ -40,10 +40,14 @@ from core.config import (
     DEFAULT_MAC_NETBIOS_ENABLED,
     DEFAULT_MAC_SNMP_ENABLED,
     DEFAULT_MAC_SNMP_COMMUNITY,
+    DEFAULT_REPLACE_LOOPBACK_IP_ENABLED,
+    DEFAULT_SERVER_LAN_IP_OVERRIDE,
     get_mac_arp_priming_enabled,
     get_mac_netbios_enabled,
     get_mac_snmp_enabled,
     get_mac_snmp_community,
+    get_replace_loopback_ip_enabled,
+    get_server_lan_ip_override,
 )
 from core.database import (
     get_db_connection,
@@ -86,7 +90,7 @@ from services.icons import (
     get_corporate_suffixes,
     get_ignored_icon_hashes,
 )
-from services.scheduler import reschedule_scan_job
+from services.scheduler import reschedule_scan_job, _get_host_primary_lan_ip
 
 settings_bp = Blueprint("settings_bp", __name__)
 
@@ -601,6 +605,9 @@ def settings_route():
         mac_netbios_enabled=get_mac_netbios_enabled(),
         mac_snmp_enabled=get_mac_snmp_enabled(),
         mac_snmp_community=get_mac_snmp_community(),
+        replace_loopback_ip_enabled=get_replace_loopback_ip_enabled(),
+        server_lan_ip_override=get_server_lan_ip_override(),
+        detected_host_lan_ip=_get_host_primary_lan_ip(),
     )
 
 
@@ -941,6 +948,9 @@ def api_get_scanner_settings():
         "mac_netbios_enabled": get_mac_netbios_enabled(),
         "mac_snmp_enabled": get_mac_snmp_enabled(),
         "mac_snmp_community": get_mac_snmp_community(),
+        "replace_loopback_ip_enabled": get_replace_loopback_ip_enabled(),
+        "server_lan_ip_override": get_server_lan_ip_override(),
+        "detected_host_lan_ip": _get_host_primary_lan_ip(),
     })
 
 
@@ -1028,6 +1038,15 @@ def api_save_scanner_settings():
             comm = str(payload["mac_snmp_community"]).strip() or "public"
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_community', ?)", (comm,))
 
+        # Loopback & Server LAN IP Settings
+        if "replace_loopback_ip_enabled" in payload and payload["replace_loopback_ip_enabled"] is not None:
+            val = "1" if bool(payload["replace_loopback_ip_enabled"]) and str(payload["replace_loopback_ip_enabled"]).lower() not in ("0", "false") else "0"
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('replace_loopback_ip_enabled', ?)", (val,))
+
+        if "server_lan_ip_override" in payload and payload["server_lan_ip_override"] is not None:
+            ip_val = str(payload["server_lan_ip_override"]).strip()
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('server_lan_ip_override', ?)", (ip_val,))
+
         conn.commit()
         conn.close()
 
@@ -1061,11 +1080,13 @@ def api_reset_scanner_settings():
             fn_resched = _get_app_attr("reschedule_scan_job", reschedule_scan_job)
             if callable(fn_resched):
                 fn_resched(DEFAULT_SCAN_INTERVAL_MINUTES)
-        if reset_target in ("mac_discovery", "all"):
+        if reset_target in ("mac_discovery", "loopback_ip", "all"):
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_arp_priming_enabled', ?)", ("1" if DEFAULT_MAC_ARP_PRIMING_ENABLED else "0",))
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_netbios_enabled', ?)", ("1" if DEFAULT_MAC_NETBIOS_ENABLED else "0",))
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_enabled', ?)", ("1" if DEFAULT_MAC_SNMP_ENABLED else "0",))
             conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('mac_snmp_community', ?)", (DEFAULT_MAC_SNMP_COMMUNITY,))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('replace_loopback_ip_enabled', ?)", ("1" if DEFAULT_REPLACE_LOOPBACK_IP_ENABLED else "0",))
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('server_lan_ip_override', ?)", (DEFAULT_SERVER_LAN_IP_OVERRIDE,))
         conn.commit()
         conn.close()
 
@@ -1081,6 +1102,9 @@ def api_reset_scanner_settings():
             "mac_netbios_enabled": get_mac_netbios_enabled(),
             "mac_snmp_enabled": get_mac_snmp_enabled(),
             "mac_snmp_community": get_mac_snmp_community(),
+            "replace_loopback_ip_enabled": get_replace_loopback_ip_enabled(),
+            "server_lan_ip_override": get_server_lan_ip_override(),
+            "detected_host_lan_ip": _get_host_primary_lan_ip(),
         })
     except Exception as exc:
         conn.close()
