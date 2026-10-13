@@ -39,35 +39,58 @@
 
     <div class="table-responsive">
       <table class="services-table services-table">
+        <colgroup>
+          <col class="col-cg-select" data-col-id="select" style="width: 44px;">
+          <col class="col-cg-service" data-col-id="service">
+          <col class="col-cg-network" data-col-id="network">
+          <col class="col-cg-paused" data-col-id="paused">
+          <col class="col-cg-ports" data-col-id="ports">
+          <col class="col-cg-actions" data-col-id="actions">
+        </colgroup>
         <thead>
           <tr>
-            <th class="col-select">Select</th>
-            <th class="col-service col-service sortable-th" data-sort-col="service" aria-sort="none" tabindex="0" title="Click to sort by Service">Service <span class="sort-indicator" aria-hidden="true">⇅</span></th>
-            <th class="col-network sortable-th" data-sort-col="network" aria-sort="none" tabindex="0" title="Click to sort by Network/Hardware">Network &amp; Hardware <span class="sort-indicator" aria-hidden="true">⇅</span></th>
-            <th class="col-paused sortable-th" data-sort-col="paused" aria-sort="none" tabindex="0" title="Click to sort by Paused">Paused <span class="sort-indicator" aria-hidden="true">⇅</span></th>
-            <th class="col-ports sortable-th" data-sort-col="ports" aria-sort="none" tabindex="0" title="Click to sort by Ports">Ports <span class="sort-indicator" aria-hidden="true">⇅</span></th>
-            <th class="col-actions">Actions</th>
+            <th class="col-select" data-col-id="select">Select</th>
+            <th class="col-service col-service sortable-th is-resizable" data-col-id="service" data-sort-col="service" aria-sort="none" tabindex="0" title="Click to sort by Service">
+              <span>Service</span> <span class="sort-indicator" aria-hidden="true">⇅</span>
+              <span class="col-resize-handle" title="Drag to resize column (Double-click to reset)" aria-hidden="true"></span>
+            </th>
+            <th class="col-network sortable-th is-resizable" data-col-id="network" data-sort-col="network" aria-sort="none" tabindex="0" title="Click to sort by Network/Hardware">
+              <span>Network &amp; Hardware</span> <span class="sort-indicator" aria-hidden="true">⇅</span>
+              <span class="col-resize-handle" title="Drag to resize column (Double-click to reset)" aria-hidden="true"></span>
+            </th>
+            <th class="col-paused sortable-th is-resizable" data-col-id="paused" data-sort-col="paused" aria-sort="none" tabindex="0" title="Click to sort by Paused">
+              <span>Paused</span> <span class="sort-indicator" aria-hidden="true">⇅</span>
+              <span class="col-resize-handle" title="Drag to resize column (Double-click to reset)" aria-hidden="true"></span>
+            </th>
+            <th class="col-ports sortable-th is-resizable" data-col-id="ports" data-sort-col="ports" aria-sort="none" tabindex="0" title="Click to sort by Ports">
+              <span>Ports</span> <span class="sort-indicator" aria-hidden="true">⇅</span>
+              <span class="col-resize-handle" title="Drag to resize column (Double-click to reset)" aria-hidden="true"></span>
+            </th>
+            <th class="col-actions is-resizable" data-col-id="actions">
+              <span>Actions</span>
+              <span class="col-resize-handle" title="Drag to resize column (Double-click to reset)" aria-hidden="true"></span>
+            </th>
           </tr>
           {% if services and not add_mode %}
             <tr class="filter-header-row">
-              <th class="col-filter-cell col-select"></th>
-              <th class="col-filter-cell col-service col-service">
+              <th class="col-filter-cell col-select" data-col-id="select"></th>
+              <th class="col-filter-cell col-service col-service" data-col-id="service">
                 <input type="search" id="filter-col-service" class="column-filter-input" data-col="service" placeholder="Filter service..." value="{{ request.args.get('filter_service', request.args.get('filter', '')) }}" autocomplete="off" aria-label="Filter service">
               </th>
-              <th class="col-filter-cell col-network">
+              <th class="col-filter-cell col-network" data-col-id="network">
                 <input type="search" id="filter-col-network" class="column-filter-input" data-col="network" placeholder="Filter IP, MAC, vendor..." value="{{ request.args.get('filter_network', '') }}" autocomplete="off" aria-label="Filter network">
               </th>
-              <th class="col-filter-cell col-paused">
+              <th class="col-filter-cell col-paused" data-col-id="paused">
                 <select id="filter-col-paused" class="column-filter-select" data-col="paused" aria-label="Filter paused status">
                   <option value="">All</option>
                   <option value="active" {% if request.args.get('filter_paused') == 'active' %}selected{% endif %}>Active</option>
                   <option value="paused" {% if request.args.get('filter_paused') == 'paused' %}selected{% endif %}>Paused</option>
                 </select>
               </th>
-              <th class="col-filter-cell col-ports">
+              <th class="col-filter-cell col-ports" data-col-id="ports">
                 <input type="search" id="filter-col-ports" class="column-filter-input" data-col="ports" placeholder="Filter port..." value="{{ request.args.get('filter_ports', '') }}" autocomplete="off" aria-label="Filter ports">
               </th>
-              <th class="col-filter-cell col-actions">
+              <th class="col-filter-cell col-actions" data-col-id="actions">
                 <button type="button" id="reset-all-filters" class="btn-reset-filters" title="Reset all column filters" disabled>Reset</button>
               </th>
             </tr>
@@ -561,6 +584,210 @@
 
       initFilters();
       applyColumnFilters();
+
+      // User Resizable Columns
+      function initColumnResizing() {
+        const table = document.querySelector('.services-table');
+        if (!table) return;
+
+        const STORAGE_KEY = 'pulsecheck_services_column_widths';
+        const cols = ['select', 'service', 'network', 'paused', 'ports', 'actions'];
+        const MIN_WIDTHS = {
+          'select': 44,
+          'service': 140,
+          'network': 110,
+          'paused': 75,
+          'ports': 95,
+          'actions': 115
+        };
+
+        function getSavedWidths() {
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+          } catch (e) {
+            return null;
+          }
+        }
+
+        function saveWidths(widths) {
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(widths));
+          } catch (e) {}
+        }
+
+        function setColWidth(id, widthPx) {
+          const col = table.querySelector(`col[data-col-id="${id}"]`);
+          const th = table.querySelector(`th[data-col-id="${id}"]`);
+          const filterTh = table.querySelector(`.filter-header-row th[data-col-id="${id}"]`);
+
+          const val = widthPx + 'px';
+          if (col) col.style.width = val;
+          if (th) {
+            th.style.width = val;
+            th.style.minWidth = val;
+          }
+          if (filterTh) {
+            filterTh.style.width = val;
+            filterTh.style.minWidth = val;
+          }
+        }
+
+        function clearColWidth(id) {
+          const col = table.querySelector(`col[data-col-id="${id}"]`);
+          const th = table.querySelector(`th[data-col-id="${id}"]`);
+          const filterTh = table.querySelector(`.filter-header-row th[data-col-id="${id}"]`);
+
+          if (col) col.style.width = '';
+          if (th) {
+            th.style.width = '';
+            th.style.minWidth = '';
+          }
+          if (filterTh) {
+            filterTh.style.width = '';
+            filterTh.style.minWidth = '';
+          }
+        }
+
+        function applySavedWidths() {
+          const saved = getSavedWidths();
+          if (!saved) return;
+          let total = 0;
+          let count = 0;
+          cols.forEach(id => {
+            if (saved[id]) {
+              setColWidth(id, saved[id]);
+              total += saved[id];
+              count++;
+            }
+          });
+          if (count > 0 && total > 0) {
+            table.style.tableLayout = 'fixed';
+            const containerW = table.parentElement ? table.parentElement.clientWidth : 0;
+            table.style.width = Math.max(containerW, total) + 'px';
+          }
+        }
+
+        // Apply on load
+        applySavedWidths();
+
+        const handles = table.querySelectorAll('.col-resize-handle');
+        handles.forEach(handle => {
+          const th = handle.closest('th');
+          if (!th) return;
+          const colId = th.dataset.colId;
+          if (!colId || colId === 'select') return;
+
+          let isDragging = false;
+          let startX = 0;
+          let startColWidth = 0;
+          let colWidthsSnapshot = {};
+
+          handle.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            isDragging = true;
+            startX = e.pageX;
+            startColWidth = th.getBoundingClientRect().width;
+
+            // Measure actual widths of all columns right now
+            colWidthsSnapshot = {};
+            let snapshotTotal = 0;
+            cols.forEach(id => {
+              const el = table.querySelector(`th[data-col-id="${id}"]`);
+              const w = el ? Math.round(el.getBoundingClientRect().width) : 100;
+              colWidthsSnapshot[id] = w;
+              snapshotTotal += w;
+              setColWidth(id, w);
+            });
+
+            table.style.tableLayout = 'fixed';
+            const containerW = table.parentElement ? table.parentElement.clientWidth : 0;
+            table.style.width = Math.max(containerW, snapshotTotal) + 'px';
+
+            handle.setPointerCapture(e.pointerId);
+            handle.classList.add('active');
+            document.body.classList.add('is-resizing-column');
+          });
+
+          handle.addEventListener('pointermove', (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            const deltaX = e.pageX - startX;
+            const minW = MIN_WIDTHS[colId] || 80;
+            const newWidth = Math.max(minW, Math.round(startColWidth + deltaX));
+
+            colWidthsSnapshot[colId] = newWidth;
+            setColWidth(colId, newWidth);
+
+            let newTotal = 0;
+            cols.forEach(id => {
+              newTotal += colWidthsSnapshot[id] || 0;
+            });
+            const containerW = table.parentElement ? table.parentElement.clientWidth : 0;
+            table.style.width = Math.max(containerW, newTotal) + 'px';
+          });
+
+          const stopDrag = (e) => {
+            if (!isDragging) return;
+            isDragging = false;
+            try {
+              handle.releasePointerCapture(e.pointerId);
+            } catch (err) {}
+            handle.classList.remove('active');
+            document.body.classList.remove('is-resizing-column');
+
+            // Save state to localStorage
+            const saved = getSavedWidths() || {};
+            cols.forEach(id => {
+              if (colWidthsSnapshot[id]) {
+                saved[id] = colWidthsSnapshot[id];
+              }
+            });
+            saveWidths(saved);
+          };
+
+          handle.addEventListener('pointerup', stopDrag);
+          handle.addEventListener('pointercancel', stopDrag);
+
+          // Prevent click from bubbling to column sorting handler
+          handle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+
+          // Double click resets column width (Shift + dblclick resets all)
+          handle.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.shiftKey) {
+              localStorage.removeItem(STORAGE_KEY);
+              cols.forEach(id => clearColWidth(id));
+              table.style.tableLayout = '';
+              table.style.width = '';
+            } else {
+              const saved = getSavedWidths() || {};
+              delete saved[colId];
+              if (Object.keys(saved).length === 0) {
+                localStorage.removeItem(STORAGE_KEY);
+                cols.forEach(id => clearColWidth(id));
+                table.style.tableLayout = '';
+                table.style.width = '';
+              } else {
+                saveWidths(saved);
+                clearColWidth(colId);
+                applySavedWidths();
+              }
+            }
+          });
+        });
+      }
+
+      initColumnResizing();
 
       // Scroll to edited service row if targeted in URL hash, sessionStorage, or query param
       function scrollToTargetRow() {

@@ -1,6 +1,6 @@
 body {
     font-family: Arial, sans-serif;
-    background: #f5f7fb;
+    background: #b1b7a2; /* Benjamin Moore Saybrook Sage (HC-114) */
     color: #1d2433;
     margin: 0;
 }
@@ -644,6 +644,53 @@ button.danger {
     border-bottom: 1px solid #e2e8f0;
 }
 
+.services-table th.is-resizable {
+    position: sticky;
+}
+
+.services-table .col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    -webkit-user-select: none;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+}
+
+.services-table .col-resize-handle::after {
+    content: '';
+    display: block;
+    width: 2px;
+    height: 50%;
+    background: #cbd5e1;
+    border-radius: 1px;
+    transition: background-color 0.15s ease, height 0.15s ease;
+}
+
+.services-table .col-resize-handle:hover::after,
+.services-table .col-resize-handle.active::after {
+    background: #2563eb;
+    height: 100%;
+}
+
+body.is-resizing-column {
+    cursor: col-resize !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
+body.is-resizing-column * {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+}
+
 .services-table td,
 .services-table td {
     padding: 10px 14px;
@@ -950,8 +997,7 @@ button.danger {
 
 /* Network & Hardware Column */
 .col-network {
-    min-width: 150px;
-    max-width: 200px;
+    min-width: 110px;
     white-space: nowrap;
 }
 
@@ -1582,8 +1628,31 @@ button.danger {
 }
 
 .services-table .col-ports {
-    width: 14%;
-    max-width: 150px;
+    min-width: 95px;
+}
+
+.services-table .service-name-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.services-table .service-name-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.services-table .service-name-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .status-table .cell-truncate-wrapper,
