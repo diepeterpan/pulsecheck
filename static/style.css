@@ -316,8 +316,11 @@ input, textarea, select {
     box-sizing: border-box;
 }
 
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
     width: auto;
+    accent-color: #556453;
+    cursor: pointer;
 }
 
 button {
@@ -875,6 +878,7 @@ body.is-resizing-column * {
     cursor: pointer;
     margin: 0 auto;
     display: block;
+    accent-color: #556453;
 }
 
 .col-service strong {
@@ -2417,6 +2421,7 @@ button:disabled {
     box-shadow: none;
     vertical-align: middle;
     cursor: pointer;
+    accent-color: #556453;
 }
 
 /* Guidance / Help line under input fields - aligned with Import & Export tab guidance */
