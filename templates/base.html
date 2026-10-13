@@ -50,8 +50,8 @@
         <div class="header-auth">
           {% if oidc_enabled %}
             {% if current_user %}
-              <div class="nav-user-badge" title="Logged in as {{ current_user.identifier }}" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 0.8rem; color: #334155; font-weight: 500;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #10b981;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <div class="nav-user-badge" title="Logged in as {{ current_user.identifier }}">
+                <svg class="nav-user-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                 <span class="nav-user-name" style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ current_user.name or current_user.identifier }}</span>
               </div>
               <a href="{{ url_for('auth_bp.logout') }}" class="nav-item nav-auth-btn" title="Sign out" style="padding: 6px 10px; color: #ef4444;">
@@ -59,7 +59,7 @@
                 <span>Logout</span>
               </a>
             {% else %}
-              <a href="{{ url_for('auth_bp.login') }}" class="nav-item nav-auth-btn" title="Sign in with OIDC" style="padding: 6px 12px; color: #2563eb;">
+              <a href="{{ url_for('auth_bp.login') }}" class="nav-item nav-auth-btn" title="Sign in with OIDC" style="padding: 6px 12px; color: #556453;">
                 <svg class="nav-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
                 <span>Sign in</span>
               </a>

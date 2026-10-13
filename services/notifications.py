@@ -71,7 +71,7 @@ def send_email(
   <title>{subject}</title>
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
-  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #c5cdc3; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
     <div style="background: #0f172a; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>
@@ -468,7 +468,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
 
             # Service name header with optional web URL
             if web_url:
-                svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #2563eb; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
+                svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #556453; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
             else:
                 svc_title_html = f'<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>'
 
@@ -524,7 +524,7 @@ def send_state_change_notification(changes: list[dict]) -> tuple[bool, str]:
   <title>{subject}</title>
 </head>
 <body style="margin: 0; padding: 24px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f5f7fb; color: #1d2433;">
-  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #c5cdc3; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
     <div style="background: #0f172a; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>

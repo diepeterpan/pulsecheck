@@ -199,7 +199,7 @@ def debug_profile():
         h1 {{
             margin: 0;
             font-size: 1.4rem;
-            color: #38bdf8;
+            color: #7d8e7b;
             font-weight: 600;
         }}
         .actions {{
@@ -223,12 +223,12 @@ def debug_profile():
             color: #ffffff;
         }}
         .btn-primary {{
-            background: #0284c7;
-            border-color: #0369a1;
+            background: #556453;
+            border-color: #455343;
             color: #fff;
         }}
         .btn-primary:hover {{
-            background: #0369a1;
+            background: #455343;
         }}
         pre {{
             background: #090d16;
@@ -385,7 +385,7 @@ def preview_email():
             svc_img_html = f'<img src="{svc_icon_url}" alt="" width="22" height="22" style="width: 22px; height: 22px; max-width: 22px; max-height: 22px; object-fit: contain; vertical-align: middle; margin-right: 8px; border-radius: 4px;" />'
 
         if web_url:
-            svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #2563eb; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
+            svc_title_html = f'<a href="{web_url}" target="_blank" rel="noopener noreferrer" style="font-size: 16px; font-weight: 700; color: #556453; text-decoration: none; margin-right: 8px; vertical-align: middle;">{target_name}</a>'
         else:
             svc_title_html = f'<strong style="font-size: 16px; color: #0f172a; margin-right: 8px; vertical-align: middle;">{target_name}</strong>'
 
@@ -441,7 +441,7 @@ def preview_email():
   <title>PulseCheck Alert Preview</title>
 </head>
 <body style="margin: 0; padding: 32px 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f1f5f9; color: #1d2433;">
-  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #d6dbeb; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);">
+  <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #c5cdc3; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);">
     <div style="background: #0f172a; padding: 16px 24px;">
       <table cellpadding="0" cellspacing="0" border="0" style="vertical-align: middle;">
         <tr>
