@@ -24,6 +24,7 @@ from core.database import (
     get_status_rows,
     get_last_scheduled_check,
     get_current_local_time_str,
+    get_service_check_history,
 )
 from services.icons import is_valid_image_payload
 from services.scheduler import (
@@ -143,6 +144,36 @@ def status_check_state():
         "overall_status": overall["status"],
         "overall_label": overall["label"],
     })
+
+
+@home_bp.route("/status/service/<int:service_id>/history", endpoint="service_status_history")
+@home_bp.route("/services/<int:service_id>/history", endpoint="service_history_alias")
+def service_status_history(service_id: int):
+    hours_param = request.args.get("hours", "12")
+    try:
+        hours = float(hours_param) if hours_param is not None and hours_param != "" else 12.0
+    except (ValueError, TypeError):
+        hours = 12.0
+
+    from_date = request.args.get("from_date")
+    to_date = request.args.get("to_date")
+    limit_param = request.args.get("limit", "1000")
+    try:
+        limit = min(max(1, int(limit_param)), 5000)
+    except (ValueError, TypeError):
+        limit = 1000
+
+    history = get_service_check_history(
+        service_id=service_id,
+        hours=hours,
+        from_date=from_date,
+        to_date=to_date,
+        limit=limit,
+    )
+    if history is None:
+        return jsonify({"error": "Service not found"}), 404
+
+    return jsonify(history)
 
 
 @home_bp.route("/status", endpoint="status")

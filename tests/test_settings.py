@@ -2679,13 +2679,13 @@ direct.example,direct,,Direct site,0,0,8080
             self.assertIn('Rescan this service now', html)
             self.assertIn('status-card-actions', html)
 
-        # 2. When OIDC IS active and user is NOT logged in, [Edit], [Rescan], and status-card-actions must NOT be visible
+        # 2. When OIDC IS active and user is NOT logged in, [Edit] and [Rescan] must NOT be visible, but unsecured [History] is visible
         with patch("routes.auth.is_oidc_active", return_value=True):
             resp_anon = self.client.get("/status")
             html_anon = resp_anon.data.decode("utf-8")
             self.assertNotIn('title="Edit service settings"', html_anon)
             self.assertNotIn('title="Rescan this service now"', html_anon)
-            self.assertNotIn('status-card-actions', html_anon)
+            self.assertIn('title="View status check history"', html_anon)
 
         # 3. When OIDC IS active and user IS logged in, [Edit] and [Rescan] must be visible
         with patch("routes.auth.is_oidc_active", return_value=True):

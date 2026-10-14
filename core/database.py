@@ -613,6 +613,100 @@ def prune_historical_port_checks(retention_days: int | None = None) -> int:
         return 0
 
 
+def get_service_check_history(
+    service_id: int,
+    hours: float | None = 12,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    limit: int = 1000,
+) -> dict | None:
+    """Retrieve historical status check records for a given service.
+
+    Records are returned in descending date order (newest first).
+    """
+    service = get_service_by_id(service_id)
+    if not service:
+        return None
+
+    ports_map = {}
+    for p in service.get("port_protocol") or []:
+        port_num = p.get("port")
+        proto = (p.get("protocol") or ("icmp" if port_num is None else "http")).lower()
+        ports_map[port_num] = {
+            "protocol": proto,
+            "label": "ICMP Ping" if port_num is None else f"{port_num} ({proto.upper()})",
+            "url_path": p.get("url_path") or "",
+            "match": p.get("match") or "",
+        }
+
+    where_clauses = ["service_id = ?"]
+    params: list = [service_id]
+
+    if from_date or to_date:
+        if from_date:
+            f_clean = str(from_date).strip().replace("T", " ")
+            if len(f_clean) == 16:
+                f_clean += ":00"
+            where_clauses.append("(checked_at >= ? OR (checked_at LIKE '%T%' AND checked_at >= ?))")
+            params.extend([f_clean, f_clean.replace(" ", "T")])
+        if to_date:
+            t_clean = str(to_date).strip().replace("T", " ")
+            if len(t_clean) == 16:
+                t_clean += ":59"
+            where_clauses.append("(checked_at <= ? OR (checked_at LIKE '%T%' AND checked_at <= ?))")
+            params.extend([t_clean + " UTC", t_clean.replace(" ", "T")])
+    elif hours is not None and hours > 0:
+        cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=float(hours))
+        cutoff_str = cutoff_dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        cutoff_iso = cutoff_dt.isoformat()
+        where_clauses.append("(checked_at >= ? OR (checked_at LIKE '%T%' AND checked_at >= ?))")
+        params.extend([cutoff_str, cutoff_iso])
+
+    where_sql = " AND ".join(where_clauses)
+    query = f"""
+        SELECT id, service_id, port, is_online, status, last_response_ms, checked_at
+        FROM port_checks
+        WHERE {where_sql}
+        ORDER BY checked_at DESC, id DESC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    conn = get_db_connection()
+    rows = conn.execute(query, tuple(params)).fetchall()
+    conn.close()
+
+    records = []
+    for r in rows:
+        port_val = r["port"]
+        port_info = ports_map.get(port_val, {})
+        proto = port_info.get("protocol") or ("icmp" if port_val is None else "tcp")
+        display_target = port_info.get("label") or ("ICMP Ping" if port_val is None else f"{port_val} ({proto.upper()})")
+        checked_raw = r["checked_at"]
+        checked_local = format_local_time(checked_raw) or checked_raw
+
+        records.append({
+            "id": r["id"],
+            "port": port_val,
+            "protocol": proto,
+            "display_target": display_target,
+            "status": r["status"] or ("online" if r["is_online"] else "offline"),
+            "is_online": bool(r["is_online"]),
+            "last_response_ms": r["last_response_ms"],
+            "checked_at": checked_raw,
+            "checked_at_local": checked_local,
+        })
+
+    return {
+        "service_id": service["id"],
+        "service_name": service["name"],
+        "discovered_ip": service.get("discovered_ip") or "",
+        "range_hours": hours,
+        "total_count": len(records),
+        "records": records,
+    }
+
+
 def record_scan_completed(completed_at: datetime | None = None) -> None:
     if completed_at is None:
         completed_at = datetime.now(timezone.utc)
@@ -1075,6 +1169,13 @@ def init_db():
         """
         CREATE INDEX IF NOT EXISTS idx_port_checks_service_port_checked
         ON port_checks(service_id, port, checked_at DESC)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_port_checks_service_checked
+        ON port_checks(service_id, checked_at DESC)
         """
     )
 

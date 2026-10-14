@@ -1473,8 +1473,86 @@ custom-app.local,Test Custom,0,0,tcp,9999,custom,,,01 02 03,04 05
         # Cleanup
         pulsecheck_app.delete_service(svc_id)
 
+    def test_service_history_endpoint_and_querying(self):
+        """Verify service check history endpoint defaults to 12 hours, returns records in descending order,
+        and is accessible without authentication (unsecured)."""
+        svc_id = pulsecheck_app.add_service(
+            name="history-test.local",
+            ports=[80, 443],
+        )
+
+        from datetime import datetime, timezone, timedelta
+        now = datetime.now(timezone.utc)
+        t_2h_ago = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S UTC")
+        t_5h_ago = (now - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S UTC")
+        t_10h_ago = (now - timedelta(hours=10)).strftime("%Y-%m-%d %H:%M:%S UTC")
+        t_18h_ago = (now - timedelta(hours=18)).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        conn = pulsecheck_app.get_db_connection()
+        conn.execute("DELETE FROM port_checks WHERE service_id = ?", (svc_id,))
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, 80, 1, 'online', 24, ?)",
+            (svc_id, t_10h_ago),
+        )
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, 443, 1, 'online', 48, ?)",
+            (svc_id, t_5h_ago),
+        )
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, 80, 0, 'offline', NULL, ?)",
+            (svc_id, t_2h_ago),
+        )
+        conn.execute(
+            "INSERT INTO port_checks (service_id, port, is_online, status, last_response_ms, checked_at) VALUES (?, 80, 1, 'online', 22, ?)",
+            (svc_id, t_18h_ago),
+        )
+        conn.commit()
+        conn.close()
+
+        # 1. Default (12 hours) - should return 3 records (2h, 5h, 10h), excluding 18h
+        res = self.client.get(f"/status/service/{svc_id}/history")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertEqual(data["service_id"], svc_id)
+        self.assertEqual(data["service_name"], "history-test.local")
+        self.assertEqual(len(data["records"]), 3)
+
+        # 2. Verify strictly descending order
+        records = data["records"]
+        self.assertEqual(records[0]["checked_at"], t_2h_ago)
+        self.assertEqual(records[0]["status"], "offline")
+        self.assertEqual(records[1]["checked_at"], t_5h_ago)
+        self.assertEqual(records[1]["status"], "online")
+        self.assertEqual(records[2]["checked_at"], t_10h_ago)
+
+        # 3. Request 24 hours - should return all 4 records
+        res_24 = self.client.get(f"/status/service/{svc_id}/history?hours=24")
+        self.assertEqual(res_24.status_code, 200)
+        data_24 = res_24.get_json()
+        self.assertEqual(len(data_24["records"]), 4)
+
+        # 4. Request 6 hours - should return 2 records (2h and 5h)
+        res_6 = self.client.get(f"/status/service/{svc_id}/history?hours=6")
+        self.assertEqual(res_6.status_code, 200)
+        data_6 = res_6.get_json()
+        self.assertEqual(len(data_6["records"]), 2)
+
+        # 5. Non-existent service returns 404
+        res_404 = self.client.get("/status/service/999999/history")
+        self.assertEqual(res_404.status_code, 404)
+
+        # 6. Unsecured public access verification even when OIDC is active
+        with patch("routes.auth.is_oidc_active", return_value=True):
+            res_anon = self.client.get(f"/status/service/{svc_id}/history")
+            self.assertEqual(res_anon.status_code, 200)
+            self.assertEqual(len(res_anon.get_json()["records"]), 3)
+
+        # Cleanup
+        pulsecheck_app.delete_service(svc_id)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
